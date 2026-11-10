@@ -4,8 +4,9 @@
  */
 #include <gtest/gtest.h>
 #include <cmath>
-#include <string>
+#include <limits>
 #include <random>
+#include <string>
 #include "../external/nlohmann/json.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
@@ -18,9 +19,7 @@ TEST(SampleMetaTest, DefaultFieldValues) {
     EXPECT_TRUE(m.domain.empty());
     EXPECT_TRUE(m.task_type.empty());
     EXPECT_TRUE(m.language.empty());
-    EXPECT_TRUE(m.split.empty());
     EXPECT_LT(m.quality, 0.0f);       // sentinel: not set
-    EXPECT_FLOAT_EQ(m.weight, 1.0f);  // default: unweighted
     EXPECT_LT(m.token_count, 0);      // sentinel: not computed
 }
 
@@ -29,17 +28,13 @@ TEST(SampleMetaTest, CustomFieldValues) {
     m.domain = "fiction";
     m.task_type = "qa";
     m.language = "en";
-    m.split = "train";
     m.quality = 0.85f;
-    m.weight = 2.0f;
     m.token_count = 128;
 
     EXPECT_EQ(m.domain, "fiction");
     EXPECT_EQ(m.task_type, "qa");
     EXPECT_EQ(m.language, "en");
-    EXPECT_EQ(m.split, "train");
     EXPECT_FLOAT_EQ(m.quality, 0.85f);
-    EXPECT_FLOAT_EQ(m.weight, 2.0f);
     EXPECT_EQ(m.token_count, 128);
 }
 
@@ -59,14 +54,12 @@ TEST(SampleToJsonlTest, MinimalOutputContainsInputAndResponse) {
 
 TEST(SampleToJsonlTest, OmitsUnsetOptionalFields) {
     const std::string line = sample_to_jsonl("q", "a");
-    // Default SampleMeta: quality<0, weight=1.0, token_count<0, empty strings
+    // Default SampleMeta: quality<0, token_count<0, empty strings
     EXPECT_EQ(line.find("\"quality\""), std::string::npos);
-    EXPECT_EQ(line.find("\"weight\""), std::string::npos);
     EXPECT_EQ(line.find("\"token_count\""), std::string::npos);
     EXPECT_EQ(line.find("\"domain\""), std::string::npos);
     EXPECT_EQ(line.find("\"task_type\""), std::string::npos);
     EXPECT_EQ(line.find("\"language\""), std::string::npos);
-    EXPECT_EQ(line.find("\"split\""), std::string::npos);
 }
 
 TEST(SampleToJsonlTest, IncludesAllSetMetadataFields) {
@@ -74,9 +67,7 @@ TEST(SampleToJsonlTest, IncludesAllSetMetadataFields) {
     m.domain = "code";
     m.task_type = "instruction";
     m.language = "fr";
-    m.split = "val";
     m.quality = 0.9f;
-    m.weight = 1.5f;
     m.token_count = 64;
 
     const std::string line = sample_to_jsonl("input text", "output text", m);
@@ -84,9 +75,7 @@ TEST(SampleToJsonlTest, IncludesAllSetMetadataFields) {
     EXPECT_NE(line.find("\"domain\""), std::string::npos);
     EXPECT_NE(line.find("\"task_type\""), std::string::npos);
     EXPECT_NE(line.find("\"language\""), std::string::npos);
-    EXPECT_NE(line.find("\"split\""), std::string::npos);
     EXPECT_NE(line.find("\"quality\""), std::string::npos);
-    EXPECT_NE(line.find("\"weight\""), std::string::npos);
     EXPECT_NE(line.find("\"token_count\""), std::string::npos);
 }
 
@@ -112,6 +101,68 @@ TEST(SampleToJsonlTest, OmitsQualityWhenZeroExact) {
     m.quality = 0.0f;
     const std::string line = sample_to_jsonl("q", "a", m);
     EXPECT_NE(line.find("\"quality\""), std::string::npos);
+}
+
+// TD-533: every control character is escaped, so standard JSON parsers accept the line.
+TEST(SampleToJsonlTest, ControlCharactersMakeValidJson) {
+    std::string text;
+    for (int c = 1; c < 0x20; ++c)
+        text += static_cast<char>(c);
+    text += "end\x7f";
+    const std::string line = sample_to_jsonl(text, "ok");
+    for (char c : line)
+        EXPECT_GE(static_cast<unsigned char>(c), 0x20u) << "raw control character in " << line;
+    nlohmann::json doc;
+    ASSERT_NO_THROW(doc = nlohmann::json::parse(line));
+    EXPECT_EQ(doc["input"].get<std::string>(), text);
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta));
+    EXPECT_EQ(in, text);
+}
+
+// TD-533: quality reads back exactly and is never written as `inf`.
+TEST(SampleToJsonlTest, QualityIsExactAndFinite) {
+    SampleMeta m;
+    m.quality = 0.123456789f;
+    nlohmann::json doc = nlohmann::json::parse(sample_to_jsonl("q", "a", m));
+    EXPECT_EQ(doc["quality"].get<float>(), m.quality);
+    std::string in, resp;
+    SampleMeta back;
+    ASSERT_TRUE(parse_jsonl_sample(sample_to_jsonl("q", "a", m), in, resp, back));
+    EXPECT_EQ(back.quality, m.quality);
+
+    m.quality = std::numeric_limits<float>::infinity();
+    const std::string line = sample_to_jsonl("q", "a", m);
+    EXPECT_EQ(line.find("quality"), std::string::npos) << line;
+    EXPECT_NO_THROW((void)nlohmann::json::parse(line));
+}
+
+// TD-533: a number must be the whole token; anything else keeps the default.
+TEST(ParseJsonlSampleTest, MalformedNumbersKeepDefaults) {
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(
+        R"({"input":"q","response":"a","quality":0.5x,"token_count":42abc})", in, resp, meta));
+    EXPECT_LT(meta.quality, 0.0f);
+    EXPECT_LT(meta.token_count, 0);
+    ASSERT_TRUE(parse_jsonl_sample(
+        R"({"input":"q","response":"a","quality":1e400,"token_count":4.5})", in, resp, meta));
+    EXPECT_LT(meta.quality, 0.0f);
+    EXPECT_LT(meta.token_count, 0);
+}
+
+// TD-533: split and weight were removed; a file that still has them loads, and they aren't written.
+TEST(ParseJsonlSampleTest, RemovedSplitAndWeightAreIgnored) {
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(
+        R"({"input":"q","response":"a","split":"val","weight":2.0,"quality":0.5})", in, resp,
+        meta));
+    EXPECT_FLOAT_EQ(meta.quality, 0.5f);
+    const auto doc = nlohmann::json::parse(sample_to_jsonl(in, resp, meta));
+    EXPECT_FALSE(doc.contains("split"));
+    EXPECT_FALSE(doc.contains("weight"));
 }
 
 // ============================================================================
@@ -141,9 +192,8 @@ TEST(ParseJsonlSampleTest, EmptyLineReturnsFalse) {
 }
 
 TEST(ParseJsonlSampleTest, ParsesAllMetadataFields) {
-    const std::string line =
-        R"({"input":"q","response":"a","domain":"science","task_type":"chat",)"
-        R"("language":"de","split":"test","quality":0.75,"weight":2.0,"token_count":42})";
+    const std::string line = R"({"input":"q","response":"a","domain":"science","task_type":"chat",)"
+                             R"("language":"de","quality":0.75,"token_count":42})";
     std::string in, resp;
     SampleMeta meta;
     ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta));
@@ -151,9 +201,7 @@ TEST(ParseJsonlSampleTest, ParsesAllMetadataFields) {
     EXPECT_EQ(meta.domain, "science");
     EXPECT_EQ(meta.task_type, "chat");
     EXPECT_EQ(meta.language, "de");
-    EXPECT_EQ(meta.split, "test");
     EXPECT_NEAR(meta.quality, 0.75f, 1e-5f);
-    EXPECT_NEAR(meta.weight, 2.0f, 1e-5f);
     EXPECT_EQ(meta.token_count, 42);
 }
 
@@ -166,9 +214,7 @@ TEST(ParseJsonlSampleTest, MissingOptionalFieldsUseSentinels) {
     EXPECT_TRUE(meta.domain.empty());
     EXPECT_TRUE(meta.task_type.empty());
     EXPECT_TRUE(meta.language.empty());
-    EXPECT_TRUE(meta.split.empty());
     EXPECT_LT(meta.quality, 0.0f);       // sentinel
-    EXPECT_FLOAT_EQ(meta.weight, 1.0f);  // default
     EXPECT_LT(meta.token_count, 0);      // sentinel
 }
 
@@ -238,7 +284,7 @@ TEST(ParseJsonlSampleTest, KeyTextInsideAValueIsNotAKey) {
 }
 
 TEST(ParseJsonlSampleTest, ToleratesWhitespaceAndRawControlCharacters) {
-    // sample_to_jsonl() writes other control characters raw (TD-533); keep reading them.
+    // sample_to_jsonl() wrote control characters raw before TD-533; keep reading such files.
     const std::string line = "  { \"input\" :\t\"a\x01" "b\" , \"response\" : \"c\" }  ";
     std::string in, resp;
     SampleMeta meta;
@@ -313,9 +359,7 @@ TEST(RoundtripTest, FullMetadataRoundtrip) {
     orig.domain = "dialogue";
     orig.task_type = "instruction";
     orig.language = "en";
-    orig.split = "train";
     orig.quality = 0.95f;
-    orig.weight = 1.2f;
     orig.token_count = 200;
 
     const std::string serialized = sample_to_jsonl("instruct me", "done", orig);
@@ -329,9 +373,7 @@ TEST(RoundtripTest, FullMetadataRoundtrip) {
     EXPECT_EQ(parsed.domain, orig.domain);
     EXPECT_EQ(parsed.task_type, orig.task_type);
     EXPECT_EQ(parsed.language, orig.language);
-    EXPECT_EQ(parsed.split, orig.split);
     EXPECT_NEAR(parsed.quality, orig.quality, 1e-4f);
-    EXPECT_NEAR(parsed.weight, orig.weight, 1e-4f);
     EXPECT_EQ(parsed.token_count, orig.token_count);
 }
 

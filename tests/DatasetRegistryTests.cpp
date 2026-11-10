@@ -465,7 +465,6 @@ TEST(DatasetRegistryParserTest, JsonlPairsPreserveMetadata) {
     EXPECT_EQ(pairs[0].meta.task_type, "qa");
     EXPECT_EQ(pairs[0].meta.language, "en");
     EXPECT_NEAR(pairs[0].meta.quality, 0.9f, 1e-4f);
-    EXPECT_NEAR(pairs[0].meta.weight, 1.5f, 1e-4f);
     EXPECT_EQ(pairs[0].meta.token_count, 20);
 
     // Second pair: partial metadata — unset fields use sentinels

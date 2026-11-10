@@ -97,10 +97,20 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | `\uXXXX` (and `\b`, `\f`, `\/`) not decoded (§2) | Non-ASCII text from standard JSON tools trained as `u00e9`-style garbage | **Fixed October 17, 2026** | [TD-531](../../guides/TECHNICAL_DEBT.md#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text) |
 | First-occurrence key matching (§2) | Nested or unusual rows read the wrong field | **Fixed October 17, 2026** | [TD-532](../../guides/TECHNICAL_DEBT.md#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line) |
-| Writer leaves control characters raw (§2) | Registry-produced JSONL rejected by standard parsers | **Verified** | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
-| Unused metadata; locale/precision/NaN number handling; another hand-written scanner (§2) | Misleading fields; minor | By inspection | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
+| Writer leaves control characters raw (§2) | Registry-produced JSONL rejected by standard parsers | **Fixed November 10, 2026** | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
+| Unused metadata; locale/precision/NaN number handling; another hand-written scanner (§2) | Misleading fields; minor | **Fixed November 10, 2026** (scanner kept) | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
 | HuggingFace scanner `\u` gap; empty responses; private `quality`; duplicated JSON code | Already tracked | — | TD-314, TD-267, TD-273, TD-453 |
 
 ## Addendum (November 8, 2026): `history` (TD-295)
 
 A sample may have `"history":[{"role":"system|user|assistant","content":"..."},...]`, oldest first (`SampleMeta::history`). A line whose history is malformed is rejected, and isn't counted by `count_pairs()`.
+
+## Addendum (November 10, 2026): valid JSON output, exact numbers, `split`/`weight` removed (TD-533)
+
+- `sample_to_jsonl()` escapes every control character (`\b`, `\f`, `\n`, `\r`, `\t`, otherwise `\u00XX`), so Python's `json` and nlohmann/json
+  accept every line it writes. The reader still accepts raw control characters, so older files load.
+- `quality` is written with `std::to_chars` (shortest exact text, independent of the locale) and only when finite. Numbers are read with
+  `std::from_chars`, and a token that isn't wholly a number (`0.5x`, `4.5` for `token_count`, `1e400`) keeps the default.
+- `SampleMeta::split` and `SampleMeta::weight` are removed (owner's choice: nothing used them). A line that still has them loads; they're ignored.
+  The table in §1 and the "unused metadata" note in §2 predate this.
+- Tests: 39 in `training_sample_meta_test.cpp`; the four new ones failed on the old header.

@@ -1569,6 +1569,8 @@ to finish before the retraining vocabulary is built (TD-563). So far:
 - TD-505 (done in code: `load_vocab()` refuses special-token ids other than the standard 0-3; the unused, 0-3-only helpers in
   `SpecialTokens.hpp` are removed).
 - TD-536 (done in code: `vocab_builder`'s `json` input is parsed as JSON, escapes decoded, and anything but an array of strings refused).
+- TD-533 (done in code: `sample_to_jsonl()` escapes every control character and writes numbers exactly, so its JSONL is valid JSON; the
+  unused `split`/`weight` fields are removed).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -17690,7 +17692,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / JSONL Format | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 10, 2026 | Data / JSONL Format | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingSampleMeta.hpp`:
@@ -17701,14 +17703,28 @@ Found while tracing `TrainingSampleMeta.hpp`:
 
 Action Items:
 
-- [ ] Escape every control character (`\u00XX`) and non-finite numbers; drop or implement `weight`/`split`.
+- [x] Escape every control character (`\u00XX`) and non-finite numbers; drop or implement `weight`/`split`.
 
-Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::json_esc()`, `sample_to_jsonl()`, `SampleMeta`); tagged `TODO: See TD-533`.
+**Fix (November 10, 2026):** owner's choice to drop `weight`/`split`.
+- `json_esc()` escapes every character below 0x20: `\b`, `\f`, `\n`, `\r` and `\t` in short form, the rest as `\u00XX`.
+- `quality` is written with `std::to_chars` (the shortest text that reads back as the same float, whatever the locale), and only when finite, so
+  `inf` is never written (NaN already failed the `>= 0` check).
+- The reader parses numbers with `std::from_chars`: the whole token must be a number (`0.5x`, `42abc`, `4.5` as a count, or an overflowing `1e400`
+  keep the default), independent of the locale. Raw control characters inside strings are still read, so files written before the fix load.
+- `SampleMeta::split` and `SampleMeta::weight` are removed; nothing set or read them. A line that still has them loads and they are ignored.
 
-Files to Modify:
+Verified: a line with `\x07`, `\x08`, `\x01`, `\x0c` and `quality` 0.123456789 is now accepted by Python's `json` with the exact text and
+`0.12345679`, and an infinite quality is left out; the old header's output was rejected on both lines ("Invalid control character", and `inf`).
+Four new tests (control characters checked with nlohmann/json, exact and finite quality, malformed numbers, the removed fields ignored) all
+failed on the old header.
+
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::json_esc()`, `format_float()`, `member_flt()`/`member_inum()`,
+`sample_to_jsonl()`, `SampleMeta`).
+
+Files Modified:
 
 - `src/TrainingSampleMeta.hpp`
-- `tests/training_sample_meta_test.cpp`
+- `tests/training_sample_meta_test.cpp`, `tests/DatasetRegistryTests.cpp`, `tests/chatbottrainer_test.cpp`
 
 ---
 

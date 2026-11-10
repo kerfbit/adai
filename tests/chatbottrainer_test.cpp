@@ -305,7 +305,6 @@ TEST(DataStructureTest, ConversationPair_EmptyStrings) {
 TEST(DataStructureTest, ConversationPair_DefaultMetaSentinels) {
     ConversationPair pair("q", "a");
     EXPECT_LT(pair.meta.quality, 0.0f);
-    EXPECT_FLOAT_EQ(pair.meta.weight, 1.0f);
     EXPECT_LT(pair.meta.token_count, 0);
     EXPECT_TRUE(pair.meta.domain.empty());
     EXPECT_TRUE(pair.meta.task_type.empty());

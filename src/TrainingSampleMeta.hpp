@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-08
-
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-10
 
 #include <cctype>
+#include <charconv>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -16,15 +17,16 @@
  *
  * All fields are optional.  Unset strings are empty; unset numerics use
  * sentinel values: quality < 0 means "not set", token_count < 0 means
- * "not computed", weight defaults to 1.0 (normal sampling).
+ * "not computed".
+ *
+ * TD-533: the old `split` and `weight` fields were removed; nothing used them. A file that still
+ * has them loads normally and they are ignored.
  */
 struct SampleMeta {
     std::string domain;     ///< Thematic domain: "fiction", "qa", "code", "dialogue", …
     std::string task_type;  ///< Task category: "chat", "instruction", "summarization", …
     std::string language;   ///< BCP-47 language code, e.g. "en", "fr"
-    std::string split;      ///< Intended split: "train", "val", "test"
     float quality = -1.0f;  ///< Quality score [0, 1]; negative = not set
-    float weight = 1.0f;    ///< Sampling weight (1.0 = unweighted)
     int token_count = -1;   ///< Pre-computed token count; negative = not computed
     /// TD-295: earlier turns of the conversation, oldest first, each {role, content} with role
     /// "system", "user" or "assistant". Empty for a single exchange.
@@ -34,7 +36,8 @@ struct SampleMeta {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 namespace tsm_detail {
 
-// TODO: See TD-533 in TECHNICAL_DEBT.md - other control characters are written raw (invalid JSON for standard parsers).
+// TD-533: every control character is escaped (\u00XX where JSON has no short form), so the
+// line is valid JSON for standard parsers such as Python's json.
 inline std::string json_esc(const std::string& s) {
     std::string o;
     o.reserve(s.size());
@@ -55,18 +58,38 @@ inline std::string json_esc(const std::string& s) {
             case '\t':
                 o += "\\t";
                 break;
+            case '\b':
+                o += "\\b";
+                break;
+            case '\f':
+                o += "\\f";
+                break;
             default:
-                o += c;
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char hex[] = "0123456789abcdef";
+                    o += "\\u00";
+                    o += hex[(c >> 4) & 0xF];
+                    o += hex[c & 0xF];
+                } else {
+                    o += c;
+                }
         }
     }
     return o;
+}
+
+/// TD-533: the shortest text that reads back as the same float, independent of the locale.
+inline std::string format_float(float v) {
+    char buf[32];
+    const auto res = std::to_chars(buf, buf + sizeof(buf), v);
+    return std::string(buf, res.ptr);
 }
 
 // TD-531/TD-532: a small JSON object reader for one JSONL line. It returns only top-level
 // members (nested objects/arrays are skipped, so {"meta":{"input":"x"},"input":"y"} reads "y"),
 // decodes every JSON escape including \uXXXX and surrogate pairs to UTF-8, and is deliberately
 // lenient where strict parsers aren't: raw control characters and invalid UTF-8 inside strings
-// pass through unchanged (sample_to_jsonl() writes raw control characters, TD-533), and a
+// pass through unchanged (sample_to_jsonl() wrote raw control characters before TD-533), and a
 // malformed line keeps the members read before the error. A repeated key keeps its last value,
 // as Python's json and nlohmann/json do.
 struct JsonMember {
@@ -309,11 +332,13 @@ inline float member_flt(const std::vector<std::pair<std::string, JsonMember>>& m
     const JsonMember* m = find_member(members, key);
     if (!m || m->is_string || m->value.empty())
         return def;
-    try {
-        return std::stof(m->value);
-    } catch (...) {
+    // TD-533: the whole token must be a finite number; from_chars ignores the locale.
+    float v = 0.0f;
+    const char* end = m->value.data() + m->value.size();
+    const auto res = std::from_chars(m->value.data(), end, v);
+    if (res.ec != std::errc() || res.ptr != end || !std::isfinite(v))
         return def;
-    }
+    return v;
 }
 
 inline int member_inum(const std::vector<std::pair<std::string, JsonMember>>& members,
@@ -321,11 +346,12 @@ inline int member_inum(const std::vector<std::pair<std::string, JsonMember>>& me
     const JsonMember* m = find_member(members, key);
     if (!m || m->is_string || m->value.empty())
         return def;
-    try {
-        return std::stoi(m->value);
-    } catch (...) {
+    int v = 0;  // TD-533: the whole token must be a whole number
+    const char* end = m->value.data() + m->value.size();
+    const auto res = std::from_chars(m->value.data(), end, v);
+    if (res.ec != std::errc() || res.ptr != end)
         return def;
-    }
+    return v;
 }
 
 }  // namespace tsm_detail
@@ -353,12 +379,8 @@ inline std::string sample_to_jsonl(const std::string& input, const std::string& 
         o << ",\"task_type\":\"" << json_esc(meta.task_type) << "\"";
     if (!meta.language.empty())
         o << ",\"language\":\"" << json_esc(meta.language) << "\"";
-    if (!meta.split.empty())
-        o << ",\"split\":\"" << json_esc(meta.split) << "\"";
-    if (meta.quality >= 0.0f)
-        o << ",\"quality\":" << meta.quality;
-    if (meta.weight != 1.0f)
-        o << ",\"weight\":" << meta.weight;
+    if (meta.quality >= 0.0f && std::isfinite(meta.quality))  // TD-533: never `inf`
+        o << ",\"quality\":" << tsm_detail::format_float(meta.quality);
     if (meta.token_count >= 0)
         o << ",\"token_count\":" << meta.token_count;
     if (!meta.history.empty()) {  // TD-295
@@ -392,9 +414,7 @@ inline bool parse_jsonl_sample(const std::string& line, std::string& input, std:
     meta.domain = member_str(members, "domain");
     meta.task_type = member_str(members, "task_type");
     meta.language = member_str(members, "language");
-    meta.split = member_str(members, "split");
     meta.quality = member_flt(members, "quality", -1.0f);
-    meta.weight = member_flt(members, "weight", 1.0f);
     meta.token_count = member_inum(members, "token_count", -1);
     return true;
 }
