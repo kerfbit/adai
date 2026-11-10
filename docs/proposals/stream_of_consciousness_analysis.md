@@ -47,7 +47,7 @@ weak or the analogy breaks).
    and 5, but [conversation_turn_tokens_plan.md](conversation_turn_tokens_plan.md) reserves ids 4–6
    for `<system>`/`<user>`/`<assistant>`, and those are already in code (TD-295, November 8, 2026:
    `SpecialTokens.hpp`). Since TD-565 new vocabularies reserve ids 7–19 for future special tokens,
-   so the think tokens take two of those, and one rebuild covers both (see SC-0).
+   so the think tokens take the next two available, 7 and 8 (decided November 10, 2026; see SC-0).
 
 ## 2. What the research says
 
@@ -363,7 +363,7 @@ the README's recommended order.
 
 | # | Chunk | Depends on | What |
 |---|---|---|---|
-| SC-0 | Special-token id plan | — | **Resolved by TD-565 (November 9, 2026).** Turn tokens occupy 4–6 (TD-295), and new vocabularies reserve 7–19 for future special tokens with ordinary tokens from 20, so the think tokens take two reserved ids (7–8 unless decided otherwise) without moving ordinary tokens or changing the format again. Build the retraining vocabulary (TD-563) with this layout |
+| SC-0 | Special-token id plan | — | **Resolved by TD-565 (November 9, 2026).** Turn tokens occupy 4–6 (TD-295), and new vocabularies reserve 7–19 for future special tokens with ordinary tokens from 20, so the think tokens take the next available reserved ids, **7 and 8** (owner decision, November 10, 2026), without moving ordinary tokens or changing the format again; later special tokens take the lowest id still unassigned. Build the retraining vocabulary (TD-563) with this layout |
 | SC-1 | `ThoughtTrace`: lexical and representational boundary detection inside `generate_with_reasoning()` | RP-2a | Instrumentation only; no change to generated text |
 | SC-2 | Thought-dynamics metrics: thoughts per span, movement, revisit rate, goal relevance, solution rounds; pushed with the reasoning plan's span-length metrics | SC-1 | Same pipeline as generation-quality metrics (TD-273) |
 | SC-3 | Readiness readout (`P(</think>)` plus answer-start entropy) logged per boundary, with a calibration report against answer quality | SC-1 | Measure only |
@@ -413,8 +413,8 @@ stickiness, or the same dynamics with better answers.
 
 ## 7. Open questions for the owner
 
-1. **SC-0:** settled by TD-565's reserved ids 7–19; which two reserved ids should the think tokens
-   take (7–8 by default)?
+1. ~~**SC-0:** which two reserved ids should the think tokens take?~~ **Decided November 10, 2026:**
+   the next available in the reserved pool, 7 and 8.
 2. Should thinking text ever be shown to users, and if so with what label (§4.6)?
 3. Should thinking text be excluded from hippocampal memory and replay permanently, or only by
    default (§4.6)?

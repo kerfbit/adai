@@ -63,9 +63,11 @@ tag table) independent of whether this proposal proceeds.
 
 **File:** `src/SpecialTokens.hpp` (extend in place)
 
-> **Note (November 9, 2026):** ids 4 and 5 below are taken: the turn tokens `<system>`/`<user>`/`<assistant>` hold 4–6
-> (TD-295). Since TD-565, ids 7–19 are reserved, unassigned, for special tokens like these, so `<think>`/`</think>` take two
-> of them (7 and 8 unless decided otherwise) with no change to ordinary token ids or the vocabulary format. See
+> **Decided (November 10, 2026):** `<think>`/`</think>` take the next available ids in TD-565's reserved
+> special-token pool, **7 and 8**. Ids 0–3 are the base tokens and 4–6 the turn tokens `<system>`/`<user>`/`<assistant>`
+> (TD-295); 7–19 are reserved for later special tokens, with ordinary tokens from 20. Taking them changes no ordinary token
+> id and no vocabulary format, and the pool's first unassigned id (`SpecialTokenIDs::FIRST_UNASSIGNED`) moves from 7 to 9.
+> Any later special token follows the same rule and takes the lowest id still unassigned. See
 > [stream_of_consciousness_analysis.md](stream_of_consciousness_analysis.md) SC-0.
 
 ```cpp
@@ -74,8 +76,11 @@ namespace adai::SpecialTokenIDs {
     constexpr int UNK = 1;   // unchanged
     constexpr int BOS = 2;   // unchanged
     constexpr int EOS = 3;   // unchanged
-    constexpr int THINK_START = 4;   // NEW
-    constexpr int THINK_END   = 5;   // NEW
+    // 4-6: SYSTEM_TURN / USER_TURN / ASSISTANT_TURN (TD-295), unchanged
+    constexpr int THINK_START = 7;   // NEW: first reserved id (TD-565)
+    constexpr int THINK_END   = 8;   // NEW: next reserved id
+    constexpr int FIRST_UNASSIGNED = 9;   // was 7
+    // RESERVED_SLOTS = 20, unchanged: ordinary tokens still start at 20
 }
 namespace adai::SpecialTokenStrings {
     // ... unchanged PAD/UNK/BOS/EOS ...
@@ -87,11 +92,17 @@ namespace adai::SpecialTokenStrings {
 `SpecialTokenConfig` gains two optional fields, `think_start_id` / `think_end_id`, defaulted to
 `-1` ("disabled" — no such token in this vocabulary). This is the same additive pattern the
 header already documents for custom IDs; existing vocabularies and checkpoints built before
-this proposal see no change at all (`-1` never matches a real token). **Enabling reasoning for a
-given model requires rebuilding its vocab** to actually add `<think>`/`</think>` as new entries
-(`vocab_builder`) — this doesn't touch the base 4 IDs the consolidation doc protects, but it is
-still a vocabulary change, so it's a new model/MNS registration, not an in-place upgrade of an
-existing checkpoint.
+this proposal see no change at all (`-1` never matches a real token).
+
+**Vocabularies.** In a vocabulary with the reserved block (format v4 and later, TD-565), ids 7 and 8
+already exist as the placeholders `<reserved_7>`/`<reserved_8>`, which act as unknowns. Enabling
+reasoning gives those two entries their real names, `<think>`/`</think>`; no ordinary token moves and
+the model's embedding and output layers keep their size, so a model trained on a v4 vocabulary can be
+fine-tuned for reasoning without a new vocabulary (its rows for 7 and 8 are untrained until then). A
+`load_vocab()` of a v4 file whose ids 7–8 still hold the placeholders leaves `think_start_id` /
+`think_end_id` at `-1`. An older vocabulary (before v4, or of 20 or fewer ids) has no reserved block,
+so reasoning needs a rebuilt vocabulary and a new model/MNS registration, as before. The retraining
+vocabulary (TD-563) is built as v4, so it already carries both ids.
 
 ### 2. Generation loop: reasoning span + effort budget
 
@@ -369,7 +380,8 @@ this section is edited further.
 
 - **No breaking changes.** `REASONING_ENABLED=false` by default; `think_start_id`/`think_end_id`
   default to `-1` (disabled) in `SpecialTokenConfig`, so existing vocabularies are untouched
-  until a model explicitly opts in and rebuilds its vocab.
+  until a model explicitly opts in: a v4 vocabulary names its reserved ids 7 and 8, an older one
+  is rebuilt.
 - **Independent of the LeJEPA plan.** This proposal stands alone — the phase-conditioned gate
   section is an *amendment* to that plan, not a dependency of this one. Reasoning can ship
   without a world model attached at all; `gate_reasoning`/`gate_answer` are only relevant once
