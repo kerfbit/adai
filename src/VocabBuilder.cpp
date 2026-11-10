@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-11-10
 
 /**
  * @file VocabBuilder.cpp
@@ -266,12 +266,11 @@ int main(int argc, char** argv) {
             std::cout << "╚══════════════════════════════════════════════════╝" << COLOR_RESET
                       << "\n\n";
 
-            tokenizer.print_vocab_stats();
+            std::cout << tokenizer.vocab_stats();
 
-            // TODO: See TD-225 in TECHNICAL_DEBT.md - get_top_tokens() returns the lowest IDs, not
-            // the most frequent tokens, so "Top 20" here is misleading.
-            std::cout << COLOR_YELLOW << "\nTop 20 tokens:\n" << COLOR_RESET;
-            auto top_tokens = tokenizer.get_top_tokens(20);
+            // TD-225: the first ids, not the most frequent tokens (no frequencies are stored).
+            std::cout << COLOR_YELLOW << "\nFirst 20 tokens by id:\n" << COLOR_RESET;
+            auto top_tokens = tokenizer.get_tokens_by_id(20);
             for (size_t i = 0; i < top_tokens.size(); i++) {
                 std::cout << "  " << (i + 1) << ". ID " << top_tokens[i].second << ": '"
                           << top_tokens[i].first << "'\n";

@@ -1375,8 +1375,8 @@ RAGInference Tests:
 - `load_json_format(filename)` — simple quoted-string JSON parser
 - `BPETokenizer::build_vocab(texts, vocab_size, threshold)` — BPE learning pipeline
 - `BPETokenizer::save_vocab` / `load_vocab` — persistence round-trip
-- `BPETokenizer::get_top_tokens(k)` — token frequency ranking
-- `BPETokenizer::print_vocab_stats()` — vocabulary diagnostics
+- `BPETokenizer::get_top_tokens(k)` — lowest-id tokens (renamed `get_tokens_by_id()` by TD-225)
+- `BPETokenizer::print_vocab_stats()` — vocabulary diagnostics (replaced by `vocab_stats()`, TD-225)
 - `BPETokenizer::encode` / `decode` after `build_vocab` — tokenisation
 
 **Test coverage detail**:

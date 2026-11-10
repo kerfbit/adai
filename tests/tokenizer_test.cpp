@@ -478,16 +478,17 @@ TEST_F(BPETokenizerTest, PrintVocabStats) {
     tokenizer.build_vocab(texts, 30, 1);
 
     // Should not crash
-    EXPECT_NO_THROW(tokenizer.print_vocab_stats());
+    const std::string stats = tokenizer.vocab_stats();
+    EXPECT_NE(stats.find("Vocabulary size: "), std::string::npos);
 }
 
-TEST_F(BPETokenizerTest, GetTopTokens) {
+TEST_F(BPETokenizerTest, GetTokensById) {
     BPETokenizer tokenizer;
 
     std::vector<std::string> texts = {"hello world"};
     tokenizer.build_vocab(texts, 30, 1);
 
-    auto top_tokens = tokenizer.get_top_tokens(5);
+    auto top_tokens = tokenizer.get_tokens_by_id(5);
 
     EXPECT_LE(top_tokens.size(), 5);
     EXPECT_GT(top_tokens.size(), 0);
@@ -498,10 +499,10 @@ TEST_F(BPETokenizerTest, GetTopTokens) {
     }
 }
 
-TEST_F(BPETokenizerTest, GetTopTokensMoreThanVocab) {
+TEST_F(BPETokenizerTest, GetTokensByIdMoreThanVocab) {
     BPETokenizer tokenizer;
 
-    auto top_tokens = tokenizer.get_top_tokens(100);
+    auto top_tokens = tokenizer.get_tokens_by_id(100);
 
     // Should return only available tokens (4 special tokens)
     EXPECT_EQ(top_tokens.size(), 4);
@@ -564,7 +565,7 @@ TEST_F(BPETokenizerTest, RepeatedBuildVocab) {
     EXPECT_NE(size1, size2);
     std::set<int> ids;
     std::set<std::string> tokens;
-    for (const auto& [token, id] : tokenizer.get_top_tokens(static_cast<int>(size2) + 10)) {
+    for (const auto& [token, id] : tokenizer.get_tokens_by_id(static_cast<int>(size2) + 10)) {
         EXPECT_TRUE(ids.insert(id).second) << "id " << id << " used twice";
         tokens.insert(token);
     }
@@ -612,7 +613,7 @@ TEST_F(BPETokenizerTest, RebuildAfterLoadStartsFromTheStandardLayout) {
     EXPECT_EQ(tokenizer.get_whitespace(), WhitespaceHandling::COLLAPSE);
     EXPECT_EQ(tokenizer.first_ordinary_id(), 20);
     std::set<int> ids;
-    for (const auto& [token, id] : tokenizer.get_top_tokens(1000)) {
+    for (const auto& [token, id] : tokenizer.get_tokens_by_id(1000)) {
         EXPECT_TRUE(ids.insert(id).second) << token;
         EXPECT_NE(token, "h");
     }
@@ -1251,7 +1252,8 @@ TEST_F(BPETokenizerTest, LowercaseVocabularyHasNoCapitalTokens) {
     lower.build_vocab(texts, 120, 1);
     BPETokenizer cased;
     cased.build_vocab(texts, 120, 1);
-    for (const auto& [token, id] : lower.get_top_tokens(static_cast<int>(lower.get_vocab_size()))) {
+    for (const auto& [token, id] :
+         lower.get_tokens_by_id(static_cast<int>(lower.get_vocab_size()))) {
         if (token.size() > 1 && token.front() == '<' && token.back() == '>')
             continue;  // specials
         EXPECT_EQ(
@@ -1260,7 +1262,7 @@ TEST_F(BPETokenizerTest, LowercaseVocabularyHasNoCapitalTokens) {
             << "lowercase vocabulary token '" << token << "'";
     }
     bool cased_has_capital = false;
-    for (const auto& [token, id] : cased.get_top_tokens(static_cast<int>(cased.get_vocab_size())))
+    for (const auto& [token, id] : cased.get_tokens_by_id(static_cast<int>(cased.get_vocab_size())))
         cased_has_capital |=
             std::any_of(token.begin(), token.end(), [](char c) { return c >= 'A' && c <= 'Z'; });
     EXPECT_TRUE(cased_has_capital);
@@ -1403,7 +1405,7 @@ TEST(BPETokenizerReservedSlotTest, NewVocabulariesReserveTwentyIds) {
     BPETokenizer tokenizer;
     tokenizer.build_vocab({"hello world"}, 60, 1);
     EXPECT_EQ(tokenizer.first_ordinary_id(), 20);
-    const auto top = tokenizer.get_top_tokens(static_cast<int>(tokenizer.get_vocab_size()));
+    const auto top = tokenizer.get_tokens_by_id(static_cast<int>(tokenizer.get_vocab_size()));
     std::map<int, std::string> by_id;
     for (const auto& [token, id] : top) {
         by_id[id] = token;
@@ -1554,4 +1556,126 @@ TEST_F(BPETokenizerTest, NonStandardSpecialTokenIdsAreRefused) {
     BPETokenizer ok;
     EXPECT_NO_THROW(ok.load_vocab(test_vocab_file));
     EXPECT_EQ(ok.get_bos_token_id(), adai::SpecialTokenIDs::BOS);
+}
+
+// ============================================================================
+// TD-225: logging and API hygiene
+// ============================================================================
+
+// Base units take ids by corpus frequency, ties by their bytes, so a corpus gives the same ids
+// under every standard library; they used to follow unordered_map iteration order.
+TEST(BPETokenizerHygieneTest, BaseUnitsTakeIdsByFrequencyThenBytes) {
+    BPETokenizer tokenizer;
+    // z 5, y 4, x 3, w 2, then a, b, v once each. Exactly room for them: no merges.
+    const int first = adai::SpecialTokenIDs::RESERVED_SLOTS + 3;  // after the three whitespace ids
+    tokenizer.build_vocab({"zzzzzyyyyxxxwwbva"}, first + 7, 1);
+    std::vector<std::string> order;
+    for (const auto& [token, id] : tokenizer.get_tokens_by_id(first + 7)) {
+        if (id >= first)
+            order.push_back(token);
+    }
+    EXPECT_EQ(order, (std::vector<std::string>{"z", "y", "x", "w", "a", "b", "v"}));
+}
+
+TEST(BPETokenizerHygieneTest, SavedVocabularyIsWrittenInIdOrder) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"the quick brown fox jumps over the lazy dog", "the dog sleeps"}, 80, 1);
+    const std::string path = "/tmp/td225_id_order_" + std::to_string(getpid()) + ".vocab";
+    tokenizer.save_vocab(path);
+    std::ifstream in(path);
+    std::string line;
+    bool in_vocab = false;
+    int expected = 0;
+    while (std::getline(in, line)) {
+        if (line == "VOCAB") {
+            in_vocab = true;
+            continue;
+        }
+        if (line.rfind("BPE_MERGES ", 0) == 0)
+            break;
+        if (!in_vocab)
+            continue;
+        EXPECT_EQ(std::stoi(line.substr(line.rfind('\t') + 1)), expected) << line;
+        ++expected;
+    }
+    EXPECT_EQ(expected, static_cast<int>(tokenizer.get_vocab_size()));
+    std::remove(path.c_str());
+}
+
+// Encoding and decoding work through a const reference (they used to need a mutable tokenizer, and
+// measure_fertility() copied the whole tokenizer to call encode()).
+TEST(BPETokenizerHygieneTest, EncodeAndDecodeAreConst) {
+    BPETokenizer built;
+    built.build_vocab({"hello world hello there"}, 60, 1);
+    const BPETokenizer& tokenizer = built;
+    const std::vector<int> ids = tokenizer.encode("hello world", false);
+    EXPECT_EQ(tokenizer.decode(ids), "hello world");
+    EXPECT_EQ(tokenizer.tokenize("hello").size(), tokenizer.apply_bpe("hello").size());
+    EXPECT_FALSE(tokenizer.pre_tokenize("hello world").empty());
+    EXPECT_GT(tokenizer.measure_fertility({"hello world"}), 0.0f);
+}
+
+// pre_tokenize() printed progress to std::cout for any text of 1,000 or more pieces, so long chat
+// messages and preprocessing threads wrote to the server's stdout.
+TEST(BPETokenizerHygieneTest, EncodingALongTextWritesNothingToStdout) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"one two three four five"}, 60, 1);
+    std::string text;
+    for (int i = 0; i < 1500; ++i)
+        text += "one two ";
+    testing::internal::CaptureStdout();
+    const auto ids = tokenizer.encode(text, false);
+    const std::string out = testing::internal::GetCapturedStdout();
+    EXPECT_FALSE(ids.empty());
+    EXPECT_EQ(out, "");
+}
+
+TEST(BPETokenizerHygieneTest, BuildSaveAndLoadWriteNothingToStdout) {
+    testing::internal::CaptureStdout();
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"the quick brown fox", "jumps over the lazy dog"}, 70, 1);
+    const std::string path = "/tmp/td225_quiet_" + std::to_string(getpid()) + ".vocab";
+    tokenizer.save_vocab(path);
+    BPETokenizer loaded;
+    loaded.load_vocab(path);
+    const std::string out = testing::internal::GetCapturedStdout();
+    std::remove(path.c_str());
+    EXPECT_EQ(out, "");
+}
+
+// is_valid_utf8() follows RFC 3629: overlong forms, surrogates and code points past U+10FFFF are
+// refused, as are lead bytes F5-FF. It used to accept all of them, and lead bytes up to F7.
+TEST(BPETokenizerHygieneTest, Utf8ValidationFollowsRfc3629) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"abc"}, 40, 1);
+    for (const std::string bad : {
+             std::string("\xC0\xAF"),          // overlong '/'
+             std::string("\xC1\xBF"),          // overlong
+             std::string("\xE0\x80\xAF"),      // overlong '/'
+             std::string("\xE0\x9F\xBF"),      // overlong U+07FF
+             std::string("\xED\xA0\x80"),      // surrogate U+D800
+             std::string("\xED\xBF\xBF"),      // surrogate U+DFFF
+             std::string("\xF0\x8F\xBF\xBF"),  // overlong U+FFFF
+             std::string("\xF4\x90\x80\x80"),  // U+110000
+             std::string("\xF5\x80\x80\x80"),  // lead byte past F4
+             std::string("\xF7\xBF\xBF\xBF"), std::string("\xF8\x88\x80\x80\x80"),
+             std::string("\x80"),      // lone continuation byte
+             std::string("\xE2\x82"),  // truncated
+         }) {
+        EXPECT_THROW(tokenizer.encode("a" + bad, false), TokenizerEncodingError)
+            << "accepted bytes of length " << bad.size();
+    }
+    for (const std::string good : {
+             std::string("\xC2\x80"),          // U+0080
+             std::string("\xDF\xBF"),          // U+07FF
+             std::string("\xE0\xA0\x80"),      // U+0800
+             std::string("\xED\x9F\xBF"),      // U+D7FF
+             std::string("\xEE\x80\x80"),      // U+E000
+             std::string("\xEF\xBF\xBF"),      // U+FFFF
+             std::string("\xF0\x90\x80\x80"),  // U+10000
+             std::string("\xF4\x8F\xBF\xBF"),  // U+10FFFF
+             std::string("caf\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x98\x80"),
+         }) {
+        EXPECT_NO_THROW(tokenizer.encode("a" + good, false));
+    }
 }

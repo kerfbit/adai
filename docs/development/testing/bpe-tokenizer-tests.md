@@ -94,8 +94,8 @@ Comprehensive unit test suite for the `BPETokenizer` class covering all major fu
 - ✅ `save_vocab()` - Vocabulary serialization
 - ✅ `load_vocab()` - Vocabulary deserialization
 - ✅ `get_vocab_size()` - Vocabulary size query
-- ✅ `print_vocab_stats()` - Statistics display
-- ✅ `get_top_tokens()` - Top-k token retrieval
+- ✅ `vocab_stats()` - Statistics text (was `print_vocab_stats()`, TD-225)
+- ✅ `get_tokens_by_id()` - Lowest-id token retrieval (was `get_top_tokens()`, TD-225)
 
 ### Features Tested
 

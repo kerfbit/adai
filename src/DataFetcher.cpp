@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.5.1
+// @adai-reviewed: 2026-11-10
 
 #include "DataFetcher.hpp"
 #include <algorithm>
@@ -767,9 +767,8 @@ constexpr size_t kContinuationSentences = 2;
 /*static*/
 // TODO: See TECHNICAL_DEBT.md TD-006 - Add Fill-in-the-Middle (FIM) style pairs here (~20% mix):
 //       given first/last sentences, predict the middle one. Needs FIM special tokens
-//       (<|first|>/<|middle|>/<|last|>) defined first (see BPETokenizer.cpp).
-// TODO: See TD-225 in TECHNICAL_DEBT.md - BPETokenizer.cpp does not define these yet; it has only
-//       the four special tokens.
+//       (<|first|>/<|middle|>/<|last|>), which don't exist yet: they would take reserved
+//       ids from SpecialTokens.hpp (TD-565), and BPETokenizer::build_vocab() would add them.
 // TD-311 (owner decision, November 7, 2026): honest continuation pairs. Pairs used to be "Can you
 // explain: <s[i]>" (a random template) answered by s[i+1], and "Summarize: <s[i]> <s[i+1]>"
 // answered by s[i+2], so the model learned to answer a question with an unrelated next sentence.

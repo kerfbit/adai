@@ -1571,6 +1571,8 @@ to finish before the retraining vocabulary is built (TD-563). So far:
 - TD-536 (done in code: `vocab_builder`'s `json` input is parsed as JSON, escapes decoded, and anything but an array of strings refused).
 - TD-533 (done in code: `sample_to_jsonl()` escapes every control character and writes numbers exactly, so its JSONL is valid JSON; the
   unused `split`/`weight` fields are removed).
+- TD-225 (done in code: the tokenizer logs through `adai::Logger`, `decode()` reports unknown ids once per call, encoding is `const`,
+  base ids are deterministic, UTF-8 follows RFC 3629, `get_top_tokens()` is `get_tokens_by_id()`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5012,7 +5014,7 @@ Files Modified: `src/BPETokenizer.{hpp,cpp}`, `src/VocabBuilder.cpp`, `src/Incre
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | NLP / Tokenizer | October 8, 2026 | 4-6 hours |
+| LOW | Open — code fix landed November 10, 2026 | NLP / Tokenizer | October 8, 2026 | 4-6 hours |
 
 Description:
 Found alongside TD-220. Smaller issues in the `stable`-tagged tokenizer:
@@ -5041,19 +5043,46 @@ Found alongside TD-220. Smaller issues in the `stable`-tagged tokenizer:
 
 Action Items:
 
-- [ ] Replace console output with `adai::Logger` (progress at `debug`, or a callback).
-- [ ] Count unknown IDs in `decode()` and log once per call at `warn`, or offer a strict mode that
+- [x] Replace console output with `adai::Logger` (progress at `debug`, or a callback).
+- [x] Count unknown IDs in `decode()` and log once per call at `warn`, or offer a strict mode that
   throws.
-- [ ] Mark `encode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `decode()` `const` (the
+- [x] Mark `encode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `decode()` `const` (the
   cache is `thread_local`, so no `mutable` is needed), and drop `measure_fertility()`'s copy.
-- [ ] Rename `get_top_tokens()` (e.g. `get_tokens_by_id()`) or record merge frequencies during
+- [x] Rename `get_top_tokens()` (e.g. `get_tokens_by_id()`) or record merge frequencies during
   training to make it true; update `vocab_builder`.
-- [ ] Make base-ID assignment and tie-breaking deterministic (sort by frequency, then by token).
+- [x] Make base-ID assignment and tie-breaking deterministic (sort by frequency, then by token).
 - [x] Warn (or throw) in `load_vocab()` when the special IDs differ from `SpecialTokenIDs`. (Done with TD-505, November 9, 2026: it throws.)
-- [ ] Tighten `is_valid_utf8()` to RFC 3629.
-- [ ] Fix `DataFetcher.cpp`'s pointer to say the FIM tokens still need adding (TD-006).
+- [x] Tighten `is_valid_utf8()` to RFC 3629.
+- [x] Fix `DataFetcher.cpp`'s pointer to say the FIM tokens still need adding (TD-006).
 
-Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/DataFetcher.cpp`; tagged `TODO: See TD-225`.
+Fix (November 10, 2026):
+- **Logging:** `BPETokenizer.cpp` writes nothing to `std::cout`/`std::cerr`. `build_vocab()` logs its three stages and result at
+  `info`, merge progress at `debug` every tenth of the target; `save_vocab()`/`load_vocab()` log one `info` line each; an unknown
+  special-token key is a `warn`. `pre_tokenize()` has no progress output at all, since it runs once per text.
+  `print_vocab_stats()` is replaced by `vocab_stats()`, which returns the text, and `vocab_builder` prints it.
+- **`decode()`:** ids with no token are still left out, but each call logs one warning with their count, the first one and the
+  vocabulary size (`left out 2 of 4 ids with no token (first: 99999; …)`), instead of one `cerr` line per id.
+- **`const`:** `encode()`, `decode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `encode_conversation()` and `encode_prompt()`
+  are `const`. `measure_fertility()` calls `encode()` directly; its probe copy is gone. The copy also left out
+  `first_ordinary_id_`, so it could encode text to a reserved id that the real tokenizer maps to `<unk>`.
+- **`get_tokens_by_id()`** replaces `get_top_tokens()`; `vocab_builder --stats` now says "First 20 tokens by id".
+- **Determinism:** base units take ids by corpus frequency, most frequent first, ties by their bytes (pair ties were already
+  deterministic since TD-220), and `save_vocab()` writes the `VOCAB` section in id order. Two `vocab_builder` runs on one corpus
+  write byte-identical files.
+- **UTF-8:** `is_valid_utf8()` follows RFC 3629: overlong forms (`C0`, `C1`, `E0 80-9F`, `F0 80-8F`), surrogates (`ED A0-BF`),
+  code points past U+10FFFF (`F4 90-BF`) and lead bytes `F5`-`FF` are invalid, so `encode()` throws `TokenizerEncodingError` for
+  them and `ChatbotTrainer` skips such pairs as it does other invalid UTF-8.
+- **`DataFetcher.cpp`:** the TD-006 comment now says the FIM tokens don't exist yet and would take reserved ids (TD-565).
+
+Tests: `BPETokenizerHygieneTest` in `tokenizer_test.cpp` (base-unit order, id-ordered file, `const` use, no stdout from a long
+encode or from build/save/load, 13 invalid and 9 valid UTF-8 cases); `DecodeUnknownTokenIDWarning` checks the single warning;
+`VocabStatsDescribesTheVocabulary` replaces the two `print_vocab_stats()` tests. Built against the old tokenizer, all six runtime
+tests fail and the `const` test doesn't compile.
+
+Files Modified: `src/BPETokenizer.{hpp,cpp}`, `src/VocabBuilder.cpp`, `src/DataFetcher.cpp`, `examples/BPETokenizerexample.cpp`,
+`tests/tokenizer_test.cpp`, `tests/tokenizer_error_handling_test.cpp`, `tests/vocabbuilder_test.cpp`.
+
+Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/DataFetcher.cpp`; tagged `TODO: See TD-225` before the fix.
 
 Files to Modify:
 

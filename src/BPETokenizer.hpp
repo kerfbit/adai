@@ -2,8 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-10
 
 #include <algorithm>
 #include <cctype>
@@ -198,10 +198,10 @@ class BPETokenizer {
      * <assistant> to cue the reply. Turn tokens enter only here, as ids; encode() can't produce
      * one from text. Requires has_turn_tokens().
      */
-    std::vector<int> encode_conversation(const std::vector<ConversationTurn>& turns);
+    std::vector<int> encode_conversation(const std::vector<ConversationTurn>& turns) const;
     /// TD-295: the encoder input for one message: <user> message <assistant> with turn tokens, the
     /// message's plain encoding without.
-    std::vector<int> encode_prompt(const std::string& text);
+    std::vector<int> encode_prompt(const std::string& text) const;
     /// TD-565: the first id of an ordinary token; every id below it is special. 20 for a vocabulary
     /// built since TD-565 (ids 7-19 held, unassigned, for future special tokens), 7 for one built
     /// with TD-295's turn tokens before it, 4 for an older one.
@@ -221,7 +221,7 @@ class BPETokenizer {
     void build_bpe_merges(const std::vector<std::string>& texts, int num_merges);
 
     // Pre-tokenization step
-    std::vector<std::string> pre_tokenize(const std::string& text);
+    std::vector<std::string> pre_tokenize(const std::string& text) const;
 
     // Find most frequent adjacent pair
     static std::pair<std::string, std::string> get_most_frequent_pair(
@@ -232,18 +232,19 @@ class BPETokenizer {
                              const std::string& first, const std::string& second);
 
     // Apply BPE encoding to a single word
-    std::vector<std::string> apply_bpe(const std::string& word);
+    std::vector<std::string> apply_bpe(const std::string& word) const;
 
     // Tokenize text into subword tokens
-    std::vector<std::string> tokenize(const std::string& text);
+    std::vector<std::string> tokenize(const std::string& text) const;
 
-    // TODO: See TD-225 in TECHNICAL_DEBT.md - encode()/decode() (and tokenize/pre_tokenize/apply_bpe)
-    // mutate nothing and should be const.
+    // TD-225: encoding and decoding are const and safe to call concurrently on one tokenizer (the
+    // apply_bpe() cache is per thread).
     // Convert tokens to IDs
-    std::vector<int> encode(const std::string& text, bool add_special_tokens = true);
+    std::vector<int> encode(const std::string& text, bool add_special_tokens = true) const;
 
-    // Convert IDs back to text
-    std::string decode(const std::vector<int>& ids, bool skip_special_tokens = true);
+    /// Convert IDs back to text. TD-225: an id with no token is left out, and the call logs one
+    /// warning naming how many there were.
+    std::string decode(const std::vector<int>& ids, bool skip_special_tokens = true) const;
 
     // Get vocabulary size
     size_t get_vocab_size() const;
@@ -269,13 +270,14 @@ class BPETokenizer {
     /// TD-223: all or nothing; a file that fails to load leaves the tokenizer as it was.
     void load_vocab(const std::string& filename);
 
-    // Print vocabulary statistics
-    void print_vocab_stats() const;
+    /// TD-225: a few lines describing the vocabulary (mode, size, merges, special tokens), for a
+    /// tool to print; it replaced print_vocab_stats(), which wrote to std::cout.
+    std::string vocab_stats() const;
 
-    // Get top-k most frequent tokens (for debugging)
-    // TODO: See TD-225 in TECHNICAL_DEBT.md - misnamed: returns the k lowest-ID tokens; no frequencies
-    // are stored.
-    std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
+    /// TD-225: the k tokens with the lowest ids, in id order (special tokens, then base units by
+    /// corpus frequency, then merges in the order learned). It replaced get_top_tokens(), whose
+    /// name suggested token frequencies, which the tokenizer doesn't store.
+    std::vector<std::pair<std::string, int>> get_tokens_by_id(int k = 10) const;
 
     /**
      * @brief Recommend a vocabulary size based on corpus characteristics and model architecture.
@@ -324,7 +326,8 @@ class BPETokenizer {
     // single byte, so the behaviour is identical to the old char loop.
     static std::vector<std::string> utf8_split_codepoints(const std::string& str);
 
-    // UTF-8 validation helper
+    // UTF-8 validation helper. TD-225: RFC 3629, so overlong forms, surrogates and code points past
+    // U+10FFFF are invalid.
     static bool is_valid_utf8(const std::string& text);
 
     // Validate input string

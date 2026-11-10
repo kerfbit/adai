@@ -34,7 +34,7 @@ int main() {
     std::cout << "Building vocabulary from training data...\n";
     tokenizer.build_vocab(training_texts);
 
-    tokenizer.print_vocab_stats();
+    std::cout << tokenizer.vocab_stats();
 
     // Test tokenization
     std::string test_text = "Hello, this is a fascinating test of tokenization!";
@@ -60,7 +60,7 @@ int main() {
 
     // Show top tokens
     std::cout << "\nTop 250 tokens by ID:\n";
-    auto top_tokens = tokenizer.get_top_tokens(250);
+    auto top_tokens = tokenizer.get_tokens_by_id(250);
     for (const auto& pair : top_tokens) {
         std::cout << "ID " << pair.second << ": '" << pair.first << "'\n";
     }

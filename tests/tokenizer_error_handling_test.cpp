@@ -128,18 +128,23 @@ TEST_F(TokenizerErrorHandlingTest, DecodeNegativeTokenIDExceptionMessage) {
     }
 }
 
+// TD-225: unknown ids are left out and reported in one log warning per call, with their count and
+// the first one; they used to get one std::cerr line each.
 TEST_F(TokenizerErrorHandlingTest, DecodeUnknownTokenIDWarning) {
-    // This should warn but not throw
-    std::vector<int> ids_with_unknown = {2, 99999, 3};  // 99999 likely doesn't exist
+    std::vector<int> ids_with_unknown = {2, 99999, 88888, 3};
 
-    // Redirect stderr to capture warning
+    // adai::Logger's console sink is stderr
     testing::internal::CaptureStderr();
 
     std::string result;
     EXPECT_NO_THROW({ result = tokenizer.decode(ids_with_unknown); });
 
     std::string stderr_output = testing::internal::GetCapturedStderr();
-    EXPECT_TRUE(stderr_output.find("Warning: Unknown token ID") != std::string::npos);
+    EXPECT_NE(stderr_output.find("left out 2 of 4 ids with no token (first: 99999"),
+              std::string::npos)
+        << stderr_output;
+    EXPECT_EQ(stderr_output.find("88888"), std::string::npos) << "one warning, not one per id";
+    EXPECT_TRUE(result.empty());
 }
 
 // ============================================================================

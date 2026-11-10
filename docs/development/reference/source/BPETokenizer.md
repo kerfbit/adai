@@ -424,13 +424,13 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `load_vocab()` not exception-safe (§8) | Failed load leaves a gutted tokenizer | Yes: 12 → 1 tokens | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Second `build_vocab()` corrupts IDs; `RepeatedBuildVocab` test doesn't catch it (§5) | Duplicate IDs if an instance is reused | Yes: 3 shared IDs | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Lowercasing and whitespace collapsing are lossy (§6) | Models can't see or produce capitals, newlines, tabs | Yes | [TD-224](../../guides/TECHNICAL_DEBT.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) |
-| `std::cout`/`std::cerr` throughout library code (§5–9) | Breaks the logging convention; progress spam on long inputs and in parallel preprocessing | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| `decode()` skips unknown IDs with only a `cerr` warning (§7) | Silent truncation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| `encode()`/`decode()` not `const` (§7, §9) | Full tokenizer copy in `measure_fertility()`; can't encode via `const&` | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| `get_top_tokens()` returns lowest IDs, not most frequent (§9) | Misleading `vocab_builder` output | Yes | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| Base IDs and tie-breaks depend on `unordered_map` order (§5) | Rebuilds aren't portable across standard libraries | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
+| `std::cout`/`std::cerr` throughout library code (§5–9) | Breaks the logging convention; progress spam on long inputs and in parallel preprocessing | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
+| `decode()` skips unknown IDs with only a `cerr` warning (§7) | Silent truncation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
+| `encode()`/`decode()` not `const` (§7, §9) | Full tokenizer copy in `measure_fertility()`; can't encode via `const&` | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
+| `get_top_tokens()` returns lowest IDs, not most frequent (§9) | Misleading `vocab_builder` output | Yes | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
+| Base IDs and tie-breaks depend on `unordered_map` order (§5) | Rebuilds aren't portable across standard libraries | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
 | Vocab-file special IDs aren't checked against `SpecialTokenIDs` (§8) | Foreign/hand-edited vocabs could disagree with code using the constants | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| `is_valid_utf8()` accepts overlong forms, surrogates and lead bytes up to `0xF7` | Lenient validation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
+| `is_valid_utf8()` accepts overlong forms, surrogates and lead bytes up to `0xF7` | Lenient validation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
 
 ---
 
@@ -543,3 +543,15 @@ of 20 or fewer ids keeps the old layout, with no turn tokens.
 `VocabularyFileError` leaves the previous vocabulary, settings and layout untouched. `build_vocab()` on a tokenizer that already has a
 vocabulary starts from a new one that keeps only the mode, normalization and whitespace settings, so the second build's ids run from 0
 with none shared. The gaps listed for both functions above no longer apply.
+
+## Addendum (November 10, 2026): logging and API hygiene (TD-225)
+
+`BPETokenizer.cpp` no longer writes to `std::cout`/`std::cerr`. `build_vocab()` logs its stages and result at `info` and merge progress
+at `debug`; `save_vocab()`/`load_vocab()` log one `info` line each; `pre_tokenize()` prints no progress. `print_vocab_stats()` is
+replaced by `vocab_stats()`, which returns the text, and `get_top_tokens()` by `get_tokens_by_id()`, the same lowest-id list under an
+accurate name. `decode()` still leaves out ids with no token, and logs one warning per call with their count and the first one.
+`encode()`, `decode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `encode_conversation()` and `encode_prompt()` are `const`, so
+`measure_fertility()` no longer copies the tokenizer. Base units take ids by frequency, ties by their bytes, and `save_vocab()` writes
+the vocabulary in id order, so one corpus gives a byte-identical file everywhere. `is_valid_utf8()` follows RFC 3629 (no overlong
+forms, surrogates, code points past U+10FFFF or lead bytes `F5`-`FF`). `DataFetcher.cpp`'s FIM comment now says the tokens don't exist
+yet and would take reserved ids. The sections above describing the old behaviour no longer apply.

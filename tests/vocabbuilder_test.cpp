@@ -10,7 +10,7 @@
  *  1. File-format helpers: load_plain_text, load_pairs_format, load_json_format
  *     — exercised with temporary files written in each format.
  *  2. BPETokenizer workflow: build_vocab, save_vocab/load_vocab round-trip,
- *     get_top_tokens, print_vocab_stats — these are the BPETokenizer methods that
+ *     get_tokens_by_id, vocab_stats — these are the BPETokenizer methods that
  *     VocabBuilder's main() calls.
  *
  * Temporary files are written to /tmp/ with a PID-based suffix so parallel test
@@ -470,22 +470,22 @@ TEST_F(VocabBuilderWorkflowTest, SavedVocabFileExists) {
     EXPECT_TRUE(f.good());
 }
 
-TEST_F(VocabBuilderWorkflowTest, GetTopTokensCountMatchesK) {
+TEST_F(VocabBuilderWorkflowTest, GetTokensByIdCountMatchesK) {
     BPETokenizer tok;
     tok.build_vocab(kCorpus, 200, 1);
 
     int k = 10;
-    auto top = tok.get_top_tokens(k);
+    auto top = tok.get_tokens_by_id(k);
     EXPECT_LE(static_cast<int>(top.size()), k);
     // May return fewer than k if vocab is smaller, but should return something
     EXPECT_FALSE(top.empty());
 }
 
-TEST_F(VocabBuilderWorkflowTest, GetTopTokensReturnsPairsWithIds) {
+TEST_F(VocabBuilderWorkflowTest, GetTokensByIdReturnsPairsWithIds) {
     BPETokenizer tok;
     tok.build_vocab(kCorpus, 200, 1);
 
-    auto top = tok.get_top_tokens(5);
+    auto top = tok.get_tokens_by_id(5);
     for (const auto& pair : top) {
         // First: token string (non-empty)
         EXPECT_FALSE(pair.first.empty());
@@ -494,32 +494,22 @@ TEST_F(VocabBuilderWorkflowTest, GetTopTokensReturnsPairsWithIds) {
     }
 }
 
-TEST_F(VocabBuilderWorkflowTest, GetTopTokensZeroReturnsEmpty) {
+TEST_F(VocabBuilderWorkflowTest, GetTokensByIdZeroReturnsEmpty) {
     BPETokenizer tok;
     tok.build_vocab(kCorpus, 100, 1);
-    auto top = tok.get_top_tokens(0);
+    auto top = tok.get_tokens_by_id(0);
     EXPECT_TRUE(top.empty());
 }
 
-TEST_F(VocabBuilderWorkflowTest, PrintVocabStatsDoesNotCrash) {
+// TD-225: vocab_stats() returns the text vocab_builder prints; print_vocab_stats() wrote it to
+// std::cout from library code.
+TEST_F(VocabBuilderWorkflowTest, VocabStatsDescribesTheVocabulary) {
     BPETokenizer tok;
     tok.build_vocab(kCorpus, 100, 1);
-    // Redirect stdout to suppress output
-    std::streambuf* old_buf = std::cout.rdbuf();
-    std::ostringstream devnull;
-    std::cout.rdbuf(devnull.rdbuf());
-    EXPECT_NO_THROW(tok.print_vocab_stats());
-    std::cout.rdbuf(old_buf);
-}
-
-TEST_F(VocabBuilderWorkflowTest, PrintVocabStatsProducesOutput) {
-    BPETokenizer tok;
-    tok.build_vocab(kCorpus, 100, 1);
-    std::ostringstream capture;
-    std::streambuf* old_buf = std::cout.rdbuf(capture.rdbuf());
-    tok.print_vocab_stats();
-    std::cout.rdbuf(old_buf);
-    EXPECT_GT(capture.str().size(), 0u);
+    const std::string stats = tok.vocab_stats();
+    EXPECT_NE(stats.find("Vocabulary size: " + std::to_string(tok.get_vocab_size())),
+              std::string::npos);
+    EXPECT_NE(stats.find("Mode: Unicode"), std::string::npos);
 }
 
 TEST_F(VocabBuilderWorkflowTest, EncodeAfterBuildReturnsNonEmpty) {
@@ -679,11 +669,11 @@ TEST_F(VocabBuilderWorkflowTest, UnicodeModeCanEncodeMultibyteText) {
     EXPECT_NO_THROW(tok.encode("hello", false));
 }
 
-TEST_F(VocabBuilderWorkflowTest, UnicodeModeTopTokensHaveValidStrings) {
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeTokensByIdHaveValidStrings) {
     BPETokenizer tok(TokenizerMode::UNICODE);
     tok.build_vocab(kCorpus, 200, 1);
 
-    auto top = tok.get_top_tokens(10);
+    auto top = tok.get_tokens_by_id(10);
     EXPECT_FALSE(top.empty());
     for (const auto& p : top) {
         EXPECT_FALSE(p.first.empty());
@@ -691,10 +681,10 @@ TEST_F(VocabBuilderWorkflowTest, UnicodeModeTopTokensHaveValidStrings) {
     }
 }
 
-TEST_F(VocabBuilderWorkflowTest, UnicodeModeGetTopTokensK) {
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeGetTokensByIdK) {
     BPETokenizer tok(TokenizerMode::UNICODE);
     tok.build_vocab(kCorpus, 200, 1);
-    auto top = tok.get_top_tokens(5);
+    auto top = tok.get_tokens_by_id(5);
     EXPECT_LE(static_cast<int>(top.size()), 5);
 }
 
