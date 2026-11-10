@@ -2,8 +2,8 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-10
 
 
 #include <cstddef>
@@ -481,6 +481,27 @@ class GPUManager {
             CUDA_CHECK(cudaStreamSynchronize(stream_));
         }
     }
+
+    /// TD-566: whether the device still runs work: one small allocation, a fill, a copy back and a
+    /// synchronize. After a sticky error (an illegal address, a lost or reset device) every call
+    /// fails, so the trainer uses this after a failed sample to tell an unusable device from a bad
+    /// sample. Call it only after an error.
+    static bool device_usable() noexcept {
+        if (!is_available() || !stream_) {
+            return false;
+        }
+        int* probe = nullptr;
+        if (cudaMalloc(&probe, sizeof(int)) != cudaSuccess) {
+            return false;
+        }
+        int host = 1;
+        const bool ok = cudaMemsetAsync(probe, 0, sizeof(int), stream_) == cudaSuccess &&
+                        cudaMemcpyAsync(&host, probe, sizeof(int), cudaMemcpyDeviceToHost,
+                                        stream_) == cudaSuccess &&
+                        cudaStreamSynchronize(stream_) == cudaSuccess && host == 0;
+        cudaFree(probe);
+        return ok;
+    }
 };
 
 /**
@@ -610,6 +631,9 @@ class GPUManager {
         return "GPU support not compiled";
     }
     static void synchronize() {}
+    static bool device_usable() {
+        return false;
+    }
     static size_t get_memory_limit_bytes() {
         return 0;
     }

@@ -146,3 +146,9 @@ temporary. It now uses `GPUManager::allocate_block(bytes)`/`release_block(ptr, b
 The budget counter behaves as before. Compile-checked only; `gpuutils_test.cpp`'s CUDA-only
 `CudaUsesTheStreamOrderedPoolWhenSupported` and `CudaFreeKeepsStreamOrder` skip without a device. The SYCL backend's own pool is in
 [GPUUtils_SYCL.md](GPUUtils_SYCL.md).
+
+## Addendum (November 10, 2026): `device_usable()` (TD-566)
+
+`GPUManager::device_usable()` reports whether the device still runs work: one small allocation outside the pool and the budget, a
+fill, a copy back and a wait. It returns false before `initialize()` and after a lost or reset device (and always in the no-GPU
+stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost device from a bad sample.

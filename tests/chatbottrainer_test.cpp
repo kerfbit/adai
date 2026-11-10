@@ -1417,6 +1417,16 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
         std::iota(t.training_indices.begin(), t.training_indices.end(), 0);
     }
 
+    // TD-566 hooks
+    static void SetDeviceUsable(ChatbotTrainer& t, std::function<bool()> usable) {
+        t.device_usable_ = std::move(usable);
+    }
+    static void SetTrainingOnly(ChatbotTrainer& t, ConversationPair raw, TokenizedPair tok) {
+        t.training_data = {std::move(raw)};
+        t.tokenized_training_data = {std::move(tok)};
+        t.training_indices = {0};
+    }
+
     static int GlobalStep(const ChatbotTrainer& t) { return t.global_step; }
     static int AgcSteps(const ChatbotTrainer& t) { return t.agc_step_count_; }
     static int RunWarmup(const ChatbotTrainer& t) { return t.run_warmup_steps_; }
@@ -1621,6 +1631,71 @@ TEST_F(ChatbotTrainerCacheTest, FailedSampleKeepsTheWindowsEarlierGradients) {
         mean /= 4.0f;
         EXPECT_NEAR(step_losses[0], mean, 1e-4f * std::max(1.0f, mean)) << "epoch " << epoch;
     }
+}
+
+// TD-566: a failed sample that leaves the GPU unusable stops the epoch at once. On ai-machine a
+// driver engine reset made every later sample and epoch fail one by one for 20 s; the probe runs
+// once, and nothing after the failed sample is attempted or recorded.
+TEST_F(ChatbotTrainerCacheTest, LostDeviceStopsTheEpochAtTheFirstFailedSample) {
+    Matrix::gpu_try_initialize();
+    ChatbotTrainer t(tiny_training_config(1));
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    t.add_training_pair("how are you", "I am fine");
+    t.add_training_pair("I am fine", "thank you");
+    ASSERT_TRUE(t.train(1));
+    // Two failing samples: an epoch that went on past the first would check the device twice.
+    for (int k = 0; k < 2; ++k) {
+        AppendTraining(t, ConversationPair("broken", "broken"),
+                       TokenizedPair({999999}, {999999}, "broken", "broken"));
+    }
+    int probes = 0;
+    SetDeviceUsable(t, [&] {
+        ++probes;
+        return false;
+    });
+    const size_t epochs_before = t.get_training_losses().size();
+    EXPECT_THROW(TrainEpoch(t, 1), GPUDeviceLostError);
+    EXPECT_EQ(probes, 1) << "the epoch went on after the device was lost";
+    EXPECT_EQ(t.get_training_losses().size(), epochs_before) << "the epoch wasn't recorded";
+
+    // A sample that fails on a working device still only costs that sample (TD-272).
+    SetDeviceUsable(t, [] { return true; });
+    EXPECT_NO_THROW(TrainEpoch(t, 2));
+    EXPECT_EQ(t.get_training_losses().size(), epochs_before + 1);
+}
+
+TEST_F(ChatbotTrainerCacheTest, LostDeviceStopsValidation) {
+    Matrix::gpu_try_initialize();
+    ChatbotTrainer t(tiny_training_config(1));
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you"}, 100, cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    ASSERT_TRUE(t.train(1));
+    SetTokenizedValidationOnly(t, {ConversationPair("broken", "broken")},
+                               {TokenizedPair({999999}, {999999}, "broken", "broken")});
+    SetDeviceUsable(t, [] { return false; });
+    EXPECT_THROW(Validate(t), GPUDeviceLostError);
+}
+
+// TD-566: an epoch in which every sample failed used to be recorded and reported as loss 0 and
+// perplexity 1 (seed8's epoch 3 on ai-machine), which dashboards and MNS progress showed as a
+// perfect epoch. It now fails, and nothing is recorded for it.
+TEST_F(ChatbotTrainerCacheTest, EpochThatTrainsNothingFailsInsteadOfReportingZero) {
+    Matrix::gpu_try_initialize();
+    ChatbotTrainer t(tiny_training_config(1));
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you"}, 100, cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    ASSERT_TRUE(t.train(1));
+    SetTrainingOnly(t, ConversationPair("broken", "broken"),
+                    TokenizedPair({999999}, {999999}, "broken", "broken"));
+    SetDeviceUsable(t, [] { return true; });  // the device is fine; the samples aren't
+    const size_t epochs_before = t.get_training_losses().size();
+    EXPECT_THROW(TrainEpoch(t, 1), EpochTrainedNothingError);
+    EXPECT_EQ(t.get_training_losses().size(), epochs_before);
 }
 
 // Every schedule stays finite for tiny passes and for steps carried past this call's total

@@ -153,6 +153,20 @@ TEST_F(GPUManagerTest, RealDeviceInitializeAndQuery) {
     EXPECT_NO_THROW(GPUManager::synchronize());
 }
 
+// TD-566: the trainer's check after a failed sample. A working device runs the probe; before
+// initialize() there is no device to use.
+TEST_F(GPUManagerTest, DeviceUsableOnlyOnAnInitializedWorkingDevice) {
+    EXPECT_FALSE(GPUManager::device_usable());
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t used = GPUManager::get_used_memory_bytes();
+    EXPECT_TRUE(GPUManager::device_usable());
+    EXPECT_TRUE(GPUManager::device_usable());
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), used) << "the probe stays outside the budget";
+}
+
 TEST_F(GPUManagerTest, ReserveAndReleaseMemoryTracksBudget) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";

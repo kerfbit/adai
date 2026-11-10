@@ -18,6 +18,11 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 10, 2026:** Filed and fixed [TD-566](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
+(MEDIUM) from the ai-machine GPU test run: after a driver engine reset the trainer tried every remaining sample and epoch, and
+recorded an epoch with no updates as loss 0. A failed sample on an unusable device now stops the pass, and an epoch that trains
+nothing fails it. The same run verified TD-358, TD-384 and TD-391 on the Arc card and gave the TD-171 benchmark's GPU numbers.
+
 **November 9, 2026:** Filed and fixed [TD-565](#td-565-vocabularies-have-no-room-for-future-special-tokens) at the owner's request:
 new vocabularies reserve ids 0-19 for special tokens (7-19 unassigned placeholders), ordinary tokens from 20, vocabulary format v4.
 
@@ -2621,6 +2626,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-564: Byte-Level ASCII Was the Default Tokenizer Mode](#td-564-byte-level-ascii-was-the-default-tokenizer-mode)
   - [TD-565: Vocabularies Have No Room for Future Special Tokens](#td-565-vocabularies-have-no-room-for-future-special-tokens)
+  - [TD-566: Training Keeps Going After the GPU Is Lost, and Reports an Epoch That Trained Nothing as Loss 0](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4015,7 +4021,12 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — inference half planned as v2 (October 8, 2026), B0 CPU results November 9, 2026, on-device run outstanding; training half not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+| LOW | Open — inference half planned as v2 (October 8, 2026), B0 CPU results November 9, 2026, Arc results November 10, 2026; training half not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+
+**Update (November 10, 2026):** B0 ran on ai-machine's Arc Pro B60 ([results](../../proposals/real_batching_v2_plan.md#43-phase-b0-results-on-the-arc-pro-b60-november-10-2026)).
+Stacking single rows is up to 9.4× faster for the dense multiplies at B = 32, but a whole decode step gains only 1.11-1.16×, because
+the per-sequence attention products are 82-88% of a GPU decode step (2-27% on the CPU), and one decode step at B = 1 takes 1.1 ms
+on the card against 0.5 ms on the CPU. Stacking alone doesn't pay on the GPU; B1 should wait until attention cost is understood.
 
 **Update (November 9, 2026):** owner chose to benchmark first. Phase B0 ran on the CPU ([results](../../proposals/real_batching_v2_plan.md#42-phase-b0-results-november-9-2026)): a decode step is 3-4.7× faster stacked on 8 threads at B ≥ 4 but only 6-20% on one thread, and sequences of 32 or more rows gain nothing. The GPU decision needs `stacked_gemm_benchmark` run on ai-machine; no model code has changed.
 
@@ -10341,6 +10352,11 @@ Files to Modify:
 - `src/EncoderDecoderModel.{hpp,cpp}`
 - `tests/encoderdecoder_test.cpp`
 
+
+On-device result (November 10, 2026): on ai-machine's Arc Pro B60 (Level Zero), package `adai-sycl-gpu-tests-bf3501cb-20261109`, run November 10, 2026, `EncoderDecoderGPUTest` passed in full, including
+`GpuForwardLossMatchesCpuForwardTeacherForcing` and `GpuAndCpuGenerationAgree`, so the GPU path now trains on the shifted targets
+on the real card. Retraining every GPU-trained checkpoint remains.
+
 ---
 
 ### TD-359: `generate_response()` and `gpu_generate_response()` Ignore `max_length`
@@ -10760,6 +10776,14 @@ Verified with real `incremental_trainer` passes (dropout on, 3 epochs): `SEED=7`
 Tests: `init_rng_test.cpp` (9 tests; 6 fail when the source ignores the seed) and `incremental_trainer_args_test.cpp`'s `SeedFlag`.
 
 Location in code: `src/InitRng.{hpp,cpp}`, `src/Matrix.cpp`, `src/FeedForward.cpp`, `src/Dropout.cpp`, `src/SIGReg.cpp`, `src/LeJEPAEncoder.hpp`, `src/ChatbotTrainer.cpp`, `src/Config.{hpp,cpp}`, `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTrainingTool.cpp`, `config.trainer.conf`.
+
+
+On-device result (November 10, 2026): on ai-machine's Arc Pro B60 (Level Zero), package `adai-sycl-gpu-tests-bf3501cb-20261109`, run November 10, 2026, two `SEED=7` passes (3 epochs) printed identical
+losses and gradient norms to 6 decimals in every epoch, and `SEED=8` differed from the first epoch, but the two `SEED=7` runs'
+weight files weren't byte-identical. As on the oneAPI CPU device, that fits the device kernels' float atomics (the embedding
+scatter-add, the gate-gradient sums and the gradient-norm sums add in a different order each run); the archive didn't include the weights, so the size of
+the difference wasn't measured. Seeding replays initialization and data order on the GPU; bit-exact replay there would need
+order-fixed reductions in place of those atomics.
 
 ---
 
@@ -11454,6 +11478,11 @@ Files to Modify:
 - `src/gpu/MatrixGPU.cu`
 - `src/gpu/sycl/MatrixGPU_SYCL.cpp`
 
+
+On-device result (November 10, 2026): the SYCL fix verified on ai-machine's Arc Pro B60 (Level Zero), package `adai-sycl-gpu-tests-bf3501cb-20261109`, run November 10, 2026: every softmax, LayerNorm and
+loss test passed (`matrixgpuTd003Tests`, `multiheadattentionTests`, `encoderdecoderTests`, `chatbottrainerTests`), as did three
+real training passes until the driver reset in one of them (TD-566). CUDA remains compile-checked only.
+
 ---
 
 ### TD-385: `matrix_sum_gpu` Allocates and Synchronizes on Every Call
@@ -11788,6 +11817,11 @@ Files Modified:
 - `src/Matrix.cpp`
 - `tests/device_selection_test.cpp` (new)
 - `tests/CMakeLists.txt`
+
+
+On-device result (November 10, 2026): on ai-machine's Arc Pro B60 (Level Zero), package `adai-sycl-gpu-tests-bf3501cb-20261109`, run November 10, 2026, `deviceSelectionTests` passed and the trainer logged
+`Device 0: Intel(R) Arc(TM) Pro B60 Graphics / Backend: level_zero (Intel(R) oneAPI Unified Runtime over Level-Zero V2)`, so the
+card is chosen through Level Zero, not OpenCL.
 
 ---
 
@@ -19133,6 +19167,55 @@ expect ordinary tokens from 20. Retraining needs are TD-563's: build the retrain
 v4-aware binaries before it.
 
 Location in code: `src/SpecialTokens.hpp`, `src/BPETokenizer.{hpp,cpp}`, `src/EncoderDecoderModel.cpp`.
+
+---
+
+### TD-566: Training Keeps Going After the GPU Is Lost, and Reports an Epoch That Trained Nothing as Loss 0
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed November 10, 2026 | Training / ChatbotTrainer | November 10, 2026 | 2-3 hours |
+
+Description:
+Found in the SYCL GPU test run on ai-machine (package `adai-sycl-gpu-tests-bf3501cb-20261109`, November 10, 2026). In the
+`SEED=8` training pass the kernel logged `xe 0000:2d:00.0: [drm] GT0: Engine reset: engine_class=ccs` with a device coredump at
+11:03:44, and at 11:03:45 sample 6 of epoch 2 failed with `UR_RESULT_ERROR_DEVICE_LOST`. It's the same Arc B60 `xe` driver
+instability as the host's earlier incidents, not a fault in this code: the same 18 samples had run in epoch 1, and the two `SEED=7`
+passes and every test binary passed. What the trainer did next was the problem:
+
+- **It kept going.** Every later GPU call failed with `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY`, and the trainer tried each remaining
+  sample of epoch 2, validation, every sample of epoch 3 and validation again, about 20 seconds of failures (longer for a real
+  dataset) before `train()` failed. `ChatbotTrainer` treats a failed sample as that sample's problem (TD-267, TD-272), which is
+  right for a bad sample and wrong for a lost device.
+- **It reported an epoch that trained nothing as loss 0.** Epoch 3 had 0 updates and logged `Loss: 0.000000 - Perplexity:
+  1.000000`. `train_epoch()` divides by the update count only when it's above zero, else records 0; the epoch callback and the
+  metrics reporter pass that on, so the dashboards and MNS progress would show a perfect epoch.
+- **It tried to copy the device weights back** after the failure, which can only fail on a lost device.
+
+The pass did end as a failure and released its file, so nothing was marked trained; under `trainer_service` a new process would
+have started (TD-172). The fix makes that happen at once.
+
+Action Items:
+
+- [x] `GPUManager::device_usable()` (SYCL and CUDA; the no-GPU stub returns false): one small allocation outside the pool, a fill,
+      a copy back and a wait. A lost or reset device fails it.
+- [x] `ChatbotTrainer` runs it after any training or validation sample fails; if the device is unusable, the pass stops with
+      `GPUDeviceLostError` and `train()` returns false without copying the device weights back. A sample that fails on a working
+      device is handled as before.
+- [x] An epoch in which no training sample produced an update throws `EpochTrainedNothingError` (unless the epoch was aborted), so
+      nothing records or reports a loss for it and the pass fails.
+- [x] Tests.
+
+Fix (November 10, 2026): as above. The check is a `std::function` member, `device_usable_`, set in GPU builds and replaced by
+tests. Tests: `ChatbotTrainerCacheTest.LostDeviceStopsTheEpochAtTheFirstFailedSample` (two failing samples, one device check),
+`LostDeviceStopsValidation`, `EpochThatTrainsNothingFailsInsteadOfReportingZero`, and
+`GPUManagerTest.DeviceUsableOnlyOnAnInitializedWorkingDevice`. With the fix's checks removed, the three trainer tests fail. All
+four pass in the debug build and on the oneAPI CPU device (`build/sycl-cpudev`), where the probe reports the working device as
+usable. A real device loss can't be produced on demand; the next ai-machine run will show it.
+
+Not covered: the LeJEPA pass (`--objective=lejepa`) has its own training loop and doesn't use this check.
+
+Location in code: `src/ChatbotTrainer.{hpp,cpp}`, `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`.
 
 ---
 

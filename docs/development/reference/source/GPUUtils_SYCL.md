@@ -131,3 +131,9 @@ to 38 s. Tests: `gpuutils_test.cpp`'s SYCL-only `ReleasedBlockIsReusedAndCounted
 `enumerate_gpu_devices()` now passes what the platforms list through `select_devices()` (`src/gpu/DeviceSelection.hpp`). Level Zero is numbered first and OpenCL last, and a listing is
 dropped when a better backend has an unmatched device of the same vendor and name. `GPU_DEVICE_ID` indexes this list, so 0 is the Level Zero device whichever platform enumerates first.
 `get_device_info()` adds a `Backend:` line, logged at INFO when `Matrix::gpu_initialize()`/`gpu_try_initialize()` succeed. Check it with `grep Backend:` in a pass's log.
+
+## Addendum (November 10, 2026): `device_usable()` (TD-566)
+
+`GPUManager::device_usable()` reports whether the device still runs work: one small allocation outside the pool and the budget, a
+fill, a copy back and a wait. It returns false before `initialize()` and after a lost or reset device (and always in the no-GPU
+stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost device from a bad sample.

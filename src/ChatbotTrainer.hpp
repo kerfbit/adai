@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-10
 
 #include <atomic>
 #include <cstdint>
@@ -225,6 +225,21 @@ using SampleCallback = std::function<void(int sample, int total_samples, float r
  */
 using BestModelCallback = std::function<void(int epoch, float val_loss)>;
 
+/// TD-566: the GPU stopped running work during training (a driver engine reset shows up as
+/// UR_RESULT_ERROR_DEVICE_LOST, then every call fails). train() stops the pass at the first failed
+/// sample that leaves the device unusable, instead of failing every later sample and epoch.
+class GPUDeviceLostError : public std::runtime_error {
+   public:
+    using std::runtime_error::runtime_error;
+};
+
+/// TD-566: an epoch in which no training sample produced an update. train() fails the pass rather
+/// than recording and reporting a loss of 0 for it.
+class EpochTrainedNothingError : public std::runtime_error {
+   public:
+    using std::runtime_error::runtime_error;
+};
+
 class ChatbotTrainer {
    private:
     // Allow the tokenized-data cache's unit tests direct access to
@@ -331,6 +346,13 @@ class ChatbotTrainer {
     const std::atomic<bool>* abort_flag_{nullptr};
     bool was_aborted_{false};
     int epochs_run_{0};  // TD-410: of the last train()
+
+    // TD-566: after a training or validation sample fails, whether the GPU still runs work
+    // (GPUManager::device_usable()). Empty in a CPU build; tests replace it.
+    std::function<bool()> device_usable_;
+    bool device_lost_{false};  // of the current train(); its weights stay on the dead device
+    /// TD-566: throws GPUDeviceLostError when device_usable_ says the device stopped working.
+    void stop_if_device_lost(const char* sample_error);
 
     // TD-023: background generation-quality scoring thread
     std::optional<std::thread> generation_quality_thread_;

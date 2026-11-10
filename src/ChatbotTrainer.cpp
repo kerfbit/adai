@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.21.1
-// @adai-reviewed: 2026-11-09
+// @adai-version: 0.22.0
+// @adai-reviewed: 2026-11-10
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -39,7 +39,23 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
       optimizer(nullptr),
       best_validation_loss(std::numeric_limits<float>::max()),
 
-      current_learning_rate(cfg.learning_rate) {}
+      current_learning_rate(cfg.learning_rate) {
+#ifdef ADAI_ENABLE_GPU
+    // TD-566: training without an available device never reaches the device path, so only a
+    // device that was in use can be lost.
+    device_usable_ = [] {
+        return !adai::gpu::GPUManager::is_available() || adai::gpu::GPUManager::device_usable();
+    };
+#endif
+}
+
+void ChatbotTrainer::stop_if_device_lost(const char* sample_error) {
+    if (device_usable_ && !device_usable_()) {
+        device_lost_ = true;
+        throw GPUDeviceLostError(std::string("the GPU stopped running work (") + sample_error +
+                                 "); stopping the pass");
+    }
+}
 
 ChatbotTrainer::~ChatbotTrainer() {
     join_generation_quality_thread();
@@ -1543,6 +1559,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
+            // TD-566: a lost device fails every later call; stop here instead of trying the rest
+            // of the epoch and the remaining epochs (seed8 on ai-machine spent 20 s doing that).
+            stop_if_device_lost(e.what());
             // Still fire sample callback so the dashboard shows the sample was attempted
             if (sample_callback_) {
                 float running_avg =
@@ -1600,6 +1619,13 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // actual update this whole time; using it directly needs no epoch-boundary
     // arithmetic and can't drift.
     int num_updates = update_count;
+    // TD-566: an epoch that trained nothing (every sample failed) used to be recorded and reported
+    // as loss 0 and perplexity 1, which the dashboards and MNS progress showed as a perfect epoch.
+    // An aborted epoch may legitimately stop before its first update.
+    if (num_updates == 0 && num_samples > 0 && !was_aborted_) {
+        throw EpochTrainedNothingError("epoch " + std::to_string(epoch + 1) + ": none of its " +
+                                       std::to_string(num_samples) + " training samples trained");
+    }
     float epoch_loss = (num_updates > 0) ? (total_loss / static_cast<float>(num_updates)) : 0.0f;
     float avg_grad_norm =
         (num_updates > 0) ? (total_grad_norm / static_cast<float>(num_updates)) : 0.0f;
@@ -1823,6 +1849,12 @@ float ChatbotTrainer::validate() {
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error validating sample {}: {}", (i + 1), e.what());
+            try {
+                stop_if_device_lost(e.what());  // TD-566
+            } catch (const GPUDeviceLostError&) {
+                model->set_training(true);
+                throw;
+            }
         }
     }
 
@@ -2114,6 +2146,7 @@ void ChatbotTrainer::backfill_generation_quality() {
 bool ChatbotTrainer::train(int num_epochs) {
     config.num_epochs = num_epochs;
     was_aborted_ = false;
+    device_lost_ = false;  // TD-566
     // TD-274: a copy left by an earlier train() call isn't this run's best.
     remove_best_model_copy();
 
@@ -2292,11 +2325,17 @@ bool ChatbotTrainer::train(int num_epochs) {
     } catch (const std::exception& e) {
         adai::Logger::error("❌ Training failed: {}", e.what());
 #ifdef ADAI_ENABLE_GPU
-        // Keep what was trained so far (a caller may still checkpoint it); best effort.
-        try {
-            sync_host_from_device();
-        } catch (const std::exception& sync_err) {
-            adai::Logger::error("  ⚠️  Could not copy the device weights back: {}", sync_err.what());
+        // Keep what was trained so far (a caller may still checkpoint it); best effort. TD-566: not
+        // from a lost device, where the copy can only fail and the weights can't be trusted.
+        if (device_lost_) {
+            adai::Logger::error("  ⚠️  Not copying the device weights back: the GPU was lost");
+        } else {
+            try {
+                sync_host_from_device();
+            } catch (const std::exception& sync_err) {
+                adai::Logger::error("  ⚠️  Could not copy the device weights back: {}",
+                                    sync_err.what());
+            }
         }
         gpu_optimizer_.reset();
 #endif

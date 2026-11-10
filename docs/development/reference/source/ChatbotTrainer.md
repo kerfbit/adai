@@ -474,3 +474,12 @@ restored the best epoch.
   `std::invalid_argument` (it used to be rounded up), and an unusual `d_ff`/`d_model` ratio only warns (it used to be reset to 4x).
   Both silent changes would break compatibility with a checkpoint or MNS registration. `min_learning_rate` is still corrected.
 - `tests/chatbottrainer_test.cpp.old` (an unbuilt January 2026 leftover) is deleted.
+
+## Addendum (November 10, 2026): a lost GPU stops the pass (TD-566)
+
+After a training or validation sample fails, a GPU build checks the device with `GPUManager::device_usable()` (a small allocation,
+fill and copy back). If the device no longer runs work, as after a driver engine reset (`UR_RESULT_ERROR_DEVICE_LOST`), the pass
+stops with `GPUDeviceLostError`, and `train()` returns false without copying the device weights back; a sample that fails on a
+working device is still skipped as before (TD-267, TD-272). An epoch in which no training sample produced an update throws
+`EpochTrainedNothingError` instead of recording loss 0 and perplexity 1, unless the epoch was aborted. The check is the
+`device_usable_` member, empty in a CPU build and replaced by tests.

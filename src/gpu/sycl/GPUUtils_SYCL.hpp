@@ -2,8 +2,8 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-11-10
 
 
 #include <cstddef>
@@ -437,6 +437,36 @@ class GPUManager {
         if (queue_) {
             queue_->wait();
         }
+    }
+
+    /// TD-566: whether the device still runs work: one small allocation, a fill, a copy back and a
+    /// wait. After a device loss (a driver engine reset) every call fails, so the trainer uses this
+    /// after a failed sample to tell a lost device from a bad sample. It allocates outside the pool
+    /// and waits for the queue, so call it only after an error.
+    static bool device_usable() noexcept {
+        if (!is_available() || !queue_) {
+            return false;
+        }
+        int* probe = nullptr;
+        bool ok = false;
+        try {
+            probe = sycl::malloc_device<int>(1, *queue_);
+            if (probe) {
+                int host = 1;
+                queue_->memset(probe, 0, sizeof(int)).wait_and_throw();
+                queue_->memcpy(&host, probe, sizeof(int)).wait_and_throw();
+                ok = host == 0;
+            }
+        } catch (...) {
+            ok = false;
+        }
+        if (probe) {
+            try {
+                sycl::free(probe, *queue_);
+            } catch (...) {
+            }
+        }
+        return ok;
     }
 };
 

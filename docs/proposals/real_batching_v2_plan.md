@@ -1,6 +1,6 @@
 # Proposal: Real Batched Inference (BatchProcessor / BatchedInferenceEngine v2)
 
-- **Status:** Proposed — owner decision October 8, 2026 to plan real batching as a v2 upgrade; phase B0 CPU results November 9, 2026 (§4.2), on-device run outstanding
+- **Status:** Proposed — owner decision October 8, 2026 to plan real batching as a v2 upgrade; phase B0 CPU results November 9, 2026 (§4.2), Arc results November 10, 2026 (§4.3)
 - **Tracks:** [TD-171](../development/guides/TECHNICAL_DEBT.md#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported) (inference half),
   [TD-211](../development/guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model),
   [TD-218](../development/guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs);
@@ -144,6 +144,26 @@ bugs, TD-352/TD-353). Augmentation is recorded under TD-014 for possible recreat
 - **The oneAPI CPU device says nothing about Arc.** Dense speedups were 1.7-6.6× for single rows, but the decode step's separate case took 1.7 s at B=16 and 15 s at B=32, against 1.8 ms at B=1. That far-from-linear growth is unexplained and isn't in the attention products, so those tables aren't evidence either way. Three repeats only.
 
 **Verdict: inconclusive; don't start B1 yet.** The CPU is a conditional go for decode steps only. The deciding number is a run on ai-machine's Arc card (`cmake --build --preset=sycl --target stacked_gemm_benchmark`). If separate multiplies scale linearly there and stacking shows no clear gain, v2 stops per §7.
+
+## 4.3 Phase B0 results on the Arc Pro B60 (November 10, 2026)
+
+The same benchmark on ai-machine (Arc Pro B60, 24 GB, Level Zero; SYCL build of commit `bf3501cb`), 768/3072/12 heads. `chatbot_api_server` was running on the same card, so timings may be slightly high.
+
+| Shape | B=1 | B=4 | B=8 | B=16 | B=32 |
+|---|---|---|---|---|---|
+| GPU, dense, 1 row per sequence | 1.01× | 1.31× | 2.50× | 4.67× | 9.36× |
+| GPU, dense, 32 rows per sequence | 1.00× | 1.16× | 1.46× | 1.32× | 1.53× |
+| GPU, dense, 256 rows per sequence | 1.00× | 1.01× | 1.23× | 1.06× | 1.07× |
+| GPU, decode step, context 32 | 1.02× | 1.11× | 1.12× | 1.15× | 1.14× |
+| GPU, decode step, context 256 | 1.00× | 1.11× | 1.13× | 1.15× | 1.14× |
+| GPU, decode step, context 512 | 1.00× | 1.12× | 1.14× | 1.16× | 1.14× |
+| ai-machine CPU, decode step, context 256 | 1.03× | 1.83× | 2.23× | 2.38× | 2.86× |
+
+- **Stacked dense multiplies pay off on the card.** One stacked multiply for 32 single rows costs about the same as one (0.13 ms), so the dense layers are almost free to batch.
+- **Attention decides it.** The per-sequence attention products are 82-88% of a GPU decode step at every context length (4-27% on the CPU), so stacking the dense layers alone gains only 11-16% for a whole step. Each separate step's cost grows linearly with B (1.1 ms at B=1, 35 ms at B=32), and the attention share stays the same.
+- **One GPU decode step is slower than the CPU's.** At B=1 a decoder layer's step takes 1.1 ms on the card and 0.5 ms on ai-machine's CPU, almost all of it in attention with a context of only 32. That suggests a fixed cost per head (12 small products and kernel launches each), not arithmetic, and it applies to unbatched GPU serving today.
+
+**Verdict: no-go for stacking alone; B1 waits.** Stacking the dense layers can't help much while attention takes ~85% of a decode step. Before batching, find out why one layer's attention costs about 1 ms on the card (per-head launches, synchronization, or the KV-cache view from TD-388); batching only pays off if attention is batched across heads and sequences (B6's padded tiles) too.
 
 ## 5. Acceptance criteria
 
