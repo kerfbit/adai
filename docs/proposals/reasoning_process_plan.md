@@ -63,6 +63,11 @@ tag table) independent of whether this proposal proceeds.
 
 **File:** `src/SpecialTokens.hpp` (extend in place)
 
+> **Note (November 9, 2026):** ids 4 and 5 below are taken: the turn tokens `<system>`/`<user>`/`<assistant>` hold 4–6
+> (TD-295). Since TD-565, ids 7–19 are reserved, unassigned, for special tokens like these, so `<think>`/`</think>` take two
+> of them (7 and 8 unless decided otherwise) with no change to ordinary token ids or the vocabulary format. See
+> [stream_of_consciousness_analysis.md](stream_of_consciousness_analysis.md) SC-0.
+
 ```cpp
 namespace adai::SpecialTokenIDs {
     constexpr int PAD = 0;   // unchanged
