@@ -184,6 +184,19 @@ if(BUILD_GUI)
                         "Install with: sudo apt-get install qtbase5-dev")
         set(BUILD_GUI OFF)
     endif()
+
+    # TD-037: Qt Test drives the GUIs' widget tests (tests/*_widget_test.cpp). It ships with the
+    # same Qt (qtbase5-dev / qt6-base-dev); the GUIs themselves don't need it.
+    if(Qt6_FOUND)
+        find_package(Qt6 COMPONENTS Test QUIET)
+        set(ADAI_QT_TEST_FOUND ${Qt6Test_FOUND})
+    elseif(Qt5_FOUND)
+        find_package(Qt5 COMPONENTS Test QUIET)
+        set(ADAI_QT_TEST_FOUND ${Qt5Test_FOUND})
+    endif()
+    if(BUILD_GUI AND NOT ADAI_QT_TEST_FOUND)
+        message(STATUS "Qt Test not found — the GUI widget tests will not be built")
+    endif()
 endif()
 
 # Enable ccache if available and requested

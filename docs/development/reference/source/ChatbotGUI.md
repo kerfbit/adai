@@ -2,8 +2,8 @@
 
 - **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp), [`src/ChatbotGuiLaunchEnv.{hpp,cpp}`](../../../../src/ChatbotGuiLaunchEnv.hpp) (TD-264)
 - **Built into:** `chatbot_gui_binary` (main + class + `Config.cpp`; links `adai_models`, `adai_nlp`, `adai_attention`, `adai_core`, Qt6 or Qt5 Widgets) and `chatbot_gui` (the launcher wrapper). Only when `BUILD_GUI=ON` (the default) and Qt is found; CMake prefers **Qt6**, falling back to Qt5
-- **Status tags:** class `beta` 0.7.0/0.8.0 (capped by TD-037, no Qt Test infrastructure); `ChatbotGuiLogic.hpp` `beta` 0.1.0; main and wrapper `stable` 1.0.0
-- **Tests:** [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (2 tests; strategy mapping only). The widget class is untested (TD-037)
+- **Status tags:** class `beta` 0.8.0/0.10.1 (widget tests since TD-037 closed, November 10, 2026); `ChatbotGuiLogic.hpp` `beta` 0.1.0; main and wrapper `stable` 1.0.0
+- **Tests:** [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (2 tests; strategy mapping only), and the widget itself in [`tests/chatbot_gui_widget_test.cpp`](../../../../tests/chatbot_gui_widget_test.cpp) → `chatbotGuiWidgetTests` (Qt Test, 18 tests; TD-037)
 - **User docs:** [chatbot-gui-guide.md](../../../operations/guides/chatbot-gui-guide.md), [GUI_QUICK_REFERENCE.md](../../../operations/guides/quick-reference/GUI_QUICK_REFERENCE.md), [CHATBOT_GUI_TROUBLESHOOTING.md](../../../operations/guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md), [CPP_WRAPPER_SOLUTION.md](../../../operations/guides/troubleshooting/CPP_WRAPPER_SOLUTION.md)
 - **Last traced against the code:** 2026-10-09
 
@@ -182,7 +182,8 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Wrapper forces Qt5 plugin path though CMake prefers Qt6; hardcoded x86_64 paths; overrides `LD_LIBRARY_PATH` order (§2) | Qt6 builds pointed at Qt5 plugins; non-x86_64 broken | By inspection | [TD-264](../../guides/TECHNICAL_DEBT.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
 | Different multi-turn prompt format from the server (§4) | Inconsistent model behaviour across clients | By inspection | [TD-265](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
 | Hardcoded 480-token context; load doesn't redisplay history; `--help` needs a display; no GPU (§3–4) | Minor | By inspection | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
-| Widget class untested | Already TD-037 | — | TD-037 |
+| `addMessage()` escapes text into HTML without converting line breaks, so multi-line messages are shown on one line | Replies with paragraphs, lists or code, loaded conversations and the welcome message display wrongly | **Verified** (widget test) | [TD-567](../../guides/TECHNICAL_DEBT.md#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) |
+| ~~Widget class untested~~ | — | **Fixed November 10, 2026**: Qt Test suite | [TD-037](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) |
 
 ## Addendum (October 25, 2026): Beam Width only for beam search (TD-261)
 
@@ -264,3 +265,12 @@ system message and all four messages, then continues in the same session.
 Not changed: `addMessage()` escapes text into HTML without converting line breaks, so a multi-line message (loaded or
 live) is shown on one line.
 
+## Addendum (November 10, 2026): widget tests (TD-037)
+
+`chatbotGuiWidgetTests` (`tests/chatbot_gui_widget_test.cpp`, Qt Test, offscreen) builds the real window against an
+in-process stand-in for `chatbot_api_server` and drives it: connection notices, sending by button and Enter, the
+controls disabled while a request runs, the generation settings sent only when changed, error and lost-session
+messages, Clear Chat's confirmation, Save and Load through the real file dialogs, and closing mid-request without
+waiting. The window's controls now have object names (`chatDisplay`, `inputField`, `sendButton`, `clearChatButton`,
+`clearInputButton`, `saveButton`, `loadButton`, `settingsPanel`, `strategyCombo` and the five setting spin boxes) for
+the tests to find them. `ChatbotGUI.cpp` is now 0.10.1.

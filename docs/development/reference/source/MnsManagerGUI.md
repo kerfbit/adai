@@ -2,8 +2,8 @@
 
 - **Files:** [`src/MnsManagerGUI.hpp`](../../../../src/MnsManagerGUI.hpp), [`src/MnsManagerGUI.cpp`](../../../../src/MnsManagerGUI.cpp), [`src/MnsManagerGUI_main.cpp`](../../../../src/MnsManagerGUI_main.cpp) (931 lines together)
 - **Built into:** `mns_manager_gui`, when `BUILD_GUI` (default `ON`) and Qt 5 or 6 are available, with `adai_mns` and httplib; built in the local `debug` build
-- **Status tags:** `MnsManagerGUI.{hpp,cpp}` `@adai-status: beta` ("capped by TD-037 — no Qt Test infrastructure"), `0.7.0`/`0.8.0`; `MnsManagerGUI_main.cpp` `stable`, `1.0.0`
-- **Tests:** none for the widget; its request bodies and JSON handling are tested through [MnsJsonHelpers](MnsJsonHelpers.md) (`mnsjsonhelpers_test.cpp`, `mns_manager_gui_test.cpp`)
+- **Status tags:** `MnsManagerGUI.{hpp,cpp}` `@adai-status: beta` ("capped by TD-452, TD-455"), `0.8.0`/`0.9.1`; `MnsManagerGUI_main.cpp` `stable`, `1.0.0`
+- **Tests:** the widget in [`tests/mns_manager_gui_widget_test.cpp`](../../../../tests/mns_manager_gui_widget_test.cpp) → `mnsManagerGuiWidgetTests` (Qt Test, 20 tests; TD-037); its request bodies and JSON handling through [MnsJsonHelpers](MnsJsonHelpers.md) (`mnsjsonhelpers_test.cpp`, `mns_manager_gui_test.cpp`)
 - **User guide:** [mns-manager-gui-guide.md](../../../operations/guides/mns-manager-gui-guide.md)
 - **Last traced against the code:** 2026-10-14
 
@@ -90,3 +90,14 @@ shows the `run-NN` MNS allocated. The **Run ID** field moved to the Set Candidat
 selected record's `run_id` and from Set Training's reply, which is the ID leaving `training` requires.
 `MnsManagerGUILiveTest.GuiTrainingWorkflow_UsesTheAllocatedRunId` runs these bodies against a real `mns_server`.
 `MnsManagerGUI.hpp` is now 0.8.0, `MnsManagerGUI.cpp` 0.9.0.
+
+## Addendum (November 10, 2026): widget tests (TD-037)
+
+`mnsManagerGuiWidgetTests` (`tests/mns_manager_gui_widget_test.cpp`, Qt Test, offscreen) builds the real window against
+an in-process stand-in for `mns_server` and drives every control: connect, refresh, both filters, model and role row
+selection, Set Training (with and without a new run), Set Candidate, Register, Promote, Retire and Delete with their
+confirmations, the warnings for a missing selection or field, a refused transition and a lost server. The controls now
+have object names (`serverUrl`, `connectButton`, `refreshButton`, `statusLabel`, `stateFilter`, `roleFilter`,
+`modelsTable`, `rolesTable`, the `reg*` fields, `registerButton`, `detailView`, `newRunCheck`, `runIdField`,
+`artifactField`, `promoteRoleField`, `promoteModelField`); the action buttons keep their stylesheet names and are found
+by label. `MnsManagerGUI.cpp` is now 0.9.1.

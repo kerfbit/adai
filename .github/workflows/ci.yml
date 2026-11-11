@@ -35,7 +35,8 @@ jobs:
           build-essential \
           clang \
           clang-tidy \
-          clang-format
+          clang-format \
+          qtbase5-dev
     
     - name: Set up compiler
       run: |

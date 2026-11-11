@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-037 — covered by chatbotguilogicTests)
+// @adai-status: beta        (tests: chatbotguilogicTests, and through the widget in chatbotGuiWidgetTests)
 // @adai-version: 0.3.0
-// @adai-reviewed: 2026-11-04
+// @adai-reviewed: 2026-11-10
 
 #include <string>
 #include <vector>

@@ -58,6 +58,11 @@ ctest -R "matrixTests" --output-on-failure
 
 Test binaries live in `build/<preset>/tests/`. Named after the component: `matrixTests`, `multiheadattentionTests`, `encoderblockTests`, `decoderblockTests`, `optimizerTests`, `tokenizer_test`, `layernormTests`, etc.
 
+GUI widget tests (TD-037) use Qt Test, built when the GUIs are (`qtbase5-dev` provides it) and run offscreen by
+`ctest`: `chatbotGuiWidgetTests`, `mnsManagerGuiWidgetTests`. Each drives the real window against an in-process stand-in
+server (`tests/qt_widget_test_support.hpp`); give new controls an object name for the tests to find them. To run one
+directly: `QT_QPA_PLATFORM=offscreen ./build/debug/tests/chatbotGuiWidgetTests`.
+
 For sanitizer testing: `./scripts/run_tests.sh --asan|--ubsan|--tsan|--coverage`
 
 ## Architecture
@@ -430,6 +435,7 @@ companion CLI wraps this API (matches `mns_cli`/`dataset_manager` not wrapping t
 - **Headers**: `#pragma once`, no implementation in headers except templates.
 - **Ownership**: `std::unique_ptr` / `std::shared_ptr`; no raw owning pointers.
 - **New component**: `src/Component.{cpp,hpp}` + `tests/component_test.cpp` + register in `src/CMakeLists.txt` and `tests/CMakeLists.txt`; new files start tagged `@adai-status: experimental`, `@adai-version: 0.1.0` (see below).
+- **Reference docs**: every code change updates the changed file's code-traced reference in `docs/development/reference/source/` in the same change, so the doc describes the code as it now is: its header (files, build, status tags, tests, last traced), its sections and its known-gaps table. An addendum can record what changed and why, but doesn't replace updating the earlier text (`ChatbotGUI.md` drifted that way: four fixes added addenda while §1–§6 kept describing removed code).
 - **Artifacts**: trained weights go in `training_sessions/` (gitignored); feature proposals in `docs/proposals/` (listed in its `README.md`).
 - **File status tag**: every in-scope file (`src/`, Android `src/main`, `tizen-metrics-app/js/`, operational `scripts/`) carries a header comment block — `@adai-status` (`experimental`/`beta`/`stable`/`deprecated`/`legacy`), `@adai-version` (per-file SemVer, `stable` requires `MAJOR >= 1`), `@adai-reviewed` (ISO date). See [file-status-standard.md](docs/development/guides/file-status-standard.md); validate with `./scripts/check_file_status.py --changed` and regenerate the dashboard with `./scripts/gen_status_report.py`.
 
@@ -581,3 +587,4 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-565 (LOW — code fix landed November 9, 2026) | Filed at the owner's request: new vocabularies reserve ids 0–19 for special tokens. The turn tokens keep 4–6, ids 7–19 are placeholder entries (`<reserved_7>`…) that act as unknowns (never encoded, decoded or generated) until a later special token, such as the reasoning plan's `<think>`, takes one without moving ordinary tokens or resizing a model; ordinary tokens start at 20 (`BPETokenizer::first_ordinary_id()`), vocabulary format v4 (`RESERVED_SPECIAL_IDS`). Older vocabularies keep their layout; a vocabulary of 20 or fewer ids has no block. |
 | TD-566 (MEDIUM — code fix landed November 10, 2026) | Filed November 10, 2026 from the ai-machine GPU test run: after a driver engine reset (`UR_RESULT_ERROR_DEVICE_LOST`) `ChatbotTrainer` tried every remaining sample and epoch, about 20 s of failures, and recorded an epoch with no updates as loss 0, which dashboards and MNS progress would show as perfect. **Fixed:** after a failed sample `GPUManager::device_usable()` checks the device, and an unusable one stops the pass (`GPUDeviceLostError`, no weight copy-back) so `trainer_service` starts a fresh process; an epoch that trains nothing fails the pass (`EpochTrainedNothingError`). Verified on ai-machine's Arc November 10, 2026: 5 device losses in a 40-pass soak, each pass stopped within 0.5 s and the device worked again in the next process; the v1 adapter (`SYCL_UR_USE_LEVEL_ZERO_V2=0`) hung instead, so v2 stays. The LeJEPA pass isn't covered. |
 | TD-537 | Filed October 17, 2026 (LOW, `VocabBuilderHelpers`, verified): the vocabulary loader reads legacy/CRLF files differently from the trainer (keeps leading spaces and `\r`, drops indented inputs, keeps unpaired texts), so the vocabulary is learned from slightly different text (**fixed in code November 8, 2026**: one parser, `DatasetRegistry::load_conversation_pairs()`; the plain loader strips `\r` and a BOM). See [VocabBuilderHelpers.md](docs/development/reference/source/VocabBuilderHelpers.md). |
+| TD-567 (LOW) | Filed November 10, 2026 while reviewing `chatbot_gui` for `stable` (verified with a widget test): `ChatbotGUI::addMessage()` puts escaped text into HTML without converting line breaks, so every multi-line message (replies with paragraphs, lists or code, loaded conversations, the welcome message) is shown on one line. Blocks the GUI's promotion; fix with `ChatbotGUI.md`'s re-trace. |

@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-11-04
+// @adai-status: beta        (widget tests: chatbotGuiWidgetTests)
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-11-10
 
 #include "ChatbotGUI.hpp"
 #include <QDateTime>
@@ -130,6 +130,7 @@ QWidget* ChatbotGUI::createChatArea() {
 
     // Chat display
     chatDisplay = new QTextEdit();
+    chatDisplay->setObjectName("chatDisplay");
     chatDisplay->setReadOnly(true);
     chatDisplay->setMinimumHeight(400);
 
@@ -139,8 +140,11 @@ QWidget* ChatbotGUI::createChatArea() {
     QHBoxLayout* buttonLayout = new QHBoxLayout();
 
     clearButton = new QPushButton("Clear Chat");
+    clearButton->setObjectName("clearChatButton");
     saveButton = new QPushButton("Save Conversation");
+    saveButton->setObjectName("saveButton");
     loadButton = new QPushButton("Load Conversation");
+    loadButton->setObjectName("loadButton");
 
     connect(clearButton, &QPushButton::clicked, this, &ChatbotGUI::onClearConversation);
     connect(saveButton, &QPushButton::clicked, this, &ChatbotGUI::onSaveConversation);
@@ -161,6 +165,7 @@ QWidget* ChatbotGUI::createInputArea() {
     QHBoxLayout* layout = new QHBoxLayout(widget);
 
     inputField = new QLineEdit();
+    inputField->setObjectName("inputField");
     inputField->setPlaceholderText("Type your message here...");
     inputField->setMinimumHeight(40);
 
@@ -174,11 +179,13 @@ QWidget* ChatbotGUI::createInputArea() {
     // matching its siblings saveButton/loadButton; this one has its own
     // member so setBusy() can disable it (TD-263).
     clearInputButton = new QPushButton("Clear");
+    clearInputButton->setObjectName("clearInputButton");
     clearInputButton->setMinimumWidth(80);
     clearInputButton->setMinimumHeight(40);
     clearInputButton->setToolTip("Clear conversation history");
 
     sendButton = new QPushButton("Send");
+    sendButton->setObjectName("sendButton");
     sendButton->setMinimumWidth(100);
     sendButton->setMinimumHeight(40);
 
@@ -240,6 +247,7 @@ QGroupBox* setting_group(const QString& title, QWidget* control, const QString& 
 QWidget* ChatbotGUI::createSettingsPanel() {
     using Limits = adai::GenerationLimits;
     settingsPanel = new QWidget();
+    settingsPanel->setObjectName("settingsPanel");
     QVBoxLayout* layout = new QVBoxLayout(settingsPanel);
 
     // Title
@@ -257,6 +265,7 @@ QWidget* ChatbotGUI::createSettingsPanel() {
 
     // Strategy selection; the order matches chatbot_gui::generation_strategy_for_index().
     strategyCombo = new QComboBox();
+    strategyCombo->setObjectName("strategyCombo");
     strategyCombo->addItems({"Server default", "Nucleus (Top-p)", "Top-k Sampling", "Greedy",
                              "Beam Search", "Sampling (Temperature)"});
     connect(strategyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -264,25 +273,30 @@ QWidget* ChatbotGUI::createSettingsPanel() {
     layout->addWidget(setting_group("Generation Strategy", strategyCombo, QString()));
 
     temperatureSpin = make_real_setting(Limits::kMinTemperature, Limits::kMaxTemperature);
+    temperatureSpin->setObjectName("temperatureSpin");
     connect(temperatureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             &ChatbotGUI::onTemperatureChanged);
     layout->addWidget(setting_group("Temperature", temperatureSpin, "Higher = more random"));
 
     topPSpin = make_real_setting(Limits::kMinTopP, Limits::kMaxTopP);
+    topPSpin->setObjectName("topPSpin");
     connect(topPSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             &ChatbotGUI::onTopPChanged);
     layout->addWidget(setting_group("Top-p (Nucleus)", topPSpin, "Probability mass cutoff"));
 
     topKSpin = make_int_setting(Limits::kMinTopK, Limits::kMaxTopK, 1);
+    topKSpin->setObjectName("topKSpin");
     connect(topKSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &ChatbotGUI::onTopKChanged);
     layout->addWidget(setting_group("Top-k", topKSpin, "Number of top tokens"));
 
     maxLengthSpin = make_int_setting(Limits::kMinMaxLength, Limits::kMaxMaxLength, 10);
+    maxLengthSpin->setObjectName("maxLengthSpin");
     connect(maxLengthSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
             &ChatbotGUI::onMaxLengthChanged);
     layout->addWidget(setting_group("Max Response Length", maxLengthSpin, "New tokens"));
 
     beamWidthSpin = make_int_setting(Limits::kMinBeamWidth, Limits::kMaxBeamWidth, 1);
+    beamWidthSpin->setObjectName("beamWidthSpin");
     connect(beamWidthSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
             &ChatbotGUI::onBeamWidthChanged);
     layout->addWidget(setting_group("Beam Width", beamWidthSpin, "Used in beam search"));
@@ -306,6 +320,7 @@ void ChatbotGUI::addMessage(const QString& sender, const QString& message, bool 
         bgColor = "#FFF3E0";
     }
 
+    // TODO: See TD-567 in TECHNICAL_DEBT.md - line breaks in `message` are lost: HTML shows a multi-line message on one line
     QString html =
         QString(
             "<div style='margin: 10px; padding: 10px; background-color: %1; border-radius: 8px;'>"

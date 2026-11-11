@@ -1,7 +1,7 @@
 #ifndef MNS_MANAGER_GUI_HPP
 #define MNS_MANAGER_GUI_HPP
 
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
+// @adai-status: beta        (capped by TD-452, TD-455 — see TECHNICAL_DEBT.md; widget tests: mnsManagerGuiWidgetTests)
 // @adai-version: 0.8.0
 // @adai-reviewed: 2026-11-10
 

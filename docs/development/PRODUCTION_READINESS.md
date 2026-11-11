@@ -191,11 +191,11 @@ None — every in-scope file carries a tag.
 | `src/ChatbotApiServerArgs.hpp` | beta | 0.11.0 | 2026-11-10 | — |
 | `src/ChatbotClient.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ChatbotClient.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/ChatbotGUI.cpp` | beta | 0.10.0 | 2026-11-04 | TD-037 |
-| `src/ChatbotGUI.hpp` | beta | 0.8.0 | 2026-11-04 | TD-037 |
+| `src/ChatbotGUI.cpp` | beta | 0.10.1 | 2026-11-10 | — |
+| `src/ChatbotGUI.hpp` | beta | 0.8.0 | 2026-11-10 | — |
 | `src/ChatbotGuiLaunchEnv.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ChatbotGuiLaunchEnv.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/ChatbotGuiLogic.hpp` | beta | 0.3.0 | 2026-11-04 | TD-037 |
+| `src/ChatbotGuiLogic.hpp` | beta | 0.3.0 | 2026-11-10 | — |
 | `src/ChatbotTrainer.cpp` | beta | 0.22.0 | 2026-11-10 | TD-039 |
 | `src/ChatbotTrainer.hpp` | beta | 0.17.0 | 2026-11-10 | TD-039 |
 | `src/ChildProcess.cpp` | beta | 0.8.0 | 2026-11-10 | — |
@@ -240,8 +240,8 @@ None — every in-scope file carries a tag.
 | `src/MetricsDatabase.cpp` | beta | 0.2.0 | 2026-11-10 | TD-477 |
 | `src/MnsCliCommands.cpp` | beta | 0.6.0 | 2026-11-10 | — |
 | `src/MnsCliCommands.hpp` | beta | 0.5.0 | 2026-11-10 | — |
-| `src/MnsManagerGUI.cpp` | beta | 0.8.0 | 2026-11-10 | TD-037 |
-| `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
+| `src/MnsManagerGUI.cpp` | beta | 0.9.1 | 2026-11-10 | TD-452 |
+| `src/MnsManagerGUI.hpp` | beta | 0.8.0 | 2026-11-10 | TD-452 |
 | `src/MnsServerArgs.cpp` | beta | 0.2.0 | 2026-11-10 | — |
 | `src/MnsServerArgs.hpp` | beta | 0.2.0 | 2026-11-10 | — |
 | `src/MultiHeadAttention.cpp` | beta | 0.13.3 | 2026-11-10 | TD-050 |

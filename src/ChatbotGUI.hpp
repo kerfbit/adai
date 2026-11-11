@@ -1,10 +1,9 @@
 #ifndef CHATBOT_GUI_HPP
 #define CHATBOT_GUI_HPP
 
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
+// @adai-status: beta        (widget tests: chatbotGuiWidgetTests)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-04
-
+// @adai-reviewed: 2026-11-10
 
 #include <QComboBox>
 #include <QDoubleSpinBox>

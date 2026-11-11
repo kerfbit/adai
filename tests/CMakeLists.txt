@@ -1446,6 +1446,52 @@ if(TARGET mns_manager_gui)
 endif()
 
 # ============================================================================
+# TD-037: Qt Test widget suites for the two GUIs
+#
+# Each builds the real window class against an in-process stand-in for its server
+# (tests/qt_widget_test_support.hpp), drives its widgets with QTest and checks what was sent and
+# shown. Built with the GUI binaries they cover, when Qt Test (part of qtbase) is found; run on the
+# offscreen platform so they need no display.
+# ============================================================================
+if(ADAI_QT_TEST_FOUND)
+    if(Qt6_FOUND)
+        set(_adai_qt_widget_libs Qt6::Widgets Qt6::Test)
+    else()
+        set(_adai_qt_widget_libs Qt5::Widgets Qt5::Test)
+    endif()
+    find_package(Threads)
+
+    if(TARGET chatbot_gui_binary)
+        add_executable(chatbotGuiWidgetTests
+            chatbot_gui_widget_test.cpp
+            ${CMAKE_SOURCE_DIR}/src/ChatbotGUI.cpp
+            ${CMAKE_SOURCE_DIR}/src/ChatbotClient.cpp
+            ${CMAKE_SOURCE_DIR}/src/ConversationFormat.cpp
+            ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp
+        )
+        set_target_properties(chatbotGuiWidgetTests PROPERTIES AUTOMOC ON)
+        target_include_directories(chatbotGuiWidgetTests PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external ${HTTPLIB_INCLUDE_DIR})
+        target_link_libraries(chatbotGuiWidgetTests ${_adai_qt_widget_libs} Threads::Threads)
+        add_test(NAME ChatbotGuiWidgetTests COMMAND chatbotGuiWidgetTests)
+        set_tests_properties(ChatbotGuiWidgetTests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
+    if(TARGET mns_manager_gui)
+        add_executable(mnsManagerGuiWidgetTests
+            mns_manager_gui_widget_test.cpp
+            ${CMAKE_SOURCE_DIR}/src/MnsManagerGUI.cpp
+        )
+        set_target_properties(mnsManagerGuiWidgetTests PROPERTIES AUTOMOC ON)
+        target_include_directories(mnsManagerGuiWidgetTests PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external ${HTTPLIB_INCLUDE_DIR})
+        target_link_libraries(mnsManagerGuiWidgetTests ${_adai_qt_widget_libs} Threads::Threads)
+        add_test(NAME MnsManagerGuiWidgetTests COMMAND mnsManagerGuiWidgetTests)
+        set_tests_properties(MnsManagerGuiWidgetTests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+endif()
+
+# ============================================================================
 # TD-049: tizen-metrics-app JS test suite
 #
 # tizen-metrics-app/js/{chart,navigation,app}.js had never had any automated test — this app

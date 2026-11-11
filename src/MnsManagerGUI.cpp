@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-037 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
+// @adai-status: beta        (capped by TD-452, TD-455 — see TECHNICAL_DEBT.md; widget tests: mnsManagerGuiWidgetTests)
+// @adai-version: 0.9.1
 // @adai-reviewed: 2026-11-10
 
 #include "MnsManagerGUI.hpp"
@@ -122,9 +122,11 @@ QWidget* MnsManagerGUI::createToolbar() {
 
     QLabel* lbl = new QLabel("Server:");
     urlField_ = new QLineEdit(QString::fromStdString(server_url_));
+    urlField_->setObjectName("serverUrl");
     urlField_->setMinimumWidth(250);
 
     connectBtn_ = new QPushButton("Connect");
+    connectBtn_->setObjectName("connectButton");
     connect(connectBtn_, &QPushButton::clicked, this, [this]() {
         server_url_ = urlField_->text().toStdString();
         parseUrl();
@@ -132,12 +134,14 @@ QWidget* MnsManagerGUI::createToolbar() {
     });
 
     QPushButton* refreshBtn = new QPushButton("Refresh");
+    refreshBtn->setObjectName("refreshButton");
     connect(refreshBtn, &QPushButton::clicked, this, [this]() {
         onRefreshModels();
         onRefreshRoles();
     });
 
     statusLabel_ = new QLabel("");
+    statusLabel_->setObjectName("statusLabel");
     statusLabel_->setMinimumWidth(200);
 
     lay->addWidget(lbl);
@@ -157,6 +161,7 @@ QWidget* MnsManagerGUI::createModelsTab() {
     QHBoxLayout* filterLay = new QHBoxLayout();
     filterLay->addWidget(new QLabel("State:"));
     stateFilter_ = new QComboBox();
+    stateFilter_->setObjectName("stateFilter");
     stateFilter_->addItems(
         {"(all)", "initializing", "training", "candidate", "production", "retired"});
     connect(stateFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -165,6 +170,7 @@ QWidget* MnsManagerGUI::createModelsTab() {
 
     filterLay->addWidget(new QLabel("Role:"));
     roleFilter_ = new QComboBox();
+    roleFilter_->setObjectName("roleFilter");
     roleFilter_->setEditable(true);
     // TODO: See TD-455 in TECHNICAL_DEBT.md - never populated from /roles; typed values aren't URL-encoded
     roleFilter_->addItem("(all)");
@@ -176,6 +182,7 @@ QWidget* MnsManagerGUI::createModelsTab() {
 
     // Table
     modelsTable_ = new QTableWidget(0, 5);
+    modelsTable_->setObjectName("modelsTable");
     modelsTable_->setHorizontalHeaderLabels({"Name", "Role", "State", "Model ID", "Updated"});
     modelsTable_->horizontalHeader()->setStretchLastSection(true);
     modelsTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -194,6 +201,7 @@ QWidget* MnsManagerGUI::createRolesTab() {
     QVBoxLayout* lay = new QVBoxLayout(w);
 
     rolesTable_ = new QTableWidget(0, 2);
+    rolesTable_->setObjectName("rolesTable");
     rolesTable_->setHorizontalHeaderLabels({"Role", "Production Model"});
     rolesTable_->horizontalHeader()->setStretchLastSection(true);
     rolesTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -221,10 +229,12 @@ QWidget* MnsManagerGUI::createRegisterTab() {
     };
 
     regName_ = new QLineEdit();
+    regName_->setObjectName("regName");
     regName_->setPlaceholderText("e.g. adai-chatbot-v3");
     addField("Model Name:", regName_);
 
     regRole_ = new QLineEdit();
+    regRole_->setObjectName("regRole");
     regRole_->setPlaceholderText("e.g. chatbot");
     addField("Role:", regRole_);
 
@@ -247,18 +257,26 @@ QWidget* MnsManagerGUI::createRegisterTab() {
 
     // TODO: See TD-455 in TECHNICAL_DEBT.md - defaults match neither config (immutable architecture); layer minimum 1 blocks standalone kinds
     regDModel_ = addSpin("d_model:", 128, 16, 4096);
+    regDModel_->setObjectName("regDModel");
     regHeads_ = addSpin("num_heads:", 4, 1, 64);
+    regHeads_->setObjectName("regHeads");
     regDff_ = addSpin("d_ff:", 512, 16, 16384);
+    regDff_->setObjectName("regDff");
     regEncLayers_ = addSpin("encoder_layers:", 6, 1, 48);
+    regEncLayers_->setObjectName("regEncLayers");
     regDecLayers_ = addSpin("decoder_layers:", 6, 1, 48);
+    regDecLayers_->setObjectName("regDecLayers");
     regMaxSeq_ = addSpin("max_seq_length:", 1024, 32, 8192);
+    regMaxSeq_->setObjectName("regMaxSeq");
     lay->addWidget(archGroup);
 
     regTags_ = new QLineEdit();
+    regTags_->setObjectName("regTags");
     regTags_->setPlaceholderText("key1=val1, key2=val2");
     addField("Tags:", regTags_);
 
     QPushButton* regBtn = new QPushButton("Register Model");
+    regBtn->setObjectName("registerButton");
     regBtn->setMinimumHeight(36);
     connect(regBtn, &QPushButton::clicked, this, &MnsManagerGUI::onRegisterModel);
     lay->addWidget(regBtn);
@@ -280,6 +298,7 @@ QWidget* MnsManagerGUI::createDetailPanel() {
     lay->addWidget(detailLabel);
 
     detailView_ = new QTextEdit();
+    detailView_->setObjectName("detailView");
     detailView_->setReadOnly(true);
     detailView_->setFont(QFont("Monospace", 10));
     lay->addWidget(detailView_);
@@ -292,6 +311,7 @@ QWidget* MnsManagerGUI::createDetailPanel() {
     // instead of continuing the current one.
     QHBoxLayout* trainRow = new QHBoxLayout();
     actionNewRun_ = new QCheckBox("Start a new run");
+    actionNewRun_->setObjectName("newRunCheck");
     QPushButton* trainBtn = new QPushButton("Set Training");
     trainBtn->setObjectName("actionBtn");
     connect(trainBtn, &QPushButton::clicked, this, &MnsManagerGUI::onSetTraining);
@@ -304,8 +324,10 @@ QWidget* MnsManagerGUI::createDetailPanel() {
     // selected record and from Set Training's reply.
     QHBoxLayout* candRow = new QHBoxLayout();
     actionRunId_ = new QLineEdit();
+    actionRunId_->setObjectName("runIdField");
     actionRunId_->setPlaceholderText("run-NN");
     actionArtifactPath_ = new QLineEdit();
+    actionArtifactPath_->setObjectName("artifactField");
     actionArtifactPath_->setPlaceholderText("/path/to/weights.bin");
     QPushButton* candBtn = new QPushButton("Set Candidate");
     candBtn->setObjectName("actionBtn");
@@ -320,8 +342,10 @@ QWidget* MnsManagerGUI::createDetailPanel() {
     // Promote
     QHBoxLayout* promRow = new QHBoxLayout();
     actionPromoteRole_ = new QLineEdit();
+    actionPromoteRole_->setObjectName("promoteRoleField");
     actionPromoteRole_->setPlaceholderText("role");
     actionPromoteModel_ = new QLineEdit();
+    actionPromoteModel_->setObjectName("promoteModelField");
     actionPromoteModel_->setPlaceholderText("model-name");
     QPushButton* promBtn = new QPushButton("Promote");
     promBtn->setObjectName("promoteBtn");

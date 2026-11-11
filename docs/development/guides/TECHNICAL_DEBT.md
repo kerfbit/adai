@@ -18,6 +18,10 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 10, 2026:** Filed [TD-567](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) (LOW, verified) while reviewing `chatbot_gui` for `stable`: the chat pane
+shows every multi-line message on one line, because `addMessage()` puts the escaped text into HTML without turning line
+breaks into `<br>`. It blocks the GUI's promotion.
+
 **November 10, 2026:** Filed and fixed [TD-566](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
 (MEDIUM) from the ai-machine GPU test run: after a driver engine reset the trainer tried every remaining sample and epoch, and
 recorded an epoch with no updates as loss 0. A failed sample on an unusable device now stops the pass, and an epoch that trains
@@ -1658,9 +1662,8 @@ compile-verified only, since this sandbox can't install/run that module's debug 
 all (`wear-sdk` shared-library requirement, no Wear-capable device available here) — what's left
 is the `wearcomplications` services (untouched, a distinct area) and real-device verification of
 every `opsdashboard` piece once a Wear-capable device is available)
-and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) — the logic-extraction half is
-done (39 new tests across `MnsJsonHelpers.hpp`/`ChatbotGuiLogic.hpp`); only full widget-level
-testing (would need revisiting the QTest decision) remains, not currently planned.
+and [TD-037](../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) — closed
+November 10, 2026: Qt Test widget suites for both GUIs, after the earlier logic extraction.
 
 **Tier 5 — Resolved except hardware validation:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
 (4-6h remaining). The CPU-side root-cause step is done (a real incremental-vs-full-recompute
@@ -2282,7 +2285,6 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
-  - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
   - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
@@ -2627,7 +2629,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-564: Byte-Level ASCII Was the Default Tokenizer Mode](#td-564-byte-level-ascii-was-the-default-tokenizer-mode)
   - [TD-565: Vocabularies Have No Room for Future Special Tokens](#td-565-vocabularies-have-no-room-for-future-special-tokens)
   - [TD-566: Training Keeps Going After the GPU Is Lost, and Reports an Epoch That Trained Nothing as Loss 0](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
-- [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+  - [TD-567: `chatbot_gui` Shows Multi-Line Messages on One Line](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line)
+- [Resolved Items](#resolved-items) (217 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -3139,79 +3142,6 @@ Evaluation:
 - Test on narrative coherence tasks
 - Measure improvement in multi-turn conversation quality
 - Compare perplexity on FIM vs standard test sets
-
----
-
-### TD-037: No Qt Test Infrastructure for GUI Classes
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open (logic-extraction path adopted; widget-level testing still not attempted) | GUI / Testing | September 7, 2026 | 8-12 hours |
-
-Description:
-`ChatbotGUI.{cpp,hpp}` and `MnsManagerGUI.{cpp,hpp}` have no automated coverage, and this repo
-has no QTest (or any Qt-aware test) infrastructure at all — every other test in `tests/` is a
-plain GTest with no Qt event loop. Real widget behavior is hard to test without one; the more
-tractable near-term step is separating non-widget logic (state transitions, signal/slot wiring
-decisions, data formatting) out of the widget classes into plain C++ that GTest can already
-exercise, deferring full widget testing until QTest is actually adopted.
-
-**Update (September 13, 2026):** picked the logic-extraction path over adopting QTest — this
-entry's own Description already called that out as the more tractable near-term step, so this
-wasn't treated as an open question needing a separate decision. Also found and closed a real gap
-along the way: `MnsJsonHelpers.hpp` (used by `MnsManagerGUI` for JSON parsing/formatting and URL
-parsing) was *already* plain, Qt-free, GTest-exercisable code — including two real bug fixes in
-its own history (TD-068, TD-102) — yet had zero tests of its own despite being tagged `stable`.
-
-- Added `tests/mnsjsonhelpers_test.cpp` (37 tests, `MnsJsonHelpersTests` in `ctest`): full coverage
-  of `find_string_end`, `json_value`, `json_array_objects` (including the TD-068 brace-desync
-  regression), `json_escape`, `json_pretty` (including the TD-102 escaped-backslash regression),
-  and `ParsedUrl::from`.
-- Extracted two more pieces of real logic that were previously inline in `MnsManagerGUI`'s slots,
-  into new functions in `MnsJsonHelpers.hpp`, each with its own tests: `parse_tags()` (the
-  "Register" tab's comma-separated `key=value` tags field, extracted verbatim from
-  `onRegisterModel()`) and `build_register_model_body()`/`build_set_candidate_body()` (the
-  `POST /models` and `PUT /models/{name}/state` request bodies `onRegisterModel()`/
-  `onSetCandidate()` used to build inline). Verified via revert-confirm-fail: temporarily broke
-  the tags-joining comma logic and confirmed the new test caught it before restoring.
-- Extracted `ChatbotGUI::onStrategyChanged()`'s combo-box-index-to-strategy-name switch statement
-  into a new `src/ChatbotGuiLogic.hpp` (`generation_strategy_for_index()`), with its own
-  `tests/chatbotguilogic_test.cpp` (2 tests, `ChatbotGuiLogicTests` in `ctest`) covering every
-  combo box index plus the out-of-range fallback.
-- Confirmed both `chatbot_gui`/`mns_manager_gui` binaries still build and link cleanly against the
-  refactored call sites.
-- `MnsJsonHelpers.hpp` bumped 1.0.1 → 1.1.0 (stays `stable`); `ChatbotGuiLogic.hpp` is a new file,
-  tagged `beta` from the start (100% branch coverage). `ChatbotGUI.cpp`/`MnsManagerGUI.cpp` stay
-  `beta` (still capped — the widgets themselves remain untested) but their status comments now
-  note what's covered.
-
-Action Items:
-
-- [x] Decide whether to adopt QTest (`Qt::Test` component, `QTEST_MAIN`) as a second test
-  framework alongside GTest, or to keep pushing logic out of the widget classes instead — the
-  latter, per this entry's own Description.
-- [x] Extract testable non-widget logic from `ChatbotGUI`/`MnsManagerGUI` into plain classes — done
-  for the highest-value pieces (see the Update above): URL/JSON parsing, the tags mini-parser, two
-  request-body builders, and the strategy-index mapping. `onSetTraining`/`onPromote`/`onRetire`/
-  `onDelete`'s own request bodies are one-or-zero-field string literals with no real logic worth
-  extracting on their own.
-- [x] Add tests for the extracted logic — done (39 new tests total across two new test files).
-- [ ] Full widget-level testing (button clicks, layout, signal/slot wiring under a real Qt event
-  loop) remains untested and would need the QTest framework decision revisited — deliberately not
-  pursued this pass, since the logic-extraction path already captured the highest-value, lowest-risk
-  coverage available without it.
-
-Files to Modify:
-
-- `src/ChatbotGUI.cpp` / `src/ChatbotGUI.hpp` — done (see Update above); the widgets themselves
-  (button clicks, layout) remain untested.
-- `src/MnsManagerGUI.cpp` / `src/MnsManagerGUI.hpp` — done (see Update above); same widget-level
-  caveat.
-- `src/MnsJsonHelpers.hpp` — done (tested, gained `parse_tags`/`build_register_model_body`/
-  `build_set_candidate_body`).
-- `src/ChatbotGuiLogic.hpp` — new file, done.
-- `tests/CMakeLists.txt` — done (`mnsjsonhelpersTests`, `chatbotguilogicTests` registered); no
-  QTest integration needed, per the Decision above.
 
 ---
 
@@ -14478,7 +14408,7 @@ model fills that field from the record's `run_id`. Verified against a real `mns_
 in its order (`MnsManagerGUILiveTest.GuiTrainingWorkflow_UsesTheAllocatedRunId`): training → `run-01`, candidate
 with the record's run ID → 200, training with a new run → `run-02`, and without → still `run-02`. With the old body
 the new-run step stayed at `run-01`, and the two new `BuildSetTrainingBodyTest` tests failed. The widget wiring itself
-has no automated test (TD-037); the GUI builds and its startup smoke test passes.
+is covered by `mnsManagerGuiWidgetTests` since TD-037 closed (November 10, 2026).
 
 Location in code: `src/MnsManagerGUI.cpp` (`setupDetailPanel()`'s action rows, `onSetTraining()`, `onModelSelected()`),
 `src/MnsJsonHelpers.hpp` (`build_set_training_body()`).
@@ -19260,9 +19190,45 @@ Location in code: `src/ChatbotTrainer.{hpp,cpp}`, `src/gpu/GPUUtils.hpp`, `src/g
 
 ---
 
+### TD-567: `chatbot_gui` Shows Multi-Line Messages on One Line
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / GUI | November 10, 2026 | 1 hour |
+
+Description:
+Found while reviewing `ChatbotGUI` for promotion to `stable` (first noticed, not filed, in TD-266's fix). `addMessage()` puts
+`message.toHtmlEscaped()` inside an HTML `<span>` and appends it to the chat pane, and HTML collapses line breaks into
+spaces. Every multi-line message is shown on one line: a model reply with paragraphs, a list or code, a loaded
+conversation's messages (TD-266), and the GUI's own two-line welcome message. Verified with a temporary widget test against
+the in-process stand-in server: a reply of `line one\nline two` showed as `line one line two`. Only the display is affected;
+the server keeps the text as sent, and Save writes the server's copy.
+
+Action Items:
+
+- [ ] Show line breaks: after escaping, turn `\n` into `<br>` (or give the message a `white-space: pre-wrap` style, which
+  also keeps runs of spaces in code).
+- [ ] Add a `chatbotGuiWidgetTests` case for a multi-line reply and a loaded multi-line message.
+- [ ] Update [ChatbotGUI.md](../reference/source/ChatbotGUI.md) in the same change (CLAUDE.md, "Reference docs"): its
+  header and §1–§6 still describe the pre-TD-260 class, which loaded the model itself, and its gaps table lists fixed
+  items as open.
+
+This blocks promoting `ChatbotGUI.{hpp,cpp}` to `stable`; the rest of the review found it ready (widget tests, no other
+open gap, user docs current).
+
+Location in code: `src/ChatbotGUI.cpp` (`addMessage()`); tagged `TODO: See TD-567`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp`
+- `tests/chatbot_gui_widget_test.cpp`
+- `docs/development/reference/source/ChatbotGUI.md`
+
+---
+
 ## Resolved Items
 
-196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+217 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

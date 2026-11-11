@@ -4,6 +4,110 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-037: No Qt Test Infrastructure for GUI Classes
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 10, 2026 | `src/ChatbotGUI.{hpp,cpp}`, `src/MnsManagerGUI.{hpp,cpp}`, `CMakeLists.txt`, `tests/` | Qt Test adopted: widget suites for both GUIs (`chatbotGuiWidgetTests`, `mnsManagerGuiWidgetTests`), run offscreen by `ctest` |
+
+Description:
+`ChatbotGUI.{cpp,hpp}` and `MnsManagerGUI.{cpp,hpp}` have no automated coverage, and this repo
+has no QTest (or any Qt-aware test) infrastructure at all — every other test in `tests/` is a
+plain GTest with no Qt event loop. Real widget behavior is hard to test without one; the more
+tractable near-term step is separating non-widget logic (state transitions, signal/slot wiring
+decisions, data formatting) out of the widget classes into plain C++ that GTest can already
+exercise, deferring full widget testing until QTest is actually adopted.
+
+**Update (September 13, 2026):** picked the logic-extraction path over adopting QTest — this
+entry's own Description already called that out as the more tractable near-term step, so this
+wasn't treated as an open question needing a separate decision. Also found and closed a real gap
+along the way: `MnsJsonHelpers.hpp` (used by `MnsManagerGUI` for JSON parsing/formatting and URL
+parsing) was *already* plain, Qt-free, GTest-exercisable code — including two real bug fixes in
+its own history (TD-068, TD-102) — yet had zero tests of its own despite being tagged `stable`.
+
+- Added `tests/mnsjsonhelpers_test.cpp` (37 tests, `MnsJsonHelpersTests` in `ctest`): full coverage
+  of `find_string_end`, `json_value`, `json_array_objects` (including the TD-068 brace-desync
+  regression), `json_escape`, `json_pretty` (including the TD-102 escaped-backslash regression),
+  and `ParsedUrl::from`.
+- Extracted two more pieces of real logic that were previously inline in `MnsManagerGUI`'s slots,
+  into new functions in `MnsJsonHelpers.hpp`, each with its own tests: `parse_tags()` (the
+  "Register" tab's comma-separated `key=value` tags field, extracted verbatim from
+  `onRegisterModel()`) and `build_register_model_body()`/`build_set_candidate_body()` (the
+  `POST /models` and `PUT /models/{name}/state` request bodies `onRegisterModel()`/
+  `onSetCandidate()` used to build inline). Verified via revert-confirm-fail: temporarily broke
+  the tags-joining comma logic and confirmed the new test caught it before restoring.
+- Extracted `ChatbotGUI::onStrategyChanged()`'s combo-box-index-to-strategy-name switch statement
+  into a new `src/ChatbotGuiLogic.hpp` (`generation_strategy_for_index()`), with its own
+  `tests/chatbotguilogic_test.cpp` (2 tests, `ChatbotGuiLogicTests` in `ctest`) covering every
+  combo box index plus the out-of-range fallback.
+- Confirmed both `chatbot_gui`/`mns_manager_gui` binaries still build and link cleanly against the
+  refactored call sites.
+- `MnsJsonHelpers.hpp` bumped 1.0.1 → 1.1.0 (stays `stable`); `ChatbotGuiLogic.hpp` is a new file,
+  tagged `beta` from the start (100% branch coverage). `ChatbotGUI.cpp`/`MnsManagerGUI.cpp` stay
+  `beta` (still capped — the widgets themselves remain untested) but their status comments now
+  note what's covered.
+
+Action Items:
+
+- [x] Decide whether to adopt QTest (`Qt::Test` component, `QTEST_MAIN`) as a second test
+  framework alongside GTest, or to keep pushing logic out of the widget classes instead — the
+  latter, per this entry's own Description.
+- [x] Extract testable non-widget logic from `ChatbotGUI`/`MnsManagerGUI` into plain classes — done
+  for the highest-value pieces (see the Update above): URL/JSON parsing, the tags mini-parser, two
+  request-body builders, and the strategy-index mapping. `onSetTraining`/`onPromote`/`onRetire`/
+  `onDelete`'s own request bodies are one-or-zero-field string literals with no real logic worth
+  extracting on their own.
+- [x] Add tests for the extracted logic — done (39 new tests total across two new test files).
+- [x] Full widget-level testing (button clicks, layout, signal/slot wiring under a real Qt event
+  loop) — done November 10, 2026 with Qt Test (see the Resolution below).
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp` / `src/ChatbotGUI.hpp` — done (see Update above); the widgets themselves
+  (button clicks, layout) remain untested.
+- `src/MnsManagerGUI.cpp` / `src/MnsManagerGUI.hpp` — done (see Update above); same widget-level
+  caveat.
+- `src/MnsJsonHelpers.hpp` — done (tested, gained `parse_tags`/`build_register_model_body`/
+  `build_set_candidate_body`).
+- `src/ChatbotGuiLogic.hpp` — new file, done.
+- `tests/CMakeLists.txt` — done (`mnsjsonhelpersTests`, `chatbotguilogicTests` registered); no
+  QTest integration needed, per the Decision above.
+
+**Resolution (November 10, 2026): Qt Test adopted for the widgets.** Owner request: adopt QTest and test the widgets
+themselves, closing this item.
+
+- **Build.** The top-level `CMakeLists.txt` finds Qt's `Test` component beside `Widgets` (`ADAI_QT_TEST_FOUND`); it
+  ships in the same `qtbase5-dev`/`qt6-base-dev` package, and the GUIs don't depend on it. `tests/CMakeLists.txt` builds
+  `chatbotGuiWidgetTests` and `mnsManagerGuiWidgetTests` (`QTEST_MAIN`, AUTOMOC, the real `ChatbotGUI.cpp`/
+  `MnsManagerGUI.cpp`) whenever their GUI binary is built, and `ctest` runs them with `QT_QPA_PLATFORM=offscreen`, so no
+  display is needed. CI's Linux job now installs `qtbase5-dev`, so the GUIs and both suites build and run there too.
+- **Harness** (`tests/qt_widget_test_support.hpp`). Each test builds the real window against an in-process
+  `httplib` stand-in for its server (`RecordingServer`: records every request, answers per route), drives the widgets
+  with `QTest` (mouse clicks on buttons, table cells and check boxes; typing; Enter; arrow keys on spin boxes; combo
+  selection) and answers modal dialogs (`QMessageBox`, `QFileDialog`) from a timer (`DialogAnswerer`), since the GUIs
+  open them with blocking static calls. Widgets are found by object name, which `ChatbotGUI`/`MnsManagerGUI` now set on
+  every control the tests use; buttons whose object names are stylesheet selectors (`#actionBtn`, `#promoteBtn`,
+  `#dangerBtn`) are found by label.
+- **`chatbotGuiWidgetTests` (18 tests):** connection notices (connected, unreachable, untrained model, invalid URL
+  disabling input), sending by button and by Enter with the session kept, controls disabled and "Generating..." while a
+  request runs on the worker (TD-263), blank input ignored, only settings moved off "server default" sent (TD-254),
+  a server error and a lost session shown as system messages (TD-255/TD-232), Clear Chat asking first, Save writing the
+  server's export through the file dialog and refusing before any message, Load importing a file and showing the
+  server's copy (TD-266) or rejecting an empty file, and closing the window mid-request not waiting for it.
+- **`mnsManagerGuiWidgetTests` (20 tests):** startup tables and status, Disconnected, Connect to a typed URL, Refresh,
+  state/role filters' queries, model and role row selection filling the detail and action fields, every action without
+  a selection warning and sending nothing, Set Training continuing or starting a run and showing the allocated run ID
+  (TD-454), Set Candidate's body, a refused transition's error dialog, a lost server, Register's body and its
+  missing-field warning, Promote, Retire's confirmation (No sends nothing) and Delete clearing the detail and selection.
+- **Verified:** both suites pass, and 20 repeats of each under parallel load passed. Breaking real wiring was caught:
+  disconnecting Set Training or Promote, not filling the run ID from the selected record, not sending on Enter, not
+  disabling the settings while busy, and not cancelling the request when the window closes each failed the tests
+  covering them (the last took 30 s to close instead of under 5 s).
+
+Files Modified: `CMakeLists.txt`, `tests/CMakeLists.txt`, `.github/workflows/ci.yml`, `src/ChatbotGUI.{hpp,cpp}`,
+`src/MnsManagerGUI.{hpp,cpp}` (object names), new `tests/qt_widget_test_support.hpp`,
+`tests/chatbot_gui_widget_test.cpp`, `tests/mns_manager_gui_widget_test.cpp`.
+
 ### TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure
 
 | Resolution Date | Component | Resolved By |
