@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (widget tests: mnsManagerGuiWidgetTests)
-// @adai-version: 0.9.1
+// @adai-status: stable        (widget tests: mnsManagerGuiWidgetTests)
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-11
 
 #include <QCheckBox>

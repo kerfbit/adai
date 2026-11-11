@@ -2,7 +2,7 @@
 
 - **Files:** [`src/MnsManagerGUI.hpp`](../../../../src/MnsManagerGUI.hpp) (181 lines), [`src/MnsManagerGUI.cpp`](../../../../src/MnsManagerGUI.cpp) (1,108), [`src/MnsManagerGUI_main.cpp`](../../../../src/MnsManagerGUI_main.cpp) (74)
 - **Built into:** `mns_manager_gui` (with `MnsCliCommands.cpp`, `Config.cpp`, `adai_mns`, `adai_core`, httplib and nlohmann/json), when `BUILD_GUI` (default `ON`) and Qt 5 or 6 are available; built in the local `debug` build
-- **Status tags:** `MnsManagerGUI.hpp` `beta` 0.9.1, `MnsManagerGUI.cpp` `beta` 0.11.0; `MnsManagerGUI_main.cpp` `stable` 1.1.0
+- **Status tags:** `MnsManagerGUI.{hpp,cpp}` `stable` 1.0.0 (promoted November 11, 2026); `MnsManagerGUI_main.cpp` `stable` 1.1.0
 - **Tests:** [`tests/mns_manager_gui_widget_test.cpp`](../../../../tests/mns_manager_gui_widget_test.cpp) → `mnsManagerGuiWidgetTests` (Qt Test, 36 tests, the real window against an in-process server); its JSON helpers in [MnsJsonHelpers](MnsJsonHelpers.md) (`mnsjsonhelpersTests`, `mnsManagerGuiTests`); `SmokeTests_mns_manager_gui_main` (the arguments)
 - **User guide:** [mns-manager-gui-guide.md](../../../operations/guides/mns-manager-gui-guide.md)
 - **Last traced against the code:** 2026-11-11
@@ -137,3 +137,6 @@ None open. For reference, fixed:
   for missing values and unknown arguments, records loaded on any change of row, refills keeping the selected model
   highlighted, Refresh reloading the selected record, the unused `QSpinBox` style removed. This document was re-traced at
   the same time.
+- **November 11, 2026:** `MnsManagerGUI.{hpp,cpp}` promoted to `stable` 1.0.0 after the review against the file-status
+  standard: widget tests (36) and the main-program smoke test, no open gap once TD-568 was fixed, user and reference docs
+  current, shipped as `mns_manager_gui`.
