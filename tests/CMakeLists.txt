@@ -1301,6 +1301,21 @@ target_link_libraries(childProcessTests
 )
 add_test(NAME ChildProcessTests COMMAND childProcessTests)
 
+# TD-569: the training pass's progress heartbeat and trainer_service's stall-aware wait for a pass,
+# against real child processes (POSIX; the heartbeat tests run everywhere).
+add_executable(passHeartbeatTests
+    pass_heartbeat_test.cpp
+    ../src/ChildProcess.cpp
+    ../src/PassSupervision.cpp
+)
+target_include_directories(passHeartbeatTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(passHeartbeatTests
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+)
+add_test(NAME PassHeartbeatTests COMMAND passHeartbeatTests)
+
 # IncrementalTrainer × TrainerControlState integration — proves
 # should_auto_save()/cleanup_old_sessions() actually prefer an attached
 # control state's live-tunable values over the config-file ones, via the

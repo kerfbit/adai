@@ -1,147 +1,122 @@
 # `TrainerServiceMain` — Source File Reference
 
-- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (263 lines)
+- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (309 lines)
 - **Binary:** `trainer_service` (admin API proxy on 8084, opt-in); deployed by [`scripts/adai-trainer.service`](../../../../scripts/adai-trainer.service)
-- **Uses:** [`ChildProcess`](ChildProcess.md), [`TrainerServiceControlState`](TrainerServiceControlState.md), `TrainerServiceProxy`, `IncrementalTrainerArgs` ([IncrementalTrainerArgs.md](IncrementalTrainerArgs.md)), `Config`, `Logger`
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.3.0`, `@adai-reviewed: 2026-10-19`
-- **Tests:** none for `main()` itself; the proxy (`trainerServiceProxyTests`, 18), `ChildProcess`, and the exit-code classification and backoff helpers (`incrementalTrainerArgsTests`) and `ChildProcess` have their own. TD-172 records an end-to-end local verification
-- **Last traced against the code:** 2026-10-19
+- **Uses:** [`ChildProcess`](ChildProcess.md), [`PassSupervision`/`PassHeartbeat`](PassHeartbeat.md) (TD-569), [`TrainerServiceControlState`](TrainerServiceControlState.md), [`TrainerServiceProxy`](TrainerServiceProxy.md), [`IncrementalTrainerArgs`](IncrementalTrainerArgs.md), `Config`, `Logger`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.12.0`, `@adai-reviewed: 2026-11-11`
+- **Tests:** no test runs `main()` itself. Its pieces have their own tests: the wait for a pass, with the stall check, against real child processes (`passHeartbeatTests`, TD-569); the proxy (`trainerServiceProxyTests`); `ChildProcess` (`childProcessTests`); the argument parser, the pass command line, exit-code classification and backoff (`incrementalTrainerArgsTests`); `SIGHUP` handling of the real binary (`sighupTests`)
+- **Last traced against the code:** 2026-11-11
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `trainer_service` binary next to a stub `incremental_trainer`
-> script, with the admin proxy enabled.
+> script.
 
 ---
 
 ## 1. What this file is
 
 The TD-172 process supervisor that replaced `incremental_trainer serve`. It never links the model or GPU libraries; every training pass runs in a
-child process.
+child process, so a GPU-driver crash ends only that pass.
 
-1. Parse `incremental_trainer`'s global flags (`--config`, `--model`, `--gpu-strategy`; others ignored, TD-403), load `config.trainer.conf`, initialize
-   the logger at INFO (TD-431), create the control state, install SIGTERM/SIGINT handlers that only set `stop_requested` (no SIGHUP handler, TD-283).
-2. Resolve the child binary: `incremental_trainer` next to `argv[0]` if it has a directory, else a `PATH` lookup.
-3. Build the child command once: `incremental_trainer [--config …] [--model …] [--gpu-strategy …] --foreground --admin-port TRAINER_CHILD_ADMIN_PORT resume`.
-4. If `TRAINER_ADMIN_ENABLED`, start `TrainerServiceProxy` on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` in a thread (a bind failure is logged and ignored).
-5. Loop until `stop_requested`:
-   - paused → `interruptible_sleep(45)`;
-   - launch the child (a launch failure sleeps 45 s and retries); record launch time, PID; point the proxy at the child port;
-   - poll every 200 ms; on a stop request, `ChildProcess::stop_and_wait(10 s)` (SIGTERM, then a force kill), well inside the unit's `TimeoutStopSec=30`;
-   - record exit time and code, and classify it with `classify_pass_exit()` (TD-523):
-     - **0, trained** → relaunch immediately (more work may be pending);
+1. **Arguments** (`parse_trainer_service_args()`, TD-557): `--config`, `--model`, `--gpu-strategy`, `--objective=…`, `--dataset-kind`. `--help`/`-h`
+   prints the usage and exits 0. A flag error, a positional argument, or a flag `trainer_service` sets on its passes (`--foreground`, `--admin-port`,
+   `--log-file`, `--heartbeat-file`) prints the error and the usage and exits 1.
+2. **Start-up:** load `config.trainer.conf`, initialize the logger with `LOG_LEVEL` and `LOG_FILE_PATH` (TD-431), run `validate_or_exit()` (TD-288),
+   create the control state, ignore `SIGHUP` (TD-283), and install SIGTERM/SIGINT handlers that only set `stop_requested`.
+3. **The pass command,** built once by `trainer_service_child_argv()`: the `incremental_trainer` beside this executable (`sibling_executable_path()`,
+   TD-524), its `--config`/`--model`/`--gpu-strategy` when given, always `--objective=<o>` and `--dataset-kind <kind>` (TD-403), `--log-file
+   <LOG_FILE_PATH with .pass>` when `LOG_FILE_PATH` is set (TD-431), `--heartbeat-file <SESSION_DIR>/trainer_service_pass.heartbeat` when
+   `TRAINER_PASS_STALL_MINUTES` is above 0 (TD-569), then `--foreground [--admin-port TRAINER_CHILD_ADMIN_PORT] resume` (the port only with
+   `TRAINER_ADMIN_ENABLED`, TD-524). It logs the stall limit, or a warning when it is 0.
+4. **Admin proxy:** with `TRAINER_ADMIN_ENABLED`, `TrainerServiceProxy` runs on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` in a thread (a bind failure is
+   logged and the service carries on without it). Idle `GET /admin/config` reports the config file's tunables (TD-525).
+5. **The loop,** until `stop_requested`:
+   - paused (`/admin/pause`) → `interruptible_sleep(45)`;
+   - launch the pass. A launch failure (TD-278) counts as a failure and backs off (below) without counting a pass;
+   - record the launch time and PID, point the proxy at the pass's port, and wait with `wait_for_pass()` (`PassSupervision.cpp`). It returns
+     when the pass exits; on a stop request; or, TD-569, when the pass's heartbeat count hasn't changed for `TRAINER_PASS_STALL_MINUTES`. The
+     last two stop the pass with `ChildProcess::stop_and_wait(25 s)`: SIGTERM, then a kill (TD-416: a pass stopped by SIGTERM checkpoints and
+     releases its files first). While waiting it keeps `seconds_since_pass_progress` current for `/admin/status`;
+   - record the exit time and code; on a stop request, leave the loop;
+   - a **stalled** pass (TD-569) counts in `total_passes_stalled` and `consecutive_failures`, whatever its exit code, is logged with its time
+     without progress, and backs off;
+   - otherwise `classify_pass_exit()` (TD-523):
+     - **0, trained** → relaunch at once (more may be pending);
      - **3, nothing pending** → sleep 45 s;
-     - **≥ 128, crashed** or **any other code, failed** (1 from `resume`, 127 for an exec failure) → log an error with the code, count it,
-       and sleep `failure_backoff_seconds()`: 45 s doubled per consecutive failure, up to 900 s.
+     - **128 and up, crashed** (128 + the signal, TD-277) or **any other code, failed** → log an error with the code, count it, and back off.
 
-     Every sleep is wakeable by `/admin/resume`.
+     The backoff is `failure_backoff_seconds()`: 45 s, doubled per consecutive failure, up to 900 s. A pass that trains or finds nothing pending
+     resets the count. Every sleep is wakeable by `/admin/resume` and ends on a stop request.
 6. Stop the proxy and return 0.
 
 ---
 
 ## 2. Problems
 
+### Fixed: a pass that hangs stalled the service (TD-569, November 11, 2026)
+
+The loop waited for a pass with no time limit: it polled `poll_exit()` every 200 ms and ended a pass early only on a stop request. A pass whose
+GPU call never returns after a driver engine reset fails no sample, so TD-566's device check never runs, and the pass neither progresses nor
+exits. The ai-machine soaks saw this three times on the v1 Level Zero adapter (one pass hung after a checkpoint save, 0.7 s after a
+`GT0: Engine reset`). Under `trainer_service` the always-on service would sit on it until someone restarted it: nothing trained, its claimed
+files waited for their lease, and `/admin/status` showed `training` at a stale epoch.
+
+Now each pass writes a heartbeat file (`PassHeartbeat.hpp`): the count of its progress calls, made from the working code itself, per training
+and validation sample, tokenized pair, loaded line, downloaded chunk, BPE merge, LeJEPA batch and checkpoint. `wait_for_pass()` stops a pass
+whose count hasn't changed for `TRAINER_PASS_STALL_MINUTES` (default 30, 0 = off). The time is measured on `trainer_service`'s own steady
+clock, and a file left by an earlier pass is ignored by its pid. The stalled pass is counted, logged and backed off like a failure, and the next
+pass is a fresh process.
+
+**Verified** with the real binary, `TRAINER_PASS_STALL_MINUTES=1`, and a stub pass that wrote one heartbeat and hung. After 60 s the log
+said the pass had made no progress for 60 s, and the pass was stopped by SIGTERM (exit 143) with a 45 s backoff. `/admin/status` then showed
+`total_passes_stalled: 1`, `consecutive_failures: 1`, `total_passes_failed: 0`, `total_passes_crashed: 0` and
+`seconds_since_pass_progress: -1`. A real CPU `incremental_trainer` pass given `--heartbeat-file` wrote its own pid and a count rising by
+about 115 every 2 s, and removed the file at exit.
+
 ### Fixed: a child that fails every pass looked idle (TD-523, October 19, 2026)
 
-The loop's whole model of the child is its exit code, and `incremental_trainer resume` returns **1** both for "nothing pending" and for real failures:
-`resume_last_session()` returns false for a missing checkpoint, a failed `load_model()` and a failed `train_on_files()`, as well as for an empty queue.
-With a stub child that printed an error and exited 1, `/admin/status` reported `"phase":"idle"`, `"total_passes_crashed":0`, `"last_exit_code":1`, the
-same as a healthy idle service, and nothing reached `trainer_service`'s own log. In production a corrupt checkpoint, an unreadable dataset or a training
-exception therefore turns into a silent retry every 45 s: each attempt claims the pending files, fails and releases them (segments stay stuck, TD-333),
-indefinitely, while the dashboard showed an idle trainer. Now `resume` exits 3 for "nothing pending" and 1 for a failure, and the supervisor
-logs, counts and backs off failures (§1 step 5; addendum). With the same stub, exit 1 now shows `total_passes_failed: 1`,
-`consecutive_failures: 1` and an error in the log, and exit 3 stays idle.
+`incremental_trainer resume` returned 1 both for "nothing pending" and for real failures, so a failing trainer showed as idle and retried every
+45 s, claiming and releasing files, with nothing in `trainer_service`'s log. `resume` now exits 0/3/1 and the supervisor counts, logs and backs off
+failures (§1 step 5). Verified with a stub child: exit 1 showed `total_passes_failed: 1`, `consecutive_failures: 1` and an error in the log; exit 3
+stayed idle.
 
-### Smaller items (by inspection)
+### Fixed: TD-403, TD-416, TD-431, TD-524, TD-557
 
-- **The child admin port opens even when the admin API is disabled.** `--admin-port` is always passed, so every child binds
-  `127.0.0.1:TRAINER_CHILD_ADMIN_PORT` (8085 by default) regardless of `TRAINER_ADMIN_ENABLED=false`, which CLAUDE.md describes as keeping the host free of
-  new ports.
-- **`PATH` fallback** can launch a different `incremental_trainer` version than the one installed beside `trainer_service` when it is started by a bare
-  name.
-- **No backoff** for repeated crashes or launch failures (a fixed 45 s), and none at all for a child that exits 0 without consuming work.
-- **The shipped unit may not let the child write its downloads:** `adai-trainer.service` uses `ProtectSystem=strict` with `ReadWritePaths` covering logs,
-  models, sessions, the tokenized cache and the admin dir, but not `/opt/adai/downloads` (the default relative `DOWNLOAD_DIR=downloads` under
-  `WorkingDirectory=/opt/adai`), so FTP downloads in `train`/`retrain` there would fail with a read-only filesystem (`resume` doesn't download, TD-411).
-  The empty-`LOG_FILE_PATH` fallback to `chatbot_server.log` in the working directory has the same problem (TD-431).
-
-### Already tracked
-
-| Item | Tracked as |
-|---|---|
-| `--objective`/`--dataset-kind` not forwarded to children | TD-403 |
-| Children and supervisor share the fallback log file; `LOG_LEVEL` ignored | TD-431 |
-| SIGHUP terminated the process (ignored since October 31, 2026, also by the child passes) | TD-283 |
-| Signal deaths report 128; failed `exec` reports 127 | TD-277, TD-278 |
-| `resume` never downloads over FTP; zero-sample passes return success | TD-411, TD-412 |
+The pass command forwards `--objective`/`--dataset-kind` (TD-403); the graceful stop allows 25 s (TD-416); each pass logs to its own file and
+`LOG_LEVEL` applies (TD-431); the child port opens only with the admin API on, the child binary is the one beside `trainer_service`, a launch
+failure backs off, and the shipped unit can write the download directory (TD-524); `--help` and argument errors (TD-557). §1 describes each.
 
 ---
 
 ## 3. Tests
 
-No test runs `main()`. `trainer_service_proxy_test.cpp` covers the proxy and the control state's pause/resume/wake behaviour; `ChildProcess` has its
-own tests.
+- `passHeartbeatTests` drives `wait_for_pass()` with real `/bin/sh` children that write the heartbeat a pass would: a pass that stops making
+  progress is stopped after the limit (SIGTERM, exit 143); one that keeps making progress runs past the limit and exits 0; a hung one that
+  ignores SIGTERM is killed (exit −2); an earlier pass's file doesn't keep a silent pass alive; no heartbeat file means no stall check; a stop
+  request stops the pass; and `seconds_since_pass_progress` is reported while waiting. Removing the stall check or the pid check makes these fail.
+- `incrementalTrainerArgsTests`: the pass command line (including `--heartbeat-file`), `trainer_service`'s argument errors, exit-code
+  classification and the backoff.
+- `trainerServiceProxyTests`: the proxy, the status fields, pause/resume/wake.
 
-**Not covered:** the supervisory loop's exit-code handling, stop escalation through `main()`, the child command line.
+**Not covered by a test:** `main()`'s loop itself (what it does with each wait result). Its stall handling was checked by hand against the
+real binary (§2).
 
 ---
 
 ## 4. Known gaps and gotchas (summary)
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
-
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Exit code 1 means both "idle" and "failed"; failures aren't counted or logged by the supervisor (§2) | A permanently failing trainer looked idle and retried every 45 s, claiming and releasing files | **Fixed October 19, 2026** (was verified) | [TD-523](../../guides/TECHNICAL_DEBT.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
-| Child admin port opened with the admin API disabled; `PATH` fallback; no backoff after a launch failure (failed passes back off since TD-523); unit's `ReadWritePaths` lacks the download dir (§2) | Unexpected port; wrong binary; download failures under the shipped unit | By inspection | [TD-524](../../guides/TECHNICAL_DEBT.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
-| Unforwarded flags, shared log file, SIGHUP, exit-code reporting, FTP resume | Already tracked | — | TD-403, TD-431, TD-283, TD-277, TD-278, TD-411, TD-412 |
+| A pass that hangs without failing a sample was waited for forever (§2) | The always-on service stalled until a manual restart | **Fixed November 11, 2026** (was verified on ai-machine, v1 adapter) | [TD-569](../../guides/TECHNICAL_DEBT.md#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress) |
+| A long stretch of work with no progress call is stopped as a stall | A pass doing such work for more than `TRAINER_PASS_STALL_MINUTES` would be stopped and retried | By design; every long loop found reports progress, and the 30-minute default is far above any gap seen | TD-569 |
+| Exit code 1 meant both "idle" and "failed" (§2) | A failing trainer looked idle | **Fixed October 19, 2026** | [TD-523](../../guides/TECHNICAL_DEBT.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
+| Child port, binary resolution, launch backoff, unit write paths | — | **Fixed November 2, 2026** | [TD-524](../../guides/TECHNICAL_DEBT.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
+| Forwarded flags, log files, SIGHUP, exit codes, FTP resume, `--help` | — | Fixed | TD-403, TD-431, TD-283, TD-277, TD-278, TD-411, TD-412, TD-557 |
 
-## Addendum (October 19, 2026): failing passes are counted and backed off (TD-523)
+## 5. History
 
-`incremental_trainer resume` now exits 0 (trained), 3 (nothing pending) or 1 (failed: registry unreachable, download, checkpoint, load or training failure). The supervisor classifies each exit with `classify_pass_exit()` (`IncrementalTrainerArgs.cpp`). A crash is 128 and up; every other code that isn't 0 or 3 counts as a failure, including 127. On a failure or crash the supervisor logs an error with the exit code, counts it (`total_passes_failed` or `total_passes_crashed`), and waits `failure_backoff_seconds()`. That wait is 45 s, doubled for each consecutive failure up to 900 s; `POST /admin/resume` still wakes it. Checked with the real binary and a stub child: exit 1 was counted and logged as a failure, and exit 3 stayed idle.
-
-## Addendum (November 1, 2026): `--help` and argument errors (TD-557)
-
-`main()` now parses with `parse_trainer_service_args()` before loading any config. `--help`/`-h` prints a usage text and
-exits 0 (it used to start the service). A flag error from the shared parser, `--foreground`, `--admin-port` (both set by
-`trainer_service` on its passes) or a positional argument prints the error and the usage and exits 1; all were ignored.
-`--objective`/`--dataset-kind` are still parsed and not forwarded (TD-403).
-
-## Addendum (November 1, 2026): `trainer_service` forwards `--objective` and `--dataset-kind` (TD-403)
-
-Every pass `trainer_service` launches now gets `--objective=<objective>` and `--dataset-kind <kind>` (built by
-`trainer_service_child_argv()`; the kind is `resolve_dataset_kind()`'s: an explicit `--dataset-kind`, else `world_model`
-for `lejepa`, else `chatbot`). Both used to be parsed and dropped. `incremental_trainer resume` now runs the LeJEPA
-world-model pass for `--objective=lejepa` (it ran chatbot training whatever the objective), for `NUM_EPOCHS` epochs, and
-that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
-The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
-and a pause takes effect between passes.
-
-## Addendum (November 1, 2026): the LeJEPA pass hosts the per-pass admin API (TD-403)
-
-The admin API a `trainer_service` child hosts for one pass is now a `PassAdminApi` helper used by both resume passes.
-During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch, samples and losses;
-`POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
-`POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
-paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
-
-## Addendum (November 2, 2026): 25 s graceful stop (TD-416)
-
-`kGracefulStopTimeoutMs` is 25 s (was 10 s), still inside the unit's `TimeoutStopSec=30`, because a child stopped by
-SIGTERM now checkpoints and releases its claimed files before exiting 1.
-
-## Addendum (November 2, 2026): child port, binary resolution, launch backoff, unit paths (TD-524)
-
-Each pass gets `--admin-port` only with `TRAINER_ADMIN_ENABLED`. The child binary is `sibling_executable_path(argv[0],
-"incremental_trainer")`: the directory of the running executable (`/proc/self/exe`; the module path on Windows), then
-argv[0]'s, and a `PATH` search only as a last resort. A failed launch backs off like a failed pass (45 s doubling to
-15 min). `scripts/adai-trainer.service` can now write `/opt/adai/downloads`; optional `ReadWritePaths` entries carry a
-leading `-`. Set `LOG_FILE_PATH` under that unit, since the working directory is read-only.
-
-## Addendum (November 2, 2026): per-process log files and `LOG_LEVEL` (TD-431)
-
-Owner's choice: with `LOG_FILE_PATH` set, `trainer_service` logs there and gives each pass `--log-file` with `.pass`
-before the extension (`trainer.log` → `trainer.pass.log`), so no file is rotated by two processes. Empty means the
-console (the journal under systemd); a detached `incremental_trainer` run, whose stdout/stderr go to `/dev/null`, logs
-to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). Neither binary uses
-`chatbot_server.log` any more. Both apply `LOG_LEVEL` via `Logger::init(Logger::parse_level(...))`, and the replay of
-start-up messages logged before `init()` skips those below the level.
+- **October 19, 2026 (TD-523):** failing passes counted, logged and backed off; `resume` exits 0/3/1.
+- **November 1–2, 2026:** TD-557 (`--help`, argument errors), TD-403 (objective and pool forwarded; the LeJEPA pass hosts the per-pass admin
+  API), TD-416 (25 s graceful stop), TD-524, TD-431.
+- **November 11, 2026 (TD-569):** the wait for a pass moved to `wait_for_pass()` with the heartbeat stall check, `TRAINER_PASS_STALL_MINUTES`,
+  `total_passes_stalled`/`seconds_since_pass_progress`. This document was re-traced at the same time, replacing its October §1–§3 and folding
+  its addenda into them.

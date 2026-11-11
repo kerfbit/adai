@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.24.1
+// @adai-reviewed: 2026-11-11
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -28,6 +28,7 @@
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 #include "ModelNameClient.hpp"  // always included for complete type (unique_ptr destructor)
+#include "PassHeartbeat.hpp"
 #include "TrainingMetricsAPI.hpp"
 
 IncrementalTrainer::~IncrementalTrainer() = default;
@@ -2164,6 +2165,8 @@ bool IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_sam
                          cumulative_samples_trained, current_epoch);
         }
     }
+    adai::note_pass_progress();  // TD-569: a checkpoint (written or not) is progress for the stall
+                                 // check
     return saved;
 }
 

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-11-11
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -46,6 +46,11 @@ struct IncrementalTrainerGlobalArgs {
     // TD-431: --log-file <path> overrides LOG_FILE_PATH for this run. trainer_service uses it to give
     // each pass its own file (pass_log_path()); it's also usable by hand.
     std::optional<std::string> log_file;
+    // TD-569: --heartbeat-file <path>, set by trainer_service on each pass: the pass writes its
+    // progress there (PassHeartbeatWriter) so the supervisor can stop one that stops making
+    // progress. Needs
+    // --foreground (a background run forks after the writer has started).
+    std::optional<std::string> heartbeat_file;
     // args[0] is the command (e.g. "train"), args[1..] are its own arguments — --config,
     // --gpu-strategy, --model, --foreground, --admin-port, --objective, and --dataset-kind are
     // stripped out before this is populated, exactly like the original inline loop.
@@ -71,15 +76,18 @@ struct TrainerServiceArgs {
 TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]);
 
 // TD-403: the command line trainer_service runs each single-pass child with: its --config, --model
-// and --gpu-strategy when given, always --objective=<objective> and --dataset-kind <kind> (kind from
-// resolve_dataset_kind()), then `--foreground [--admin-port <port>] resume`. The objective and kind used
-// to be parsed and dropped, so the service could only train the chatbot on the chatbot pool. TD-524:
-// --admin-port only when `admin_port` is set (TRAINER_ADMIN_ENABLED); it used to be passed always, so
-// every pass opened a loopback port even with the admin API off.
+// and --gpu-strategy when given, always --objective=<objective> and --dataset-kind <kind> (kind
+// from resolve_dataset_kind()), [--log-file <pass_log_file>] [--heartbeat-file <heartbeat_file>]
+// (TD-569: each only when non-empty), then `--foreground [--admin-port <port>] resume`. The
+// objective and kind used to be parsed and dropped, so the service could only train the chatbot on
+// the chatbot pool. TD-524:
+// --admin-port only when `admin_port` is set (TRAINER_ADMIN_ENABLED); it used to be passed always,
+// so every pass opened a loopback port even with the admin API off.
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
                                                     const IncrementalTrainerGlobalArgs& cli,
                                                     std::optional<int> admin_port,
-                                                    const std::string& pass_log_file = "");
+                                                    const std::string& pass_log_file = "",
+                                                    const std::string& heartbeat_file = "");
 
 // TD-431 (owner decision, November 2, 2026): the file each trainer_service pass logs to when LOG_FILE_PATH
 // is set: the same name with ".pass" before the extension (trainer.log -> trainer.pass.log; trainer ->
@@ -139,6 +147,9 @@ std::string resolve_dataset_kind(const std::string& objective,
 struct ResetCommandArgs {
     bool yes = false;
     bool keep_data = false;
+    // TD-571: set (with a message) for any other argument. They used to be ignored, so
+    // `reset --yes --keep-dat` deleted the data registry without asking.
+    std::string error;
 };
 
 // Parses `reset`'s own flags. `args` is the reset command's argument slice, NOT including "reset"

@@ -1,52 +1,35 @@
 # `Config` — Source File Reference
 
-- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp), [`src/Config.cpp`](../../../../src/Config.cpp)
+- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,022 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,017 lines)
 - **Namespace:** `adai`
-- **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, `chatbot_gui_binary`, the daemons and tools); it isn't part of a static library
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0` (both), `@adai-reviewed: 2026-10-18`
-- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) (73 tests)
+- **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
+- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.31.0`, `Config.cpp` `1.31.1`; `@adai-reviewed: 2026-11-11`
+- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (107); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-11
 
-> Code-traced reference. Every behaviour flagged in §4–§6 was confirmed by running the real
-> `ConfigLoader` (a scratch program compiled against `Config.cpp`) unless marked otherwise.
+> Code-traced reference. Behaviour marked **verified** was confirmed by running the real `ConfigLoader` (a scratch program compiled against
+> `Config.cpp`) or the binaries.
 
 ---
 
 ## 1. What this file is
 
-The single configuration layer for every ADAI binary (CLAUDE.md, "Configuration"):
+The one configuration layer for every ADAI binary (CLAUDE.md, "Configuration"):
 
-- **`ServiceConfig`**: one flat struct of about 110 settings covering every service (server,
-  architecture, training, generation, metrics, DB, registry, FTP, outliers, BLEU/ROUGE, RAG, MNS,
-  trainer admin, world model, hippocampal memory, auto-save, GPU, tokenizer). Each binary reads only
-  the fields it needs.
-- **`ConfigLoader`**: finds the right file, parses `KEY=VALUE`, overlays environment variables,
-  validates, reloads, and diffs.
-- **`GPUStrategy`** plus `gpu_strategy_from_string()` (`background` | `full`).
+- **`ServiceConfig`:** one flat struct of every setting for every service (server, architecture, training, generation, metrics, database,
+  registry, FTP/FTPS, outliers, BLEU/ROUGE, RAG, MNS, trainer admin, world model, hippocampal memory, auto-save, GPU, tokenizer). Each binary
+  reads the fields it needs. `file_values` keeps the file's raw `KEY=VALUE` pairs for reload diffs.
+- **`ConfigLoader`:** finds the file, parses it, overlays environment variables, validates, reloads and diffs, and prints the result.
+- **Shared helpers** in the header: `GPUStrategy`/`gpu_strategy_from_string()`, `is_dataset_kind()`, the metrics storage backend names, the
+  admin-setting range tables for `metrics_api_server`/`registry_server` (`AdminIntSetting`), `parse_http_header_list()`; and the strict parsers
+  `parse_strict_int/size/float/bool()` the command-line parsers use.
 
-### Why it matters
-
-Every behaviour an operator can tune passes through here: which port a daemon binds, where
-checkpoints go, which model is served, learning rate, gradient clipping, FTPS on or off. A value
-that's silently mis-parsed or ignored here becomes the wrong behaviour everywhere downstream, with
-nothing in the logs but a line printed before the logger even starts.
+Every tunable passes through here, so a value mis-read here is wrong everywhere downstream.
 
 ---
 
-## 2. Where it's used
-
-`ConfigLoader::discover_config_path()` / `load()` are called by `ChatbotAPIServer.cpp`,
-`ChatbotGUI.cpp`, `IncrementalTrainingTool.cpp`, `IncrementalTrainer.cpp`,
-`TrainerServiceMain.cpp`, `TrainingMetricsAPIServer.cpp`, `ModelNameServiceServer.cpp`,
-`RegistryServer.cpp`, `DatasetManagerTool.cpp`, `MnsCliTool.cpp` and `MnsManagerGUI_main.cpp`.
-`IncrementalTrainer::make_incremental_config()` maps `ServiceConfig` into `IncrementalConfig` and
-`TrainingConfig` (see [ChatbotTrainer.md](ChatbotTrainer.md)). **`reload()` is called only by
-`chatbot_api_server`** (§6).
-
----
-
-## 3. Discovery and precedence
+## 2. Discovery and precedence
 
 ```text
 discover_config_path(explicit, "config.<service>.conf"):
@@ -54,296 +37,103 @@ discover_config_path(explicit, "config.<service>.conf"):
   > ./config.<service>.conf  > /etc/adai/config.<service>.conf
   > ./config.conf (legacy)   > /etc/adai/config.conf (legacy; returned even if missing)
 
-load(path):   defaults  ─►  load_from_file(path)  ─►  load_from_env()
-load():       same, with the legacy /etc/adai/config.conf
+load(path):  defaults ─► load_from_file(path) ─► load_from_env()          (load(): the legacy /etc path)
 ```
 
-So precedence is **env > file > defaults**; each binary then applies its own CLI flags on top
-(e.g. [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md)). A missing file is just a note on stderr,
-and the binary runs on defaults plus env.
-
-The six shipped files are `config.chatbot.conf`, `config.trainer.conf`, `config.metrics.conf`,
-`config.mns.conf`, `config.registry.conf` and the legacy `config.conf`. Every key in them is
-recognised except `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` (in the chatbot and trainer files), which the
-trainer file's own comment says is deliberately unread. It still produces an "Unknown
-configuration key" warning on every load.
+Precedence is **command-line flags > environment > file > defaults**; each binary applies its flags after `load()`. A missing file is an
+`info` message and the binary runs on defaults plus the environment. Every daemon, `trainer_service` and `incremental_trainer` then run
+`validate_or_exit()` (TD-288): any error is logged and the process exits 1. `chatbot_api_server` validates after its flags (TD-241).
 
 ---
 
-## 4. File format and parsing (`load_from_file()`)
+## 3. The file format (`load_from_file()`)
 
-- One `KEY=VALUE` per line. Leading and trailing whitespace is trimmed, lines starting with `#`
-  are comments, and lines without `=` are warned about and skipped.
-- One pair of matching surrounding quotes (`"…"` or `'…'`) is removed from the value.
-- **Inline comments are not supported.** `MODEL_PATH=/models/chat # production model` sets the
-  path to the whole string, comment included (verified).
-- A repeated key: the last occurrence wins. `MAX_LENGTH` is an alias for `MAX_GEN_LENGTH`.
-- Unknown keys print a warning (helpful for typos). A value that throws during conversion prints a
-  warning, and the field keeps its previous value.
-
-### Numbers
-
-`std::stoi`/`stof`/`stoull`/`stoul` with no checks:
-
-| Input | Result (verified) |
-|---|---|
-| `PORT=8080x` | 8080 (trailing garbage ignored) |
-| `D_MODEL=-1` (size_t field) | **18446744073709551615** (`stoull` wraps negatives) |
-| `PORT=abc` | warning, default kept |
-
-There are no range checks at load time; see §5 for what `validate()` covers, and note it doesn't run
-at load.
-
-### Booleans: two different parsers
-
-| Accepts | Keys |
-|---|---|
-| `true`/`1`/`yes`/`on`, **case-insensitive** | `LOG_COMPRESS`, `RAG_ENABLED`, `CACHE_TOKENIZED_DATA`, `TRAINER_ADMIN_ENABLED`, `WORLD_MODEL_ENABLED`, `HIPPOCAMPAL_MEMORY_ENABLED`, `AUTO_SAVE_ENABLED`, `GPU_ENABLED`, `RESUME_FROM_BEST_CHECKPOINT` (TD-405, added October 18, 2026; default `false`, shipped in `config.trainer.conf`, mapped into `IncrementalConfig` by `make_incremental_config()`) |
-| only lowercase `true`/`1`/`yes` | `GRADIENT_CLIP_ADAPTIVE`, `ENABLE_METRICS_SERVICE`, `METRICS_ENABLE_PERSISTENCE`, `METRICS_ENABLE_PROMETHEUS`, `METRICS_API_ALLOW_CONTROL`, `ENABLE_GENERATION_QUALITY_METRICS`, `FTPS_ENABLED` |
-
-Anything not accepted is silently **false**, with no warning. Verified: `ENABLE_METRICS_SERVICE=On`
-and `FTPS_ENABLED=True` both give off, while `GPU_ENABLED=True` gives on. (`FTPS_ENABLED` is moot in
-practice, since `registry_server` ignores it entirely; see §5.)
-
-### Enumerations
-
-- `TOKENIZER_MODE`: `unicode` (any case) → Unicode mode; **anything else**, including typos like
-  `utf8`, silently means ASCII (verified).
-- `GPU_STRATEGY`: `full` / `background`; anything else warns on stderr and falls back to `background`.
-- `STRATEGY`, `LOG_LEVEL`, `METRICS_STORAGE_BACKEND`, `DATASET_KIND`: stored as-is (only
-  `validate()` checks `STRATEGY` and `LOG_LEVEL`).
-
-### Environment variables (`load_from_env()`)
-
-Every file key has an env counterpart (TD-091 closed the gaps). An empty env var counts as unset.
-Typed helpers (`get_env_int`/`size_t`/`float`/`bool`) warn on stderr and ignore unparsable values.
-The env boolean parser accepts `true/1/yes/on` and `false/0/no/off` case-insensitively, warning on
-anything else. That's stricter than the file parser, except for `FTPS_ENABLED`, which reads
-`getenv` directly with the lowercase-only rule.
-
-All load-time messages go to `std::cerr`. That's partly unavoidable, since the logger isn't
-initialized yet, but the header's inline `gpu_strategy_from_string()` also writes to `std::cerr`.
+- One `KEY=VALUE` per line, trimmed; a line starting with `#` is a comment; a line without `=` is warned about and skipped.
+- **Values:** a value in matching quotes is taken as written (only a comment may follow the closing quote). Otherwise it ends at an unquoted
+  `#` that follows a space or tab (`MODEL_PATH=/models/chat # prod` → `/models/chat`; `SECRET=a#b` keeps its `#`) (TD-289).
+- **Numbers** (`parse_int`/`parse_size`/`parse_float`) must be the whole value: `8080x`, `256abc` and `0.5f` are refused; `size_t` keys refuse a
+  negative (it used to wrap to 1.8×10¹⁹), floats refuse `nan`/`inf` (TD-287).
+- **Booleans** (`parse_bool`, every key, file and environment): `true/1/yes/on/enabled` or `false/0/no/off/disabled`, any case (TD-286).
+- **Enumerations** are matched in any case and stored canonically: `TOKENIZER_MODE` (`unicode` default, TD-564), `STRATEGY`, `LOG_LEVEL`
+  (`WARNING` → `WARN`), `METRICS_STORAGE_BACKEND`, `DATASET_KIND`, `GPU_STRATEGY`, `LR_SCHEDULE` (TD-289).
+- A value that doesn't parse is a warning, and the setting keeps its previous value. An unknown key is a warning (typos show);
+  `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is reserved and accepted silently (TD-290). A repeated key: the last wins. `MAX_LENGTH` is an alias for
+  `MAX_GEN_LENGTH`.
+- **Environment** (`load_from_env()`): every file key has an environment variable, read with the same parsers; an empty variable counts as unset,
+  and a bad value warns and is ignored.
+- **Messages** at load time go through `Logger::deferred()`: on the console at once, and replayed into the log file when the binary's
+  `Logger::init()` opens one, filtered by its level (TD-290).
 
 ---
 
-## 5. `validate(config, errors)`
+## 4. `validate(config, errors)` and `validate_or_exit()`
 
-Checks, appending a message for each failure:
+`validate()` appends a message for every field out of range and returns whether there were none (TD-288):
 
-- server: port 1–65535, `session_timeout ≥ 1`, log level in {DEBUG, INFO, WARN, ERROR}, log
-  size 1–1024 MB, log files 1–100;
-- architecture: `d_model` 64–8192, `num_heads` 1–64 and divides `d_model`, `d_ff` 64–32768,
-  layers 1–48, `max_seq_length` 16–32768;
-- world model: the same ranges, `sigreg_lambda ≥ 0`, sketches 1–4096, and `world_model_d_model ==
-  d_model` whenever injection is on (TD-186);
-- hippocampal: capacity 1–65536, `repetition_alpha ≥ 0`, `repetition_decay` in (0, 1];
-- generation: `max_gen_length` 1–4096, temperature 0–2, `top_p` 0–1, `top_k` 1–1000, beam width
-  1–16, strategy in {greedy, beam, temperature, top_k, nucleus}.
+- **server:** port, session timeout and limits, `LOG_LEVEL`, log size and count;
+- **architecture:** `d_model` 64–8192, `num_heads` 1–64 dividing `d_model`, `d_ff` 64–32768, layers 1–48, `max_seq_length` 16–32768;
+- **world model:** the same ranges, `sigreg_lambda ≥ 0`, sketches 1–4096, batch size 2–4096, and `world_model_d_model == d_model` when
+  injection is on (TD-186);
+- **hippocampal** capacity, alphas and decays; **generation** (`adai::GenerationLimits`, TD-254: length, temperature, `top_p`, `top_k`, beam
+  width, strategy);
+- **training:** learning rate, epochs, batch size, accumulation steps, weight decay, dropout `[0, 1)`, clipping and adaptive clipping, seed;
+- **GPU** fraction `(0, 1]` and device; **every port** (PASV min ≤ max; the trainer's admin port ≠ its child port); every metrics, registry, FTP,
+  MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569). A field whose 0 means "off" or "no limit" accepts 0.
 
-**Not checked** (verified for three of them): `gradient_accumulation_steps` (0 is accepted, and
-`ChatbotTrainer` then divides by it), `learning_rate` (−1 accepted), `gpu_memory_fraction` (7.5
-accepted), `batch_size`, `num_epochs`, `weight_decay`, every adaptive-clipping field,
-`hippocampal_association_decay`/`cross_reference_alpha`, every metrics/registry/FTP/MNS/trainer-admin
-port, interval and size (including `FTP_PASV_PORT_MIN ≤ MAX`), and auto-save values.
-
-**The FTP server keys in `config.registry.conf` are ignored.** `registry_server` reads only
-`FTP_TOKEN_TTL_MINUTES` and `FTP_MAX_SESSIONS_PER_RUN` from its config file
-(`RegistryServerArgs.cpp`). The listener settings are **CLI-only** (`--ftp-port`, `--ftp-pasv-min/max`,
-`--ftp-secret`, `--ftps`, `--ftp-cert`, `--ftp-key`), per `RegistryServer.cpp`'s own comment ("CLI-only
-listener settings"). Yet `config.registry.conf` ships `FTP_SERVER_PORT`, `FTP_DATA_SERVER_SECRET`
-(`change-me-in-production`) and `FTPS_ENABLED` as if they worked, and `ConfigLoader` parses them
-without complaint. An operator who sets `FTPS_ENABLED=true` or a real secret in the file gets
-**plaintext FTP and random token passwords**, with nothing in the logs. (Nothing in `src/` reads
-`ServiceConfig::ftp_data_server_secret` at all.)
-
-**`validate()` runs only inside `reload()`.** No binary validates at startup (TD-241), so every
-out-of-range value above, plus `D_MODEL=-1`'s wraparound, reaches the code that uses it.
+`validate_or_exit(config, binary)` logs every error and calls `std::exit(1)`. Every shipped `config.*.conf` passes
+(`EveryShippedConfigFilePassesValidation`).
 
 ---
 
-## 6. `reload()` and `detect_changes()`
+## 5. `reload()`, `detect_changes()`, `changed_file_keys()`
 
-`reload(config, path, mutex)` builds a fresh config from **file + env** (not CLI; TD-242), validates
-it (aborting on errors), then calls `detect_changes(old, new)`. **If that list is empty, it returns
-`true` without applying anything.** Otherwise it assigns `config = new_config` under `mutex` and
-logs each change.
+`reload(config, path, mutex, live_keys = nullptr, cli_overrides = {}, cli_keys = nullptr)` builds a fresh config from the file and the
+environment, applies `cli_overrides` (the binary's flags, TD-242), and validates it. An invalid config is logged and the current one kept
+(returns false). A valid one is **always** applied under `mutex` (TD-285), and each change is logged: a changed key the caller can't apply live
+(not in `live_keys`) as "takes effect only after a restart", one in `cli_keys` as "held by a command-line flag". Only `chatbot_api_server`
+reloads (on `SIGHUP`); the other binaries ignore `SIGHUP` and say at start-up that a restart applies changes (TD-283).
 
-> **Reload silently ignores most settings (verified).** `detect_changes()` compares only about 25
-> fields: model/vocab/draft paths, port, session timeout, log settings, session dir, the six
-> architecture fields, and six generation fields. A reload where only other keys changed
-> (`METRICS_SERVER_URL`, `AUTO_SAVE_*`, RAG, GPU, MNS, hippocampal…) logs "No configuration changes
-> detected", returns **success**, and **keeps the old values**. Verified: changing
-> `METRICS_SERVER_URL` and `AUTO_SAVE_EVERY_MINUTES` then reloading left both unchanged, with
-> `reload()` returning true. When a tracked field changes too, the whole new config is applied,
-> untracked fields included.
-
-> **Only `chatbot_api_server` handles `SIGHUP`.** CLAUDE.md says "Client binaries
-> (`chatbot_api_server`, `incremental_trainer`) additionally hot-reload their file via `SIGHUP`."
-> But `incremental_trainer` (and `trainer_service`, `metrics_api_server`, `mns_server`,
-> `registry_server`) registers only `SIGTERM`/`SIGINT`, so **`SIGHUP` uses the default action and
-> terminates them**, killing a training pass mid-epoch for an operator expecting a reload. Of the
-> values those binaries would want live, the trainer's auto-save settings are tunable through
-> `trainer_service`'s `PUT /admin/config`, not `SIGHUP`.
-
-`detect_changes()` is public and also usable on its own for logging diffs.
+`detect_changes(old, new)`: for configs read from a file, every added, changed or removed key, with a value shown as `<hidden>` for a secret
+key (`is_secret_key()`: a name containing `SECRET`, `PASSWORD`, `TOKEN`, `HEADERS` or `CREDENTIAL`, and `METRICS_DB_URL`, TD-571); for configs not read from a file, about 25 fields compared directly.
+`changed_file_keys()` returns just the keys.
 
 ---
 
-## 7. `print(config)`
+## 6. `to_string()` and `print()`
 
-Writes a summary to `std::cout`: server, architecture, generation and RAG settings. It omits most
-sections (metrics, registry, FTP, MNS, GPU, training, world model…), but it doesn't print secrets
-(`FTP_DATA_SERVER_SECRET`, `METRICS_DB_URL`), which is good. `chatbot_api_server` calls it at
-startup.
+`to_string()` lists every setting by key in 16 sections; a secret key's value (`is_secret_key()`) is `<hidden>`. `print()` logs it line by
+line (`chatbot_api_server` at start-up).
 
 ---
 
-## 8. Tests
+## 7. Tests
 
-`config_test.cpp` (73) covers defaults, file parsing per key group, env overrides, discovery order,
-validation rules, reload and change detection, and GPU strategy parsing. Not covered: the boolean
-parser split, negative `size_t` wraparound, inline comments, reload with only untracked changes.
+`config_test.cpp` (107): defaults; file parsing per key group; quotes and inline comments; numbers (trailing characters, negatives, non-finite);
+booleans in any case and bad ones keeping the default; enum values; the environment overriding the file, with the same checks; discovery order;
+`validate()` for every group, and every shipped file passing; reload applying any key, reporting additions/removals with secrets hidden, naming
+restart-only and flag-held keys; `METRICS_DB_URL` hidden in the reload diff (TD-571); `to_string()`; the strict parsers; `TRAINER_PASS_STALL_MINUTES`. `config_startup_log_test.cpp`: start-up
+messages reaching the log file.
 
 ---
 
-## 9. Known gaps and gotchas (summary)
-
-Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+## 8. Known gaps and gotchas (summary)
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `reload()` returns success but applies nothing when only untracked fields changed (§6) | Settings silently not reloaded | **Verified** | [TD-285](../../guides/TECHNICAL_DEBT.md#td-285-configloaderreload-reports-success-without-applying-untracked-changes) |
-| `SIGHUP` terminates every binary except `chatbot_api_server`; CLAUDE.md claims `incremental_trainer` hot-reloads (§6) | Operator reload kills a training pass | By inspection (signal registration) | [TD-283](../../guides/TECHNICAL_DEBT.md#td-283-sighup-terminates-every-binary-except-chatbot_api_server) |
-| Two boolean parsers; 7 keys accept only lowercase `true/1/yes`, anything else is silently false (§4) | `ENABLE_METRICS_SERVICE=On` → off, `METRICS_API_ALLOW_CONTROL=True` → off, etc. | **Verified** | [TD-286](../../guides/TECHNICAL_DEBT.md#td-286-configloader-parses-booleans-two-different-ways) |
-| Negative values wrap in `size_t` fields; partial numbers accepted (§4) | `D_MODEL=-1` → 1.8×10¹⁹; `PORT=8080x` → 8080 | **Verified** | [TD-287](../../guides/TECHNICAL_DEBT.md#td-287-configloader-accepts-negative-and-partial-numbers) |
-| Inline `#` comments become part of the value (§4) | Wrong paths and names | **Verified** | [TD-289](../../guides/TECHNICAL_DEBT.md#td-289-configloader-keeps-inline-comments-and-silently-accepts-enum-typos) |
-| `TOKENIZER_MODE` typos silently mean ASCII (§4) | Wrong tokenizer mode for a new vocab | **Verified** | [TD-289](../../guides/TECHNICAL_DEBT.md#td-289-configloader-keeps-inline-comments-and-silently-accepts-enum-typos) |
-| `validate()` misses many fields (accumulation 0, LR, GPU fraction, ports…) and never runs at startup (§5) | Crashes or nonsense at use site | **Verified** (validate); TD-241 (startup) | [TD-288](../../guides/TECHNICAL_DEBT.md#td-288-configloadervalidate-misses-fields-that-crash-or-misbehave) |
-| `FTPS_ENABLED`, `FTP_DATA_SERVER_SECRET`, `FTP_SERVER_PORT`, PASV range, cert/key in `config.registry.conf` are ignored by `registry_server` (CLI-only) (§5) | Operators setting FTPS or a secret in the file silently get plaintext FTP and random passwords | By inspection (`RegistryServer.cpp`, `RegistryServerArgs.cpp`) | [TD-284](../../guides/TECHNICAL_DEBT.md#td-284-registry_server-ignores-the-ftpftps-security-keys-its-config-file-ships-with) |
-| `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` in shipped configs but unparsed (§3) | Misleading warning on every load | By inspection | [TD-290](../../guides/TECHNICAL_DEBT.md#td-290-configloader-output-hygiene) |
-| stderr/stdout output from library code; `print()` covers a fraction of settings (§4, §7) | Logging convention; incomplete startup summary | By inspection | [TD-290](../../guides/TECHNICAL_DEBT.md#td-290-configloader-output-hygiene) |
+| The reload diff showed `METRICS_DB_URL` (a PostgreSQL URL that can carry a password), which `to_string()` hid | — | **Fixed November 11, 2026** (`ReloadHidesTheMetricsDatabaseUrl`) | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| `reload()` formats its timestamp with `std::localtime()`, which isn't thread-safe | Harmless while only one thread reloads | By inspection | Not filed (cosmetic) |
+| Reload ignoring untracked keys; `SIGHUP` terminating binaries; FTP keys ignored by `registry_server`; two boolean parsers; partial and negative numbers; `validate()` gaps; inline comments and enum typos; output hygiene | — | **Fixed October 31, 2026** | TD-283–TD-290 |
+| Flags dropped by reload; the strict parsers for flags | — | **Fixed November 1, 2026** | TD-242, TD-240, TD-456 |
 
----
+`stable` stands.
 
-## Addendum (October 21, 2026): `WORLD_MODEL_SIGREG_BATCH_SIZE` (TD-503)
+## 9. History
 
-`world_model_sigreg_batch_size` (default 32; file key and env var `WORLD_MODEL_SIGREG_BATCH_SIZE`) is the number of texts per LeJEPA
-training batch. SIGReg is applied across their pooled embeddings. `validate()` requires 2–4096.
-
----
-
-## Addendum (October 24, 2026): FTPS verification keys (TD-339)
-
-`FTPS_PINNED_PUBLIC_KEY` and `FTPS_CA_FILE` (`ServiceConfig::ftps_pinned_public_key`/`ftps_ca_file`, file and environment, default
-empty) set how `incremental_trainer` authenticates `registry_server`'s FTPS certificate. They're mapped into `DatasetConfig` by
-`DatasetRegistry::make_config()`. See DataTransport.md.
-
-## Addendum (October 26, 2026): `ALLOW_UNTRAINED_MODEL` (TD-246)
-
-`ServiceConfig::allow_untrained_model` (config key and environment variable `ALLOW_UNTRAINED_MODEL`, default `false`): a development
-opt-in that lets `chatbot_api_server` start without a loadable `MODEL_PATH`.
-
-## Addendum (October 31, 2026): SIGHUP in the other binaries (TD-283)
-
-Only `chatbot_api_server` reloads on `SIGHUP`. `incremental_trainer`, `trainer_service`, `metrics_api_server`, `mns_server` and
-`registry_server` call `adai::ignore_sighup()` (`src/SignalSetup.hpp`): `SIGHUP` is ignored and a startup log line says a restart is
-needed to apply config changes. It used to terminate them. Tests: `SighupTests`.
-
-## Addendum (October 31, 2026): FTP keys honoured (TD-284)
-
-`registry_server` reads `FTP_SERVER_ENABLED`, `FTP_ADVERTISE_IP`, `FTP_SERVER_PORT`, `FTP_PASV_PORT_MIN`/`MAX`,
-`FTP_DATA_SERVER_SECRET`, `FTPS_ENABLED`, `FTP_CERT_FILE` and `FTP_KEY_FILE` from `config.registry.conf`; the matching CLI flag
-(`--ftp-enabled`, `--ftp-ip`, `--ftp-port`, `--ftp-pasv-min`/`--ftp-pasv-max`, `--ftp-secret`, `--ftps`, `--ftp-cert`/`--ftp-key`)
-overrides it, with a startup warning when they differ. They used to be CLI-only, so `FTPS_ENABLED=true` or a real secret in the file
-silently gave plaintext FTP and random token passwords. `RegistryServerArgs`' FTP fields are `std::optional` (unset = flag not
-passed) and `resolve_registry_server_config()` returns them in `RegistryServerEffectiveConfig` with `warnings`, which `main()` logs:
-a CLI override of a file value, the old placeholder secret `change-me-in-production` (ignored, since a known HMAC key would let
-anyone compute token passwords; `ServiceConfig::ftp_data_server_secret` now defaults to empty), and FTP without FTPS on a
-non-loopback advertise address. Tests: four `ResolveRegistryServerConfigTest` cases, updated parse tests.
-
-## Addendum (October 31, 2026): reload applies and reports every change (TD-285)
-
-`load_from_file()` records the file's `KEY=VALUE` pairs in `ServiceConfig::file_values`. `reload()` always applies a config that passes
-validation and logs `detect_changes()`, which for file-loaded configs lists every added, changed or removed key (secret-looking values
-as `<hidden>`); `changed_file_keys()` returns just the keys. An optional `live_keys` set makes `reload()` warn for every changed key the
-caller doesn't apply live. Tests: `ReloadAppliesAndLogsAChangeToAnyKey`, `ReloadReportsAddedRemovedAndHidesSecrets`,
-`ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart`.
-
-## Addendum (October 31, 2026): one boolean syntax (TD-286)
-
-Every boolean key, in the file or the environment, goes through `parse_bool()`: `true/1/yes/on/enabled` or `false/0/no/off/disabled`,
-any case. Anything else is refused with a warning and the setting keeps its default (it used to mean false for seven keys, which also
-rejected `True`/`ON`/`Yes`). `FTPS_ENABLED` from the environment now uses `get_env_bool()` too. Tests:
-`EveryBooleanKeyAcceptsAnyCaseOfTheSameWords`, `ABooleanThatIsntOneLeavesTheDefault`, `FtpsEnabledFromTheEnvironmentAcceptsAnyCase`.
-
-## Addendum (October 31, 2026): numbers must be the whole value (TD-287)
-
-Every numeric key, in the file or the environment, goes through `parse_int()`, `parse_size()` or `parse_float()`, which must consume
-the whole value: `PORT=8080x`, `D_MODEL=256abc` and `TEMPERATURE=0.5f` are refused with a warning and the setting keeps its default.
-`size_t` keys refuse negatives (`D_MODEL=-1` used to become 18446744073709551615) and floats refuse `nan`/`inf`. Signed `int` keys
-still take negatives (`GPU_DEVICE_ID=-1`); range checks are TD-288. Until TD-289, an inline comment after a number
-(`PORT=8080 # note`) is refused too. Tests: `ANumberWithTrailingCharactersLeavesTheDefault`, `ANegativeSizeLeavesTheDefault`,
-`ANonFiniteFloatLeavesTheDefault`, `EnvironmentNumbersAreCheckedTheSameWay`, `WellFormedNumbersStillLoad`.
-
-## Addendum (October 31, 2026): validate() covers every field, at startup (TD-288)
-
-`validate()` now range-checks every field that divides, allocates, binds a port or is a probability: training (learning rate,
-epochs, batch size, accumulation steps, weight decay, clipping and adaptive clipping), hippocampal decay/alpha, GPU fraction and
-device, every metrics/registry/FTP/MNS/trainer-admin port (plus PASV min <= max, admin port != child admin port), and every metrics,
-registry, FTP, MNS and auto-save interval, size and count. A field whose 0 means "off" or "no limit" accepts 0. `validate_or_exit()`
-logs every error and exits 1; `metrics_api_server`, `mns_server`, `registry_server`, `trainer_service` and `incremental_trainer` call
-it after loading their file (`chatbot_api_server`: TD-241). Every shipped `config.*.conf` passes (`EveryShippedConfigFilePassesValidation`).
-
-## Addendum (October 31, 2026): inline comments and enum values (TD-289)
-
-A value ends at an unquoted `#` after a space or tab (`MODEL_PATH=/models/chat # prod` → `/models/chat`); `abc#def` keeps its `#`, and
-a quoted value is taken as written. `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL` (plus `WARNING` → `WARN`), `METRICS_STORAGE_BACKEND` and
-`DATASET_KIND` are matched in any case and stored canonically; an unknown value (`utf8`, `nucleous`, `postgress`…) warns and keeps
-the default, in the file and the environment. This lifts the TD-287 note above: `PORT=8080 # note` reads as 8080 again.
-
-## Addendum (October 31, 2026): output goes through the logger (TD-290)
-
-Load-time messages use `Logger::deferred()`: on the console straight away, and replayed into the log file when the binary's
-`Logger::init()` opens one, so start-up warnings are in the log. `gpu_strategy_from_string()` lives in `Config.cpp` and logs.
-`ConfigLoader::to_string()` lists every setting by key in 16 sections with secrets as `<hidden>`, and `print()` logs it (it wrote a
-partial listing to stdout). `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is reserved: accepted silently until a training loop reads it.
-
-## Addendum (November 1, 2026): reload() re-applies command-line flags (TD-242)
-
-`reload(config, path, mutex, live_keys, cli_overrides, cli_keys)`: `cli_overrides` runs on the reloaded config after the file and
-environment and before validation; a changed file key in `cli_keys` is logged as held by a command-line flag rather than as applied
-or needing a restart. Both default to empty, so other callers are unchanged.
-
-## Addendum (November 1, 2026): `parse_strict_bool()` and `MNS_ADMIN_ENABLED` (TD-456)
-
-`parse_strict_bool()` joins the public strict parsers (the TD-286 boolean words, `nullopt` otherwise), for command-line flags.
-`MNS_ADMIN_ENABLED` → `name_service_admin_enabled` (default true) is `mns_server`'s admin-endpoint switch.
-
----
-
-## Addendum (November 1, 2026): `REGISTRY_ADMIN_ENABLED` (TD-489)
-
-`REGISTRY_ADMIN_ENABLED` → `registry_admin_enabled` (default true) is `registry_server`'s admin-endpoint
-switch, read from the file and the environment with the shared boolean words; `--admin-enabled`
-overrides it. Listed in `to_string()` under the registry section.
-
-## Addendum (November 1, 2026): `NAME_SERVICE_HEADERS`, `NAME_SERVICE_CA_FILE` and `parse_http_header_list()` (TD-451)
-
-Two keys for `mns_cli`: `NAME_SERVICE_HEADERS` (extra request headers, in `METRICS_SERVER_HEADERS`'s "Name: value; ..."
-format, hidden in `to_string()`) and `NAME_SERVICE_CA_FILE` (CA bundle for an `https://` `NAME_SERVICE_URL`), read from
-the file and the environment. The header-list parser is now `parse_http_header_list()`, inline in `Config.hpp`, shared with
-`MetricsPushClient`'s `parse_metrics_server_headers()`.
-
-## Addendum (November 4, 2026): `LOSS_QUALITY_BACKFILL`, `GENERATION_QUALITY_BACKFILL` (TD-273)
-
-Two boolean `config.trainer.conf` keys (file and environment, the shared boolean parser): `loss_quality_backfill` (default `true`) and
-`generation_quality_backfill` (default `false`), mapped by `IncrementalTrainer::make_incremental_config()` to
-`TrainingConfig::enable_loss_quality_backfill`/`enable_generation_quality_backfill`. Shown by `to_string()`.
-
-## Addendum (November 4, 2026): `TOKENIZER_MODE` defaults to `unicode` (TD-564)
-
-`ServiceConfig::unicode_tokenizer` defaults to `true`, so `TOKENIZER_MODE` is `unicode` unless a file or the environment says `ascii`.
-An unrecognized value keeps the default, now Unicode (the enumeration note above, from before TD-289, no longer applies either). The
-shipped `config.trainer.conf` and `config.chatbot.conf` set `TOKENIZER_MODE=unicode`. The mode only matters when a vocabulary is built;
-a vocabulary file records its own mode, which wins when it is loaded.
+- **October 21–26, 2026:** `WORLD_MODEL_SIGREG_BATCH_SIZE` (TD-503), FTPS verification keys (TD-339), `ALLOW_UNTRAINED_MODEL` (TD-246).
+- **October 31, 2026:** `SIGHUP` (TD-283), FTP keys (TD-284), reload applies every change (TD-285), one boolean syntax (TD-286), whole-value numbers
+  (TD-287), `validate()` everywhere at start-up (TD-288), inline comments and enum values (TD-289), output through the logger (TD-290).
+- **November 1, 2026:** flags re-applied on reload (TD-242), `parse_strict_bool()` and `MNS_ADMIN_ENABLED` (TD-456), `REGISTRY_ADMIN_ENABLED`
+  (TD-489), `NAME_SERVICE_HEADERS`/`NAME_SERVICE_CA_FILE` and `parse_http_header_list()` (TD-451).
+- **November 4, 2026:** the quality backfill switches (TD-273); `TOKENIZER_MODE` defaults to `unicode` (TD-564).
+- **November 11, 2026:** `TRAINER_PASS_STALL_MINUTES` (TD-569); `METRICS_DB_URL` hidden in reload diffs (TD-571). This document was re-traced against the code, replacing its October sections
+  and folding in its addenda.

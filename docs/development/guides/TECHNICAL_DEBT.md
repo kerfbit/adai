@@ -18,11 +18,20 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 11, 2026:** Filed [TD-570](#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections)
+(HIGH, verified) and [TD-571](#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) (MEDIUM, verified) while
+re-tracing every file TD-569 touched. `load_vocab()` applied its header rules (`#` comments, `NORMALIZATION`, `WHITESPACE`…) inside the
+token and merge sections, so `#` tokens vanished on reload and a vocabulary with a token starting with a header keyword couldn't be
+loaded at all. TD-571 gathers the rest: `reset` ignoring a mistyped flag and deleting the data registry, the LeJEPA pass recording its
+files as trained before its final save, `trainer_service`'s status hidden while a pass's admin API is down, the early-stopping epoch
+missing from the epoch callback, and four small items. Both fixed in code the same day.
+
 **November 11, 2026:** Filed [TD-569](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress) (MEDIUM, verified on
 ai-machine) from the second GPU soak: a pass whose GPU work hangs after an engine reset never fails a sample, so TD-566's check
 doesn't run, and `trainer_service` waits for it with no time limit. The always-on service then stalls until someone restarts
 it. The same soak, with GuC firmware 70.72.1 installed, showed engine resets as often as with Ubuntu's 70.44.1; see TD-566's
-on-device results.
+on-device results. Fixed in code the same day: each pass reports its progress through a heartbeat file, and `trainer_service`
+stops one with no progress for `TRAINER_PASS_STALL_MINUTES` (30).
 
 **November 11, 2026:** Filed [TD-568](#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight) (LOW, verified)
 while reviewing `mns_manager_gui` for `stable`: `--help` aborts without a display, a flag missing its value and unknown
@@ -2644,6 +2653,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-567: `chatbot_gui` Shows Multi-Line Messages on One Line](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line)
   - [TD-568: MNS Manager GUI Argument Handling, Keyboard Selection and a Stale Highlight](#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight)
   - [TD-569: `trainer_service` Has No Time Limit for a Pass That Stops Making Progress](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress)
+  - [TD-570: `BPETokenizer::load_vocab()` Takes Header Syntax Inside the Token and Merge Sections](#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections)
+  - [TD-571: Findings From the November 11, 2026 Trace of the Files TD-569 Touched](#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched)
 - [Resolved Items](#resolved-items) (217 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -19349,7 +19360,7 @@ Files Modified:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / `trainer_service` | November 11, 2026 | 1 day |
+| MEDIUM | Open — code fix landed November 11, 2026 | Training / `trainer_service` | November 11, 2026 | 1 day |
 
 Description:
 Found in the second ai-machine soak (November 11, 2026; see TD-566's on-device results). In pass `soak_l0v1_10` (the v1 Level
@@ -19370,24 +19381,160 @@ for progress.
 
 Action Items:
 
-- [ ] The child reports progress from the thread that does the work: each optimizer step, each validation sample, each file
+- [x] The child reports progress from the thread that does the work: each optimizer step, each validation sample, each file
   downloaded or tokenized, and each checkpoint written. A heartbeat file in a directory `trainer_service` passes to the child
   works whether or not the admin API is on (the child's admin port exists only when it is). A separate timer thread would keep
   beating while the training thread is stuck, so it must not be used.
-- [ ] `trainer_service` stops a child whose heartbeat is older than a new `TRAINER_PASS_STALL_MINUTES` setting (default
+- [x] `trainer_service` stops a child whose heartbeat is older than a new `TRAINER_PASS_STALL_MINUTES` setting (default
   around 15, 0 = off). It uses the existing `stop_and_wait()`, which sends SIGTERM and kills the child after 25 s, and logs
   the pass as stalled.
-- [ ] Count stalled passes as failures for TD-523's backoff, and report `total_passes_stalled` in `/admin/status` beside
+- [x] Count stalled passes as failures for TD-523's backoff, and report `total_passes_stalled` in `/admin/status` beside
   `total_passes_crashed`/`total_passes_failed`.
-- [ ] The killed pass can't release its claims. Check that the next pass reclaims them by `run_id` (TD-406/TD-415), or that
+- [x] The killed pass can't release its claims. Check that the next pass reclaims them by `run_id` (TD-406/TD-415), or that
   they expire under the claim lease (TD-494).
-- [ ] Tests: a stub child that stops beating is stopped and counted, and one that keeps beating through a long pass isn't.
+- [x] Tests: a stub child that stops beating is stopped and counted, and one that keeps beating through a long pass isn't.
   Never signal anything but the recorded child pid.
-- [ ] Update `TrainerServiceMain.md`, `ChildProcess.md` if it changes, the admin-API table in CLAUDE.md, and
+- [x] Update `TrainerServiceMain.md`, `ChildProcess.md` if it changes, the admin-API table in CLAUDE.md, and
   `scripts/adai-trainer.service`'s comments.
 
-Location in code: `src/TrainerServiceMain.cpp` (the supervisory loop's child wait), `src/TrainerServiceControlState.hpp`,
-`src/IncrementalTrainingTool.cpp`/`src/ChatbotTrainer.cpp` (where progress would be reported).
+**Fix (November 11, 2026):**
+
+- **Progress from the working code.** A process-wide counter, `adai::note_pass_progress()` (`src/PassHeartbeat.{hpp,cpp}`, in
+  `adai_core`), is bumped by the working code:
+  - each training and validation sample, each tokenized pair and each quality-backfill pair (`ChatbotTrainer`);
+  - each line of a dataset file (`DatasetRegistry::load_conversation_pairs()`) and each FTP download chunk (`DataTransport.hpp`);
+  - each BPE merge, each LeJEPA batch, and each checkpoint attempt (`IncrementalTrainer::perform_auto_save()`).
+
+  The per-epoch quality thread doesn't bump it, so it can't hide a stuck training thread.
+- **The heartbeat file.** `incremental_trainer --heartbeat-file <path>` (needs `--foreground`) starts a `PassHeartbeatWriter`
+  right after parsing its arguments, so a hang in GPU initialization counts too. It writes `"<pid> <count>"` through a rename
+  every 2 s while the count changes, and removes the file at exit.
+- **The supervisor.** The wait for a pass moved to `wait_for_pass()` (`src/PassSupervision.{hpp,cpp}`). It reads the file
+  every 2 s, and `PassStallWatch` times the unchanged count on `trainer_service`'s own steady clock, ignoring a file with
+  another pid.
+  - At `TRAINER_PASS_STALL_MINUTES` (new, default 30 rather than 15 so a slow stretch is never mistaken for a stall; 0–10080,
+    0 = off) it logs an error and calls `stop_and_wait()`.
+  - The pass is counted in the new `total_passes_stalled` and in `consecutive_failures`, and backs off like a failure. It isn't
+    also counted as crashed or failed.
+  - `/admin/status` also reports `seconds_since_pass_progress`. The file is `<SESSION_DIR>/trainer_service_pass.heartbeat`.
+- **Claims.** A killed pass's claims are taken back by the next pass, which uses the same run id (MNS's current run, or the
+  persistent `chatbot_run_id`/`lejepa_run_id`), or they expire under the claim lease.
+- **Tests:** `passHeartbeatTests` (16) drives `wait_for_pass()` with real `/bin/sh` children:
+  - a pass that stops beating is stopped with SIGTERM (exit 143);
+  - one that keeps beating past the limit exits 0;
+  - one that ignores SIGTERM is killed;
+  - an earlier pass's file doesn't keep a silent one alive;
+  - a stop request ends the wait;
+  - without a file there is no check.
+
+  Removing the stall check, or the pid check, makes them fail. Also new: the flag and pass-command cases in
+  `incrementalTrainerArgsTests`, the setting in `configTests`, and the status fields in `trainerServiceProxyTests`.
+
+Location in code: `src/PassHeartbeat.{hpp,cpp}`, `src/PassSupervision.{hpp,cpp}`, `src/TrainerServiceMain.cpp`,
+`src/TrainerServiceControlState.hpp`, `src/TrainerServiceProxy.cpp`, `src/IncrementalTrainerArgs.{hpp,cpp}`,
+`src/IncrementalTrainingTool.cpp`, `src/Config.{hpp,cpp}`, and the progress calls in `src/ChatbotTrainer.cpp`,
+`src/DatasetRegistry.cpp`, `src/DataTransport.hpp`, `src/BPETokenizer.cpp`, `src/IncrementalTrainer.cpp`.
+
+---
+
+### TD-570: `BPETokenizer::load_vocab()` Takes Header Syntax Inside the Token and Merge Sections
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open — code fix landed November 11, 2026 | NLP / BPETokenizer | November 11, 2026 | 2 hours |
+
+Description:
+Found while re-tracing `BPETokenizer` (verified with a scratch program linked against the debug `adai_nlp`).
+`read_vocab_file()` applied its header rules to every line of the file, whatever section it was in:
+
+- a line starting with `#` was skipped as a comment;
+- a line starting with `NORMALIZATION`, `WHITESPACE`, `TOKENIZER_MODE`, `VOCAB_SIZE` or `RESERVED_SPECIAL_IDS`, or equal to
+  `SPECIAL_TOKENS`/`VOCAB`, or starting with `BPE_MERGES`, was read as that header line or section marker.
+
+`save_vocab()` escapes neither `#` nor letters, so a vocabulary that contains such a token doesn't load back as it was saved:
+
+- **`#` tokens vanish.** Built from `## Heading`, `#include` and `#tag`, a 60-token vocabulary loaded back as 58: the `#` and `##` tokens and
+  the `#`+`#` merge were skipped. `"## Heading #include #tag"` encoded to 7 ids instead of 6 and decoded as `" Heading #include #tag"`.
+- **A keyword token breaks the load.** A cased vocabulary built from `WHITESPACE` lines has the token `WHITESPACE` at id 40, and
+  `load_vocab()` threw `Unknown WHITESPACE '40'`, so a checkpoint carrying it can't be loaded. A token starting `TOKENIZER_MODE` would have
+  switched the mode mid-file; one starting `BPE_MERGES` would have ended the vocabulary early.
+
+The first training pass loads the vocabulary it has just built back from the file (`IncrementalTrainer::build_model()`), as every later
+pass and every server do. So markdown, code and hashtags in training data never reached the model as their real tokens, and a vocabulary
+with a keyword token would have failed every pass. Vocabulary files are written correctly; only reading was wrong.
+
+Action Items:
+
+- [x] Apply the header rules only before the first section; read every line inside `VOCAB` and `BPE_MERGES` literally.
+- [x] Round-trip tests with `#` tokens and every header keyword as a token.
+
+**Fix (November 11, 2026):** section markers carry no tab and every `VOCAB`/`BPE_MERGES` entry does (a tab inside a token is written as
+`\t`), so a line with a tab is always an entry; a tabless `SPECIAL_TOKENS`, `VOCAB` or `BPE_MERGES…` line changes the section; and the
+format comment, `#` comments, header keywords and the unknown-header-line error (TD-563) apply only before the first section. The constructor's
+doc comment, which still called ASCII the default, now says Unicode (TD-564). Tests: `TokensStartingWithAHashSurviveSaveAndLoad`,
+`TokensStartingWithAHeaderKeywordSurviveSaveAndLoad` (all eight keywords), `HeaderCommentsAndUnknownHeaderLinesAreStillHandled`; the first two
+fail with the old reader. `BPETokenizer.cpp` 2.0.2, `.hpp` 2.0.1.
+
+**Effect on existing models:** a vocabulary file with `#` tokens now loads them, so text with `#` encodes to ids the model never trained on
+(they used to be `<unk>` or other splits). Those checkpoints should be retrained, which TD-358 and TD-563 already plan. No vocabulary with a
+keyword token can have been in use, since it couldn't load.
+
+Location in code: `src/BPETokenizer.cpp` (`read_vocab_file()`).
+
+---
+
+### TD-571: Findings From the November 11, 2026 Trace of the Files TD-569 Touched
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed November 11, 2026 | Training / `trainer_service` / Config | November 11, 2026 | 3 hours |
+
+Description:
+Found while re-tracing the reference documents of every file TD-569 touched, for possible promotion to `stable`:
+
+- **`reset` ignores a mistyped flag** (MEDIUM, verified). `parse_reset_command_args()` dropped every token but `--yes`/`--keep-data`, so
+  `incremental_trainer reset --yes --keep-dat` reset everything and deleted the data registry without asking, exiting 0.
+- **The LeJEPA pass records its files as trained before its final save** (MEDIUM, verified). With `WORLD_MODEL_ARTIFACT_PATH` under a
+  read-only directory, the pass logged "Pass complete", recorded the file as trained, then failed on the save and exited 1 with no
+  checkpoint: the training was lost while the queue said the data was done.
+- **`trainer_service` hides its own status while a pass's admin API is down** (LOW, verified). The proxy added its fields
+  (`seconds_since_pass_progress`, the pass counters) only to a 200, and a pass started its admin API only after GPU initialization and the
+  model's construction. A pass stuck there showed a bare 503 until TD-569's stall limit stopped it.
+- **The epoch that triggers early stopping skips the epoch callback** (LOW, by inspection). `ChatbotTrainer::train()` broke out before
+  `record_epoch()` and the callback, so that epoch was missing from `IncrementalTrainer`'s session history, MNS progress and the admin API.
+- Smaller (by inspection): the proxy escaped only five characters in its idle `PUT` error bodies (TD-453's class); a failed MNS model lookup at trainer
+  start-up was swallowed by a `catch (...)`, so an unreachable MNS fell back to the local paths silently; the trainer's start-up `[MNS]`
+  lines went to stdout, so a `trainer_service` pass's log file missed them; the reload diff showed `METRICS_DB_URL` (which can hold a
+  database password), while `to_string()` hid it.
+
+Action Items:
+
+- [x] `reset` refuses any other argument.
+- [x] Save the world model first; mark the files trained only after it is written, and release them when it fails.
+- [x] Add the service's fields to every `/admin/status` answer; start the pass's admin API before GPU initialization.
+- [x] Run early stopping's break after the epoch is recorded and reported.
+- [x] The small items.
+
+**Fix (November 11, 2026):**
+
+- `ResetCommandArgs::error`: an unknown `reset` argument exits 1 before anything is reset (`UnrecognizedTokensAreAnError`).
+- `run_lejepa_training_pass()` saves, then marks; a failed save is logged and the files are released (checked with the real binary: no
+  trained record, the claim cleared).
+- `with_supervisor_fields()` runs on every `/admin/status` answer that is a JSON object, 503/504 included
+  (`StatusOfAnUnreachablePassStillCarriesTheServiceFields`). `run_training_pipeline()` no longer initializes the GPU; each pass builds its
+  `PassAdminApi` first and then calls `init_gpu()`, before the model is built, so the per-pass admin API answers, and a SIGTERM drains,
+  during GPU initialization.
+- `ChatbotTrainer::train()` checks early stopping after the tracker and the epoch callback
+  (`TheEpochThatTriggersEarlyStoppingReachesTheEpochCallback`).
+- The proxy's idle `PUT` error bodies, the ones with variable text, are built with nlohmann/json; the MNS model lookup's failure is logged with its reason; the `[MNS]` lines go
+  through `Logger::deferred()`, so they reach the pass's log file; `is_secret_key()` covers `METRICS_DB_URL`
+  (`ReloadHidesTheMetricsDatabaseUrl`).
+
+Each new test fails with its fix reverted. Versions: `IncrementalTrainerArgs` 0.17.0/0.18.0, `IncrementalTrainingTool.cpp` 0.36.0,
+`TrainerServiceProxy` 0.4.1/0.8.0, `ChatbotTrainer.cpp` 0.22.2, `Config.cpp` 1.31.1.
+
+Location in code: `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTrainingTool.cpp`, `src/TrainerServiceProxy.{hpp,cpp}`,
+`src/ChatbotTrainer.cpp`, `src/Config.cpp`, `src/CMakeLists.txt`.
 
 ---
 

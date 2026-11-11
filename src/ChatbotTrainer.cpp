@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.22.2
+// @adai-reviewed: 2026-11-11
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -24,6 +24,7 @@
 #include "DatasetRegistry.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
+#include "PassHeartbeat.hpp"
 #include "SecureRandom.hpp"
 #include "gpu/GPUUtils.hpp"
 #ifdef ADAI_ENABLE_OPENMP
@@ -605,6 +606,7 @@ void ChatbotTrainer::preprocess_data() {
 #pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_train, skipped_empty_train)
 #endif
     for (int i = 0; i < n_train; i++) {
+        adai::note_pass_progress();  // TD-569: tokenizing a large pass takes a while
         const auto& pair = training_data[i];
         // BPETokenizer::encode() unconditionally throws TokenizerInputError (validate_input(),
         // BPETokenizer.cpp) on an empty string rather than returning an empty token vector, so
@@ -652,6 +654,7 @@ void ChatbotTrainer::preprocess_data() {
 #pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_val, skipped_empty_val)
 #endif
     for (int i = 0; i < n_val; i++) {
+        adai::note_pass_progress();  // TD-569
         const auto& pair = validation_data[i];
         // See the identical guard in the training loop above for why this must be checked
         // before encode() is ever called.
@@ -1447,6 +1450,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
     };
 
     for (int i = 0; i < num_samples; i++) {
+        adai::note_pass_progress();  // TD-569: trainer_service's stall check
         // Cooperative abort (serve's /admin/pause) — only honored at an
         // optimizer-step boundary, never mid-accumulation-window, so a pause
         // never leaves a half-applied gradient update.
@@ -1823,6 +1827,7 @@ float ChatbotTrainer::validate() {
     long long counted_tokens = 0;
 
     for (int i = 0; i < num_samples; i++) {
+        adai::note_pass_progress();  // TD-569
         const auto& pair = tokenized_validation_data[i];
 
         try {
@@ -2126,11 +2131,13 @@ void ChatbotTrainer::backfill_generation_quality() {
     };
 
     for (size_t i = 0; i < training_data.size(); ++i) {
+        adai::note_pass_progress();  // TD-569: one generation per pair
         training_data[i].meta.quality = score_sample(eval_prompt(tokenized_training_data[i]),
                                                      tokenized_training_data[i].target_text);
     }
 
     for (size_t i = 0; i < validation_data.size(); ++i) {
+        adai::note_pass_progress();  // TD-569
         validation_data[i].meta.quality = score_sample(eval_prompt(tokenized_validation_data[i]),
                                                        tokenized_validation_data[i].target_text);
     }
@@ -2261,14 +2268,7 @@ bool ChatbotTrainer::train(int num_epochs) {
                 report_sample_quality(epoch + 1, "loss");  // TD-273
             }
 
-            epochs_run_ = epoch + 1;  // TD-410: before the early-stopping break below
-
-            // Early stopping check (epochs_without_improvement maintained by validate())
-            if (has_validation && config.enable_early_stopping &&
-                epochs_without_improvement >= config.patience) {
-                early_stopped = true;
-                break;
-            }
+            epochs_run_ = epoch + 1;  // TD-410
 
             // TD-169: feed this epoch's metrics into metrics_tracker_ for real convergence/
             // overfitting/CSV-export analysis — see get_metrics_tracker()/export_metrics_csv()'s
@@ -2288,6 +2288,16 @@ bool ChatbotTrainer::train(int num_epochs) {
             if (epoch_callback_) {
                 float cb_val = validation_losses.empty() ? 0.0f : validation_losses.back();
                 epoch_callback_(epoch, num_epochs, epoch_loss, cb_val, current_learning_rate);
+            }
+
+            // Early stopping (epochs_without_improvement maintained by validate()). TD-571: after
+            // the epoch is recorded and reported; it used to break before, so the epoch that
+            // triggered it never reached the tracker or the epoch callback (the session history,
+            // MNS progress).
+            if (has_validation && config.enable_early_stopping &&
+                epochs_without_improvement >= config.patience) {
+                early_stopped = true;
+                break;
             }
         }
 

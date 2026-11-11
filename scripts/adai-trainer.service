@@ -18,6 +18,12 @@
 # genuinely crashing (a bug in the supervisor/proxy, not a training-pass GPU fault), which should
 # now be a much rarer event than the GPU-driver crashes this host has actually been seeing.
 #
+# TD-569: a pass can also hang instead of crashing (a GPU call that never returns after a driver
+# engine reset). trainer_service stops a pass that has made no progress for TRAINER_PASS_STALL_MINUTES
+# (config.trainer.conf, default 30): each pass writes its progress to
+# <SESSION_DIR>/trainer_service_pass.heartbeat, so SESSION_DIR must stay in ReadWritePaths. A hung
+# service no longer needs a manual `systemctl restart`.
+#
 # Requires the acquire-eligibility fix (a resumed run can reclaim files it had already claimed
 # before crashing — needs NAME_SERVICE_URL configured so MNS hands back the same run_id across
 # restarts; a standalone/no-MNS deployment needs a static RUN_ID= pinned in config.trainer.conf

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.30.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.31.0
+// @adai-reviewed: 2026-11-11
 
 #include <climits>
 #include <cstdint>
@@ -632,6 +632,14 @@ struct ServiceConfig {
     /// single fixed port needs no runtime discovery. Default: 8085 (next free slot after
     /// trainer_admin_port's own 8084).
     int trainer_child_admin_port = 8085;
+
+    /// TD-569: trainer_service stops a pass that has made no progress (its heartbeat file,
+    /// PassHeartbeat.hpp, stopped changing) for this many minutes, and backs off as for a failed
+    /// pass. A pass whose GPU call never returns after a driver engine reset fails no sample, so
+    /// nothing else ends it. 0 turns the check off. Default 30: progress is reported per sample,
+    /// tokenized pair, downloaded chunk and checkpoint, so a working pass never goes that long
+    /// without one. Read only by trainer_service.
+    int trainer_pass_stall_minutes = 30;
 
     // ============================================================
     // World-Model (LeJEPA) Pretraining + Injection Configuration (TD-183/TD-186)

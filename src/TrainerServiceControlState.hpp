@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta
-// @adai-version: 0.3.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-11
 
 // TD-173: trainer_service's own process-lifetime control state — the piece missing from TD-172's
 // initial implementation. TrainerControlState (TrainerControlState.hpp) is deliberately
@@ -64,6 +64,12 @@ class TrainerServiceControlState {
     // Failed or crashed passes in a row; reset by a pass that trained or found nothing pending.
     std::atomic<int> consecutive_failures{0};
     std::atomic<std::int64_t> last_failure_unix{0};  // 0 = no failure yet
+    // TD-569: passes stopped for making no progress for TRAINER_PASS_STALL_MINUTES (they also count
+    // in consecutive_failures, not in total_passes_crashed/total_passes_failed), and the running
+    // pass's seconds since its last progress (-1 when no pass is running, or the check is off: 0
+    // then).
+    std::atomic<long long> total_passes_stalled{0};
+    std::atomic<long long> seconds_since_pass_progress{-1};
     // TD-277: last_exit_code is 128 + the signal number for a signal death (139 SIGSEGV, 137 SIGKILL);
     // it used to be 128 for every signal. TD-278: a child that couldn't be executed is a launch
     // failure (consecutive_failures, no pass counted), no longer a pass with exit 127.

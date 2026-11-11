@@ -456,6 +456,66 @@ TEST_F(BPETokenizerTest, SaveLoadPreservesEncoding) {
     EXPECT_EQ(ids1, ids2);
 }
 
+namespace {
+// TD-570: the whole vocabulary, as (id, token) in id order, and the merges, as the tokenizer writes
+// them; equal for two tokenizers that encode and decode identically.
+std::vector<std::pair<std::string, int>> all_tokens(const BPETokenizer& t) {
+    return t.get_tokens_by_id(static_cast<int>(t.get_vocab_size()));
+}
+
+void expect_round_trip(const std::vector<std::string>& texts, const std::string& probe) {
+    BPETokenizer built;
+    built.build_vocab(texts, 200, 1);
+    built.save_vocab("test_save_vocab.txt");
+    BPETokenizer loaded;
+    ASSERT_NO_THROW(loaded.load_vocab("test_save_vocab.txt"));
+    EXPECT_EQ(all_tokens(loaded), all_tokens(built));
+    EXPECT_EQ(loaded.encode(probe, false), built.encode(probe, false));
+    EXPECT_EQ(loaded.decode(loaded.encode(probe, false)), probe);
+}
+}  // namespace
+
+// TD-570: load_vocab() skipped every line starting with '#' as a comment, inside VOCAB and
+// BPE_MERGES too, so '#' tokens and their merges vanished on reload.
+TEST_F(BPETokenizerTest, TokensStartingWithAHashSurviveSaveAndLoad) {
+    std::vector<std::string> texts(50, "## Heading\n#include <x>\n# note #tag");
+    expect_round_trip(texts, "## Heading #include #tag");
+}
+
+// TD-570: a token starting with a header keyword was read as that header line: WHITESPACE... failed
+// the load, TOKENIZER_MODE... switched the mode, BPE_MERGES... ended the vocabulary early.
+TEST_F(BPETokenizerTest, TokensStartingWithAHeaderKeywordSurviveSaveAndLoad) {
+    for (const std::string word :
+         {"WHITESPACE", "NORMALIZATION", "TOKENIZER_MODE", "VOCAB_SIZE", "RESERVED_SPECIAL_IDS",
+          "BPE_MERGES", "SPECIAL_TOKENS", "VOCAB"}) {
+        SCOPED_TRACE(word);
+        std::vector<std::string> texts(50, word + "\n" + word + " x " + word);
+        expect_round_trip(texts, word + " x " + word);
+    }
+}
+
+// TD-570: the header rules still apply before the first section.
+TEST_F(BPETokenizerTest, HeaderCommentsAndUnknownHeaderLinesAreStillHandled) {
+    BPETokenizer t;
+    t.build_vocab({"hello world"}, 40, 1);
+    t.save_vocab("test_save_vocab.txt");
+    std::ifstream in("test_save_vocab.txt");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    {
+        std::ofstream out("test_save_vocab.txt", std::ios::trunc);
+        out << "# a comment in the header\n" << content;
+    }
+    BPETokenizer commented;
+    EXPECT_NO_THROW(commented.load_vocab("test_save_vocab.txt"));
+    {
+        std::ofstream out("test_save_vocab.txt", std::ios::trunc);
+        out << "SOMETHING_NEW 1\n" << content;
+    }
+    BPETokenizer unknown;
+    EXPECT_THROW(unknown.load_vocab("test_save_vocab.txt"), VocabularyFileError);
+}
+
 // ============================================================================
 // Utility Method Tests
 // ============================================================================

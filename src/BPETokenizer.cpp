@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 2.0.2
+// @adai-reviewed: 2026-11-11
 
 // TD-225: progress, warnings and save/load summaries go through adai::Logger; this file writes
 // nothing to std::cout or std::cerr.
@@ -17,6 +17,7 @@
 #include <sstream>
 #include <utility>
 #include "Logger.hpp"
+#include "PassHeartbeat.hpp"
 
 // Pre-tokenization regex patterns
 // ASCII: every byte is one token unit; only ASCII letter/digit classes used.
@@ -319,6 +320,7 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
     // TD-225: progress at every tenth of the target, at debug, instead of a console line per merge.
     const int progress_step = std::max(1, num_merges / 10);
     for (int i = 0; i < num_merges; i++) {
+        adai::note_pass_progress();  // TD-569: a first pass builds the vocabulary
         auto best_pair = get_most_frequent_pair(word_tokens);
         if (best_pair.first.empty()) {
             adai::Logger::info("[BPE Tokenizer] No more pairs to merge after {} of {} merges", i,
@@ -765,84 +767,96 @@ void BPETokenizer::read_vocab_file(const std::string& filename) {
     std::string section;
     int reserved_ids = -1;  // TD-565: RESERVED_SPECIAL_IDS, absent before v4
     while (std::getline(file, line)) {
-        // TD-563: a vocabulary written by a newer format is refused rather than misread (an older
-        // binary used to skip header lines it didn't know, so it would lowercase a cased
-        // vocabulary).
-        static const std::string kFormatComment = "# BPE Tokenizer Vocabulary v";
-        if (line.rfind(kFormatComment, 0) == 0) {
-            const int major = std::atoi(line.c_str() + kFormatComment.size());
-            if (major > kVocabFormatMajor) {
-                throw VocabularyFileError(
-                    filename + " is vocabulary format v" + line.substr(kFormatComment.size()) +
-                    ", newer than this build reads (v" + std::to_string(kVocabFormatMajor) +
-                    "); update the binary");
+        if (line.empty()) {
+            continue;
+        }
+        // TD-570: section markers carry no tab, while every VOCAB and BPE_MERGES entry does (a tab
+        // inside a token is written as \t). So a line with a tab is always an entry, and the header
+        // rules below ('#' comments, NORMALIZATION, WHITESPACE...) apply only before the first
+        // section. They used to apply to every line, so a token starting with '#' was skipped as a
+        // comment and one starting with a header keyword (WHITESPACE...) was read as that header
+        // line.
+        if (line.find('\t') == std::string::npos) {
+            if (line == "SPECIAL_TOKENS") {
+                section = "SPECIAL_TOKENS";
+                continue;
             }
-            continue;
-        }
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-        if (line.rfind("NORMALIZATION", 0) == 0) {  // TD-560
-            const std::string value = line.size() > 14 ? line.substr(14) : std::string();
-            if (value == "CASED") {
-                normalization_ = TextNormalization::CASED;
-            } else if (value == "LOWERCASE") {
-                normalization_ = TextNormalization::LOWERCASE;
-            } else {
-                throw VocabularyFileError("Unknown NORMALIZATION '" + value + "' in " + filename);
+            if (line == "VOCAB") {
+                section = "VOCAB";
+                continue;
             }
-            continue;
-        }
-
-        if (line.rfind("WHITESPACE", 0) == 0) {  // TD-224
-            const std::string value = line.size() > 11 ? line.substr(11) : std::string();
-            if (value == "PRESERVE") {
-                whitespace_ = WhitespaceHandling::PRESERVE;
-            } else if (value == "COLLAPSE") {
-                whitespace_ = WhitespaceHandling::COLLAPSE;
-            } else {
-                throw VocabularyFileError("Unknown WHITESPACE '" + value + "' in " + filename);
+            if (line.rfind("BPE_MERGES", 0) == 0) {
+                section = "BPE_MERGES";
+                continue;
             }
-            continue;
-        }
-
-        if (line.find("TOKENIZER_MODE") == 0) {
-            std::string mode_str = line.substr(15);  // skip "TOKENIZER_MODE "
-            mode = (mode_str == "UNICODE") ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
-            token_pattern =
-                std::regex(mode == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN);
-            continue;
-        }
-        if (line.find("VOCAB_SIZE") == 0) {
-            continue;
-        }
-        if (line.rfind("RESERVED_SPECIAL_IDS ", 0) == 0) {  // TD-565
-            try {
-                reserved_ids = std::stoi(line.substr(21));
-            } catch (const std::exception&) {
-                reserved_ids = -1;
-            }
-            if (reserved_ids != adai::SpecialTokenIDs::SYSTEM_TURN &&
-                reserved_ids != adai::SpecialTokenIDs::FIRST_UNASSIGNED &&
-                reserved_ids != adai::SpecialTokenIDs::RESERVED_SLOTS) {
-                throw VocabularyFileError("Unsupported RESERVED_SPECIAL_IDS '" + line.substr(21) +
-                                          "' in " + filename);
-            }
-            continue;
-        }
-        if (line == "SPECIAL_TOKENS") {
-            section = "SPECIAL_TOKENS";
-            continue;
-        }
-        if (line == "VOCAB") {
-            section = "VOCAB";
-            continue;
-        }
-        if (line.find("BPE_MERGES") == 0) {
-            section = "BPE_MERGES";
-            continue;
         }
         if (section.empty()) {
+            // TD-563: a vocabulary written by a newer format is refused rather than misread (an
+            // older binary used to skip header lines it didn't know, so it would lowercase a cased
+            // vocabulary).
+            static const std::string kFormatComment = "# BPE Tokenizer Vocabulary v";
+            if (line.rfind(kFormatComment, 0) == 0) {
+                const int major = std::atoi(line.c_str() + kFormatComment.size());
+                if (major > kVocabFormatMajor) {
+                    throw VocabularyFileError(
+                        filename + " is vocabulary format v" + line.substr(kFormatComment.size()) +
+                        ", newer than this build reads (v" + std::to_string(kVocabFormatMajor) +
+                        "); update the binary");
+                }
+                continue;
+            }
+            if (line[0] == '#') {
+                continue;
+            }
+            if (line.rfind("NORMALIZATION", 0) == 0) {  // TD-560
+                const std::string value = line.size() > 14 ? line.substr(14) : std::string();
+                if (value == "CASED") {
+                    normalization_ = TextNormalization::CASED;
+                } else if (value == "LOWERCASE") {
+                    normalization_ = TextNormalization::LOWERCASE;
+                } else {
+                    throw VocabularyFileError("Unknown NORMALIZATION '" + value + "' in " +
+                                              filename);
+                }
+                continue;
+            }
+
+            if (line.rfind("WHITESPACE", 0) == 0) {  // TD-224
+                const std::string value = line.size() > 11 ? line.substr(11) : std::string();
+                if (value == "PRESERVE") {
+                    whitespace_ = WhitespaceHandling::PRESERVE;
+                } else if (value == "COLLAPSE") {
+                    whitespace_ = WhitespaceHandling::COLLAPSE;
+                } else {
+                    throw VocabularyFileError("Unknown WHITESPACE '" + value + "' in " + filename);
+                }
+                continue;
+            }
+
+            if (line.find("TOKENIZER_MODE") == 0) {
+                std::string mode_str = line.substr(15);  // skip "TOKENIZER_MODE "
+                mode = (mode_str == "UNICODE") ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
+                token_pattern =
+                    std::regex(mode == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN);
+                continue;
+            }
+            if (line.find("VOCAB_SIZE") == 0) {
+                continue;
+            }
+            if (line.rfind("RESERVED_SPECIAL_IDS ", 0) == 0) {  // TD-565
+                try {
+                    reserved_ids = std::stoi(line.substr(21));
+                } catch (const std::exception&) {
+                    reserved_ids = -1;
+                }
+                if (reserved_ids != adai::SpecialTokenIDs::SYSTEM_TURN &&
+                    reserved_ids != adai::SpecialTokenIDs::FIRST_UNASSIGNED &&
+                    reserved_ids != adai::SpecialTokenIDs::RESERVED_SLOTS) {
+                    throw VocabularyFileError("Unsupported RESERVED_SPECIAL_IDS '" +
+                                              line.substr(21) + "' in " + filename);
+                }
+                continue;
+            }
             // TD-563: an unknown header line belongs to a format this build doesn't understand.
             throw VocabularyFileError("Unknown vocabulary header line in " + filename + ": " +
                                       line);

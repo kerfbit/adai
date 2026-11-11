@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.12.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.12.1
+// @adai-reviewed: 2026-11-11
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -13,13 +13,14 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
-#include <stdexcept>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 #include <utility>
 #include "Logger.hpp"
+#include "PassHeartbeat.hpp"
 #include "PortableTime.hpp"
 #include "RegistryTransport.hpp"
 #include "TrainingSampleMeta.hpp"
@@ -846,6 +847,7 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
         std::string line;
         int seen = 0;
         while (std::getline(file, line)) {
+            adai::note_pass_progress();  // TD-569: trainer_service's stall check
             if (line.empty() || line.front() != '{')
                 continue;
             std::string in, resp;
@@ -872,6 +874,7 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
         std::string raw, line, current_input, current_response;
         bool in_response = false;  // TD-336: until a blank line or the next INPUT:
         while (std::getline(file, raw)) {
+            adai::note_pass_progress();  // TD-569
             raw.erase(raw.find_last_not_of(" \t\n\r") + 1);
             line = raw;
             line.erase(0, line.find_first_not_of(" \t\n\r"));

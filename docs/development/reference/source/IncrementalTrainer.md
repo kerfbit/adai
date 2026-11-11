@@ -1,149 +1,91 @@
 # `IncrementalTrainer` — Source File Reference
 
-- **Files:** [`src/IncrementalTrainer.hpp`](../../../../src/IncrementalTrainer.hpp) (526 lines), [`src/IncrementalTrainer.cpp`](../../../../src/IncrementalTrainer.cpp) (2,392 lines)
+- **Files:** [`src/IncrementalTrainer.hpp`](../../../../src/IncrementalTrainer.hpp) (541 lines), [`src/IncrementalTrainer.cpp`](../../../../src/IncrementalTrainer.cpp) (2,507 lines)
 - **Namespace:** global (`IncrementalConfig`, `TrainingSession`, `IncrementalTrainer`)
-- **Built into:** the `incremental_trainer` executable (compiled with `ChatbotTrainer.cpp`, `Config.cpp`, `TrainingMetricsService.cpp`), not a library
-- **Status tag:** `@adai-status: beta` ("capped by TD-039"), `IncrementalTrainer.cpp` `@adai-version: 0.17.1`, `IncrementalTrainer.hpp` `0.17.0`, `@adai-reviewed: 2026-10-19`
-- **Tests:** `incrementaltrainer_test.cpp` (58), `incremental_trainer_registry_test.cpp` (14), `incremental_trainer_background_test.cpp` (8), `incremental_trainer_control_test.cpp` (7)
+- **Built into:** the `incremental_trainer` executable (with `ChatbotTrainer.cpp` and the core libraries), not a library
+- **Status tags:** `@adai-status: beta` ("capped by TD-039"); `IncrementalTrainer.cpp` `@adai-version: 0.24.1` (reviewed 2026-11-11), `.hpp` `0.21.0` (2026-11-10)
+- **Tests:** `incrementaltrainerTests` (66), `incrementalTrainerDecouplingTests` (14, `incremental_trainer_registry_test.cpp`), `incrementalTrainerBackgroundTests` (8), `incrementalTrainerControlTests` (7)
 - **Operator guide:** [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-11
 
-> Code-traced reference. Behaviour marked **verified** was confirmed by constructing the real class
-> (compiled from these sources) against scratch session directories holding real checkpoints written by
-> `EncoderDecoderModel::save_model()`.
+> Code-traced reference. Behaviour marked **verified** was confirmed by constructing the real class against scratch session directories holding
+> real checkpoints, or by running `incremental_trainer`.
 
 ---
 
 ## 1. What this file is
 
-The **session and checkpoint manager around `ChatbotTrainer`**. `incremental_trainer`'s
-`train`/`retrain`/`resume`/`reset` commands, and through them every `trainer_service` pass, construct
-one of these. It:
+The **session and checkpoint manager around `ChatbotTrainer`**. `incremental_trainer`'s `train`/`retrain`/`resume`/`reset` commands, and through
+them every `trainer_service` pass, build one. It:
+
 - maps `ServiceConfig` to `IncrementalConfig` (`make_incremental_config()`);
-- owns the vocabulary bootstrap and builds the model (the single `EncoderDecoderModel` construction
-  point), attaching a frozen LeJEPA world model and hippocampal memory when configured;
-- keeps `session_history.txt` and the checkpoint files in `SESSION_DIR`;
-- decides **which checkpoint each pass starts from**;
-- runs a pass: loads the claimed files, builds a fresh `ChatbotTrainer`, wires the metrics push
-  session, MNS run/progress/candidate calls, auto-save, admin pause/checkpoint, and finalizes.
+- builds the vocabulary on the first run and the model (the one `EncoderDecoderModel` construction point), attaching a frozen LeJEPA world model
+  and hippocampal memory when configured;
+- keeps `session_history.txt` and the checkpoints in `SESSION_DIR`, and decides which checkpoint each pass starts from;
+- runs a pass: loads the claimed files, drives a fresh `ChatbotTrainer`, and wires the metrics push session, MNS run, progress and candidate
+  calls, auto-save, the admin API's pause and checkpoint requests, and the finish.
 
-### Why it matters
-
-It decides what the model actually learns from across passes. Every incremental pass's starting
-weights, and whether its results are kept, come from here.
+It decides what the model keeps across passes: every pass's starting weights, and whether its results are kept, come from here.
 
 ---
 
 ## 2. Lifecycle of a pass
 
 ```text
-IncrementalTrainer(vocab, model, cfg)          constructor
-  ├─ build_model()  (+ maybe_attach_world_model())
+IncrementalTrainer(vocab, model, cfg)
+  ├─ no vocabulary yet → defer the model until the first pass builds one (TD-414); else build_model() (+ maybe_attach_world_model())
   ├─ load_session_history()                     current_session_id = max id + 1
   ├─ init_from_session_history()
-  │    ├─ take_interrupted_session()            TD-406: last entry still an auto_save_session_N
-  │    │                                        → newest of its auto-save / session_N_best; id back to N
-  │    ├─ best tracking: lowest final_validation_loss among sane sessions with a real loss
-  │    └─ load select_resume_checkpoint()       TD-405: most recent completed session
-  │                                             (RESUME_FROM_BEST_CHECKPOINT=true: lowest loss);
-  │                                             the interrupted snapshot outranks both
-  └─ cleanup_dead_sessions()                    §3
-begin_run(is_retrain)                           MNS set_training → run_id; registry next_session
+  │    ├─ take_interrupted_session()            an interim auto_save_session_N entry → its newest snapshot; id back to N (TD-406)
+  │    ├─ best tracking: lowest real validation loss among sane sessions
+  │    └─ load select_resume_checkpoint()       most recent completed session (TD-405); RESUME_FROM_BEST_CHECKPOINT: lowest loss
+  └─ cleanup_dead_sessions()                    remnants, orphaned snapshots, unreferenced checkpoints (TD-407)
+begin_run(is_retrain)                           MNS set_training() → run_id (new run on retrain); registry next_session()
 train_on_files / retrain_on_files / resume_last_session
-  ├─ load_training_pairs()                      per-file counts kept for mark_trained (TD-334);
-  │                                             nothing loaded → fail, files released (TD-412)
-  ├─ vocab bootstrap on first run
-  ├─ initialize_session()                       append in-progress entry (val loss 0)
-  ├─ tokenized-cache key = hash(file checksums + ranges, vocab checksum, tokenizer mode, max_seq,
-  │                              ChatbotTrainer::kPreprocessFormatVersion)   (TD-409)
-  ├─ fresh ChatbotTrainer(config.base_config); set_run_id(run_id)
-  ├─ train_on_files only: load_training_state(<loaded checkpoint>.optimizer)   (TD-269)
+  ├─ load_training_pairs()                      per unit with its segment range; per-unit pair counts (TD-334); nothing loaded → fail (TD-412)
+  ├─ first run: bootstrap_vocab() then build_model()
+  ├─ initialize_session()                       append an in-progress entry
+  ├─ tokenized-cache key (file checksums + ranges, vocab checksum, mode, max_seq, kPreprocessFormatVersion, validation_split)
+  ├─ fresh ChatbotTrainer(config.base_config); set_run_id(run_id); add the pairs with their metadata (TD-273)
+  ├─ train_on_files: load_training_state(<loaded checkpoint>.optimizer) (TD-269)
   └─ run_training()
-       ├─ metrics push session (/session/start; 409 → retry with a suffix ×3; otherwise NullMetricsReporter)
-       ├─ callbacks: per epoch (history, MNS push_progress), per sample (auto-save, forced checkpoint),
-       │             best model (session_<id>_best.bin + its .optimizer)
+       ├─ metrics push session (409 → retry with a suffix ×3; otherwise NullMetricsReporter)
+       ├─ callbacks: per epoch (session history, MNS push_progress, admin epoch), per sample (admin progress, forced
+       │             checkpoint, auto-save), best model (session_<id>_best.bin + .optimizer)
        ├─ trainer.train(); model = trainer.release_model()
-       ├─ paused (/admin/pause) → perform_auto_save(); return false (files released by the caller)
-       └─ success → save session_<id>_checkpoint.bin; a failed save fails the pass (TD-221)
-                    → save_training_state(<checkpoint>.optimizer), .metrics.csv, finalize_session(),
-                      save history, MNS set_candidate
+       ├─ paused (/admin/pause or SIGTERM, TD-416) → perform_auto_save(); return false (the caller releases the files)
+       └─ success → save session_<id>_checkpoint.bin (a failed save fails the pass, TD-221) and its .optimizer, .metrics.csv;
+                    finalize_session(); save history; MNS set_candidate; end the metrics session last (TD-442)
 ```
 
-`resume_last_session()` returns `ResumeResult::Trained`, `NothingPending` or `Failed` (TD-523). It
-acquires from the registry (an unreachable registry is `Failed`), hands the batch to the caller's
-`PassFileResolver` (the FTP download step, TD-411; with no resolver, an FTP registry fails the pass),
-loads the interrupted snapshot, the in-progress best or the selected checkpoint, trains, then
-marks the exact units trained with their pair counts, or releases them (TD-333/TD-334).
+`resume_last_session(resolver)` returns `Trained`, `NothingPending` or `Failed` (TD-523). It acquires from the registry (unreachable → `Failed`),
+hands the batch to the caller's `PassFileResolver` (the FTP download step, TD-411), trains from the interrupted snapshot or the selected
+checkpoint, then marks the exact units trained with their counts, or releases them (TD-333/TD-334).
 
-`make_incremental_config()` copies the architecture, optimizer, clipping, batch, metrics, MNS,
-generation-quality, auto-save/retention, tokenizer, dataset and world-model/hippocampal fields, and
-`RESUME_FROM_BEST_CHECKPOINT` (TD-405). It **hard-codes** `enable_early_stopping = true`, `patience = 5`
-and `restore_best_weights = true` (not configurable), and the config-file constructor uses
-`LRSchedule::LINEAR_WARMUP`. That is the TD-269 owner decision: warm up once per run, then hold the
-base LR. It replaced `WARMUP_COSINE`. `IncrementalConfig::save_incremental_checkpoints` and
-`checkpoint_dir` are never read.
+`retrain` (`reset_model_for_config()`) archives the previous checkpoints and history to `<SESSION_DIR>/archive/<UTC time>/` (TD-410), then
+rebuilds fresh weights and forgets the loaded training state.
 
-`retrain` calls `reset_model_for_config()`, which rebuilds fresh weights, forgets the loaded
-checkpoint's training state, and clears and saves an empty `session_history`. Every earlier
-checkpoint stays on disk but is no longer referenced; nothing deletes it until a `reset`.
+`make_incremental_config()` copies the architecture, optimizer, clipping, dropout, batch, metrics, MNS, generation-quality and backfill,
+auto-save and retention, tokenizer, dataset, world-model and hippocampal fields, `RESUME_FROM_BEST_CHECKPOINT`, and the TD-410 policy (`SEED` isn't mapped: `incremental_trainer` applies it with
+`set_init_seed()` before anything is built):
+`EARLY_STOPPING_ENABLED` (true), `EARLY_STOPPING_PATIENCE` (5), `RESTORE_BEST_WEIGHTS` (true), `LR_SCHEDULE` (`linear_warmup`, else `constant`;
+no decaying schedule, since passes continue one run). `best_model_dir` is the session directory (TD-274).
 
 ---
 
-## 3. Checkpoint selection and cleanup (verified)
+## 3. Checkpoint selection and clean-up
 
-All three problems below were fixed October 18, 2026 and are kept here as history.
-
-### Fixed: each pass started from the best-ever checkpoint, not the latest (TD-405)
-
-The constructors and `resume_last_session()` loaded the session with the **lowest
-`final_validation_loss` across the whole history**. But each pass validates on a split of its own
-files, so those numbers aren't comparable, and a later pass whose new data validated worse sent the
-next pass back to an older checkpoint. Verified: with session 0 (val 1.20) followed by session 1 (val
-2.00, newer), the old code loaded session 0. Now `select_resume_checkpoint()` continues from the most
-recent completed session with a loadable checkpoint. `RESUME_FROM_BEST_CHECKPOINT=true` restores the
-old rule, which only makes sense with a fixed validation set. Best tracking and the `best` link still
-use the lowest loss. `ResumesFromMostRecentSessionNotLowestValidationLoss` covers both modes.
-
-TD-539, found alongside: the constructors tested for the bare checkpoint path, which `save_model()`
-never writes, so they never loaded any checkpoint, and `train`/`retrain` always started from fresh
-weights. `select_resume_checkpoint()` only returns checkpoints whose five sidecars exist.
-
-### Fixed: a paused or crashed pass's work was deleted on the next start (TD-406)
-
-`perform_auto_save()` (sample-cadence auto-save, `/admin/checkpoint`, and the pause path) saves
-`auto_save_session_N.bin` and records session N in the history with validation loss 0. The next start
-used to:
-1. look for `session_<N+1>_best.bin`;
-2. call session N's files orphaned;
-3. drop session N and delete its auto-save.
-
-So a paused pass's checkpoint was thrown away, and its released files were retrained from older
-weights. Now `take_interrupted_session()` recognizes the interim entry by its auto-save checkpoint
-path. It resumes from the newer of the auto-save and `session_N_best`, and sets `current_session_id`
-back to N, so cleanup keeps those snapshots. `InterruptedSessionResumesFromItsNewestSnapshot` covers
-it.
-
-### Fixed: checkpoint deletion removed 0.2% of the bytes (TD-407)
-
-`save_model()` writes five top-level sidecars plus the per-layer files that hold almost all the
-weights. `remove_model_files()` deleted only the sidecars and `.metrics.csv`: on a d_model 256,
-4 + 4 layer checkpoint, 0.1 of 29.6 MB. So retention, superseded best snapshots and broken-session
-cleanup each left nearly a full checkpoint behind. `cleanup_dead_sessions()` and `reset_all()`
-scanned for bare `*.bin` names that don't exist.
-
-Now:
-- **`checkpoint_files(base)`** lists every file named `<base>.…` or `<base>_…` (the bare `<base>` too,
-  if present). That covers the sidecars, per-layer files, `.metrics.csv` and TD-269's `.optimizer`,
-  whatever components a checkpoint has. `remove_model_files()` deletes them all.
-- **Grouping:** `session_checkpoint_base_of()` groups a directory's files by checkpoint.
-  `cleanup_dead_sessions()` then removes, per base:
-  - a remnant without a `.config` (which also reclaims what the old deletion left behind);
-  - an orphaned best/auto-save snapshot;
-  - an unreferenced checkpoint.
-
-  `reset_all()` removes every file that belongs to a session checkpoint.
-- **Tests:** `RemoveModelFilesDeletesTheWholeCheckpointOnly` and
-  `CleanupDeadSessionsReclaimsCheckpointRemnants`.
+- **`select_resume_checkpoint()`** (TD-405): the most recent completed session with a loadable checkpoint (all its sidecars); with
+  `RESUME_FROM_BEST_CHECKPOINT=true`, the lowest real validation loss (only meaningful with a fixed validation set). An interrupted pass's
+  newest snapshot outranks both (TD-406). Before TD-539 the constructors tested the bare checkpoint path, which `save_model()` never writes, so
+  no CLI pass ever loaded a checkpoint.
+- **Sessions without validation** record `TrainingSession::kNoValidationLoss` (−1): resumable, but never chosen as the lowest loss (TD-541). 0
+  marks an in-progress session, NaN a diverged one.
+- **Whole-checkpoint deletion** (TD-407): `checkpoint_files(base)` lists every file named `<base>.…`/`<base>_…` (sidecars, per-layer files,
+  `.metrics.csv`, `.optimizer`); `remove_model_files()` deletes them all. `cleanup_dead_sessions()` groups a directory's files by checkpoint and
+  removes remnants without a `.config`, orphaned best/auto-save snapshots and unreferenced checkpoints.
+- **Links** (TD-408): `latest_checkpoint.bin` / `best_checkpoint.bin` in the working directory are one link per checkpoint file, so the link name
+  loads like the checkpoint (usable as `MODEL_PATH`); copies on Windows.
 
 ---
 
@@ -151,116 +93,68 @@ Now:
 
 | Member | Behaviour |
 |---|---|
-| `bootstrap_vocab(pairs)` | First run only: builds the BPE vocab (auto-sized via `recommend_vocab_size()` unless `VOCAB_BUILD_SIZE`), saves it (a failed save returns false, TD-221), and logs fertility warnings. Still unreachable from the CLI (TD-414) |
-| `compute_tokenized_cache_key()` | `std::hash` of the files' content checksums and segment ranges, the vocab checksum, the tokenizer mode, `max_seq_length`, and `ChatbotTrainer::kPreprocessFormatVersion`. That last one has been in the key since TD-409, so a change to `ChatbotTrainer`'s tokenization (bumped for TD-531/532/275 and TD-361) invalidates old caches |
-| `begin_run(is_retrain)` | MNS `set_training()` → `run_id`, registry `next_session()` → session id; both best-effort |
-| `resume_last_session(resolver)` | §2; returns `ResumeResult` (TD-523) |
-| `last_pass_pair_counts()` | TD-334: pairs loaded per file of the last `train_on_files()`/`retrain_on_files()` call, for `mark_trained()` |
-| `should_auto_save()` / `perform_auto_save()` | By samples or minutes (live-tunable under `trainer_service`); saves mid-epoch through the live `ChatbotTrainer`, including its training state. An interrupted pass resumes from these (TD-406) |
-| `finalize_session()` | Records results with **`epochs_completed = num_epochs` requested** (early stopping, which is forced on, can stop sooner), removes the session's best snapshot (all its files since TD-407), updates the links, and runs retention. A pass with no validation data records `TrainingSession::kNoValidationLoss` (-1) instead of 0, so its checkpoint stays resumable (TD-541) |
-| `is_sane_checkpoint_candidate()` / `TrainingSession::has_validation_loss()` | Sane: samples trained, a real validation loss or `kNoValidationLoss`, all five sidecars present. Only sessions with a real loss take part in lowest-loss selection (TD-541) |
-| `update_best_checkpoint()` | **Returns immediately when symlinks are disabled**, so `best_validation_loss`/`best_checkpoint_path` aren't updated in-process in that mode (they're re-derived on the next construction). A pass without a measured loss becomes "best" only when there is no best yet, and never records -1 as the loss to beat |
-| `cleanup_old_sessions()` | Keeps the newest `MAX_SESSIONS_TO_KEEP` history entries; re-picks the best and the link when the best is removed |
-| `reset_all(keep_data)` | Backs up every `MODEL_PATH` file to `<model>.bak…`, removes the history, the links and every session checkpoint file. Against a **local** registry it works on the trainer's own pool, `DatasetRegistry::local_pool_dir()` = `SESSION_DIR/<kind>/` (TD-545, October 19, 2026; it used the legacy root pool). Without `--keep-data` it removes that pool's queue and trained records. With `--keep-data` it keeps the queue and re-queues every trained entry (`requeue_trained()`, server-side against `registry_server`, TD-540). Then it rebuilds fresh |
-| `print_training_summary()` | Console summary with loss sparklines; a session without validation shows `val=n/a` |
-| Links | `latest_checkpoint.bin` / `best_checkpoint.bin` in the **working directory**. Since TD-408 (October 18, 2026) each is a set of links, one per checkpoint file (`latest_checkpoint.bin.config` → `…/session_N_checkpoint.bin.config`, and so on), so the link name loads like the checkpoint itself and can be used as `MODEL_PATH`. They used to be one link to a bare path that never exists. On Windows they are copies |
+| `bootstrap_vocab(pairs)` | First run: builds a vocabulary from the pairs' texts and history (sized by `recommend_vocab_size()` unless `VOCAB_BUILD_SIZE`), saves it (a failed save returns false), logs the letter case, whitespace and fertility. The model is then built from the **saved file** |
+| `compute_tokenized_cache_key()` | `std::hash` of the units' content checksums and ranges, the vocabulary checksum, mode, `max_seq_length`, `kPreprocessFormatVersion` (TD-409) and `validation_split` (TD-271) |
+| `begin_run(is_retrain)` | MNS `set_training()` → run id, registry `next_session()`; both best-effort |
+| `last_pass_pair_counts()` | Pairs per unit of the last pass, for `mark_trained()` (TD-334) |
+| `should_auto_save()` / `perform_auto_save()` | By samples or minutes (live under `trainer_service`); saves mid-epoch through the live `ChatbotTrainer`, training state included; notes progress after each attempt (TD-569) |
+| `finalize_session()` | Records the epochs actually run (`ChatbotTrainer::get_epochs_run()`, TD-410), the losses, removes the session's best snapshot, updates the links and runs retention |
+| `is_sane_checkpoint_candidate()` / `has_validation_loss()` | Sane: samples trained, a real loss or `kNoValidationLoss`, all sidecars present |
+| `update_best_checkpoint()` | Best tracking, separate from the links since TD-410 |
+| `cleanup_old_sessions()` | Keeps the newest `MAX_SESSIONS_TO_KEEP` entries; re-picks the best when it's removed |
+| `reset_all(keep_data)` | Backs up `MODEL_PATH`'s files to `.bak`, removes history, links and every session checkpoint; on a local registry works on `local_pool_dir()` (`SESSION_DIR/<kind>/`, TD-545); without `--keep-data` clears that pool's queue and records, with it re-queues the trained entries (`requeue_trained()`, server-side against `registry_server`, TD-540); then rebuilds fresh |
+| `read_session_history(dir)` (static) | Parses `session_history.txt` without a trainer; `status`/`history` use it (TD-416) |
+| `print_training_summary()` | Console summary with loss sparklines; `val=n/a` without validation |
 
 ---
 
-## 5. Tests
+## 5. Problems
 
-The 87 tests across four files cover:
-- config mapping;
-- session history v2 parsing (including paths with spaces);
-- sanity checks;
-- retention and best re-selection;
-- symlinks;
-- auto-save cadence and mid-epoch saves;
-- registry integration (run ids, release/mark);
-- background-pass and control/pause behaviour.
+### Fixed November 11, 2026: two problems found by the re-trace
 
-Added October 17–19, 2026:
-- most-recent vs lowest-loss resume (TD-405);
-- the interrupted-session resume (TD-406);
-- whole-checkpoint deletion and remnant reclaim (TD-407);
-- loadable links (TD-408);
-- empty passes failing (TD-412);
-- training state continuing into the next pass (TD-269);
-- resolver use and release (TD-411);
-- `ResumeResult` (TD-523);
-- unvalidated passes kept (TD-541);
-- per-file pair counts (TD-334);
-- `reset_all()` on the kind pool (TD-545).
-
-**Not covered:** tokenized-cache invalidation end to end (the key includes the version; no test
-rebuilds a cache across a version bump), `reset_all()` against `registry_server`.
+- **The vocabulary was reloaded from a file the tokenizer misread** (TD-570). `bootstrap_vocab()` saves the vocabulary and `build_model()` loads
+  it back, as every later pass and the server do, and the reader took `#` comments and header keywords inside the token and merge sections
+  ([BPETokenizer.md](BPETokenizer.md) §8): `#` tokens never reached the model, and a vocabulary with a token starting with a header keyword
+  would have failed every pass.
+- **The epoch early stopping ended on was missing** from the session's per-epoch lists, MNS progress and the admin API's epoch, because
+  `ChatbotTrainer::train()` broke out before its epoch callback (TD-571, [ChatbotTrainer.md](ChatbotTrainer.md) §10).
 
 ---
 
-## 6. Known gaps and gotchas (summary)
+## 6. Tests
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+The four suites (95) cover:
+
+- config mapping (TD-410's settings included); session history parsing (paths with spaces); sanity checks; retention and best re-selection;
+- most-recent vs lowest-loss resume (TD-405); the interrupted-session resume (TD-406); whole-checkpoint deletion and remnant reclaim (TD-407);
+  loadable links (TD-408); unvalidated passes kept (TD-541);
+- auto-save cadence and mid-epoch saves; training state continuing into the next pass (TD-269); epochs run recorded; `retrain` archiving
+  (TD-410);
+- registry integration: run ids, exact release and marking, resolver use (TD-411), `ResumeResult` (TD-523), per-unit pair counts (TD-334),
+  `reset_all()` on the kind pool (TD-545), empty passes failing (TD-412);
+- the first-run vocabulary (TD-414); background passes; the control state and pause.
+
+**Not covered:** tokenized-cache invalidation across a version bump end to end; `reset_all()` against `registry_server`; a vocabulary with `#` or
+keyword tokens end to end (the tokenizer's own tests cover the reader).
+
+---
+
+## 7. Known gaps and gotchas (summary)
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Every pass resumes from the lowest validation loss across all history, though each pass validates on different data (§3) | Later passes' learning is discarded whenever new data validates worse; the model can stay pinned to an old checkpoint | **Fixed October 18, 2026** (most recent session by default; `RESUME_FROM_BEST_CHECKPOINT` keeps the old rule) | [TD-405](../../guides/TECHNICAL_DEBT.md#td-405-each-training-pass-restarts-from-the-best-ever-checkpoint-not-the-latest) |
-| A paused or crashed pass's auto-save is deleted and its session dropped on the next start; its in-progress best snapshot is never found (§3) | `/admin/pause` and crash-recovery checkpoints are lost; work is redone from older weights | **Fixed October 18, 2026** (resumes from the interrupted session's newest snapshot) | [TD-406](../../guides/TECHNICAL_DEBT.md#td-406-a-paused-or-crashed-passs-checkpoint-is-deleted-on-the-next-start) |
-| `remove_model_files()` deletes only the top-level sidecars (0.2% of a checkpoint); cleanup/reset scan for bare `.bin` names that don't exist (§3) | `SESSION_DIR` grows by roughly a full checkpoint per rotation, snapshot removal and retrain; retention doesn't bound disk use | **Fixed October 18, 2026** (was verified: 29.5 of 29.6 MB left) | [TD-407](../../guides/TECHNICAL_DEBT.md#td-407-checkpoint-deletion-leaks-the-per-layer-weight-files) |
-| Tokenized-data cache key has no preprocessing version (§4) | Tokenization fixes silently reuse stale cached IDs | **Fixed October 17, 2026** (`ChatbotTrainer::kPreprocessFormatVersion` in the key) | [TD-409](../../guides/TECHNICAL_DEBT.md#td-409-tokenized-data-cache-key-has-no-preprocessing-version) |
-| Constructors only loaded a checkpoint if the bare path existed, which `save_model()` never writes, so they never loaded one; `train`/`retrain` started from fresh weights | Every CLI pass discarded all earlier training | **Fixed October 18, 2026** (was verified) | [TD-539](../../guides/TECHNICAL_DEBT.md#td-539-incrementaltrainer-constructors-never-load-a-checkpoint) |
-| `latest`/`best` checkpoint symlinks always dangle and can't be loaded (§4) | The advertised "best checkpoint" link was unusable | **Fixed October 18, 2026** (one link per file) | [TD-408](../../guides/TECHNICAL_DEBT.md#td-408-latestbest-checkpoint-symlinks-always-dangle) |
-| `finalize_session()` records requested, not completed, epochs; early stopping/patience/restore-best and the LR schedule (now `LINEAR_WARMUP`) hard-coded; `update_best_checkpoint()` skips tracking without symlinks; two config fields unused; `retrain` orphans every earlier checkpoint (§2, §4) | Misleading history; untunable training policy | By inspection | [TD-410](../../guides/TECHNICAL_DEBT.md#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy); fixed in code November 9, 2026 |
-| `reset_all()` removed the legacy root pool's queue and registry instead of the trainer's `SESSION_DIR/<kind>/` pool, so a local `reset` left files marked trained; once targeted, `--keep-data` would also have dropped the untrained queue (§4) | `reset` on a local registry didn't reset training data, and deleted another pool's queue | **Fixed October 19, 2026** (was verified: legacy queue deleted, kind pool untouched) | [TD-545](../../guides/TECHNICAL_DEBT.md#td-545-incremental_trainer-reset-works-on-the-legacy-pool-not-the-trainers-own) |
-| Fresh optimizer each pass; bare-path release/mark; zero sample counts; unchecked vocab save | Fixed (TD-269 October 19; TD-333 October 19; TD-334 October 19; TD-221 October 17) | — | TD-269, TD-333, TD-334, TD-221 |
+| The vocabulary reloaded from a file the tokenizer misread; the early-stopping epoch missing from the per-epoch data (§5) | — | **Fixed November 11, 2026** | [TD-570](../../guides/TECHNICAL_DEBT.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections), [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| Resume from the best-ever checkpoint; interrupted passes lost; leaky deletion; dangling links; the cache key; checkpoints never loaded; the wrong reset pool | — | **Fixed** October 17–19, 2026 | TD-405–TD-409, TD-539, TD-545 |
+| Bookkeeping and hard-coded policy | — | **Fixed November 9, 2026** | TD-410 |
+| Fresh optimizer per pass; bare-path release and marking; zero counts; unchecked vocabulary save; the vocabulary bootstrap | — | **Fixed** | TD-269, TD-333, TD-334, TD-221, TD-414 |
+| The whole class below `stable` | Still changing shape (it changed again today) | — | TD-039 |
 
----
+## 8. History
 
-## 7. Merge notes
-
-This file replaces `docs/development/guides/internals/incremental-trainer-internals.md` (1,267 lines),
-which described an earlier API: `add_new_data()`, `add_gutenberg_book(s)()`, `train_incremental()`,
-`train_on_new_data_only()`, `print_data_registry()` and a `DataVersion` structure. **None of these
-exist any more.** Data now comes from `DatasetRegistry` claims (`train_on_files()`), and Gutenberg
-fetching lives in `DataFetcher`/`registry_server`. The old doc's claim that `retrain` starts from
-random weights is still true (`reset_model_for_config()`). Its file-layout diagram (session history,
-checkpoints, auto-saves, symlinks) is kept and corrected in §2–3. The operator-facing
-[quick reference](../../guides/quick-reference/incremental-trainer-quick-reference.md) is unchanged.
-
-## Addendum (October 19, 2026): passes without validation data (TD-541)
-
-A completed pass with no validation data now records `final_validation_loss = TrainingSession::kNoValidationLoss` (-1) instead of 0. `is_sane_checkpoint_candidate()` accepts it, so the next pass resumes from that checkpoint and startup cleanup keeps it. `TrainingSession::has_validation_loss()` excludes it from every lowest-loss choice: `RESUME_FROM_BEST_CHECKPOINT`, the best-checkpoint tracking, and `update_best_checkpoint()`. 0 still marks an in-progress session, and NaN a diverged one.
-
-## Addendum (October 19, 2026): per-file pair counts (TD-334)
-
-`load_training_pairs()` records how many pairs each file contributed, in the order the files were passed; a TD-205 segment counts only its own range. `last_pass_pair_counts()` exposes these counts. `resume_last_session()` and `incremental_trainer`'s `train`, `retrain` and LeJEPA passes hand them to `DatasetRegistry::mark_trained()`, so trained records and `dataset_manager status`'s sample total are no longer always 0.
-
----
-
-## Addendum (October 25, 2026): the metrics session ends last (TD-442)
-
-`run_training()` ends the push session as its last step, after the final checkpoint save, `finalize_session()` and the MNS candidate
-report, and clears `ChatbotTrainer`'s reporter pointer. A metrics outage can no longer delay the save, and with the push client's bounded
-drain the callers' `mark_trained()` waits at most the drain deadline.
-
-## Addendum (November 2, 2026): `read_session_history()` and SIGTERM drains (TD-416)
-
-`load_session_history()` now wraps a static `read_session_history(session_dir)`, which parses
-`session_history.txt` without a trainer (nullopt when it can't be read); `incremental_trainer status`/`history` use it.
-A pass drained by SIGTERM/SIGINT (incremental_trainer sets the control state's `paused` and `stop_signal`) takes the
-existing pause path, and its log line says "stopped by SIGTERM" instead of "paused via admin API". The trainer's
-world-model attach starts the LeJEPA tokenizer in `TOKENIZER_MODE`.
-
-## Addendum (November 2, 2026): first-run vocabulary and exception exits (TD-414)
-
-With no vocabulary file, every `IncrementalTrainer` constructor (`defer_until_vocab_exists()`) now waits to build the
-model, and the first training pass builds the vocabulary from its data (`bootstrap_vocab()`, sized by
-`VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
-train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
-`incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.
-
-## Addendum (November 4, 2026): pairs keep their metadata; quality switches mapped (TD-273)
-
-`train`/`retrain` hand each loaded `ConversationPair` to `ChatbotTrainer::add_training_pair(ConversationPair)` with its dataset
-metadata (it used to pass only input and response), and `make_incremental_config()` maps `LOSS_QUALITY_BACKFILL`/
-`GENERATION_QUALITY_BACKFILL`.
+- **October 17–19, 2026:** TD-405–TD-409, TD-539, TD-541, TD-545, TD-269, TD-333, TD-334, TD-411, TD-412, TD-523.
+- **October 25, 2026:** the metrics session ends last (TD-442).
+- **November 2, 2026:** `read_session_history()` and SIGTERM drains (TD-416); the first-run vocabulary (TD-414).
+- **November 4, 2026:** pairs keep their metadata, quality switches mapped (TD-273); the best-weights directory (TD-274).
+- **November 9, 2026:** epochs run, policy settings, `retrain` archive (TD-410).
+- **November 11, 2026:** progress per checkpoint attempt (TD-569). This document was re-traced against the code, replacing its October sections,
+  its merge notes and its addenda; its two findings were fixed the same day (TD-570, TD-571).

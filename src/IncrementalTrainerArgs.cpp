@@ -1,6 +1,6 @@
-// @adai-status: beta
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-11-11
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>
@@ -39,7 +39,7 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
     // with normal config discovery.
     static const std::set<std::string> kValueFlags = {
         "--config",       "--gpu-strategy", "--model", "--admin-port",
-        "--dataset-kind", "--log-file",     "--seed"};
+        "--dataset-kind", "--log-file",     "--seed",  "--heartbeat-file"};
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -81,6 +81,8 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
             return fail("--objective takes its value after '=': --objective=chatbot or --objective=lejepa");
         } else if (a == "--log-file") {  // TD-431
             result.log_file = argv[++i];
+        } else if (a == "--heartbeat-file") {  // TD-569
+            result.heartbeat_file = argv[++i];
         } else if (a == "--dataset-kind") {
             // TD-402: it used to be taken as given. LocalTransport joins it into a path, so a typo
             // selected a new, empty pool and ".." put the registry files outside session_dir.
@@ -96,6 +98,10 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
         }
     }
 
+    if (result.heartbeat_file &&
+        !result.foreground) {  // TD-569: a background run forks after the writer starts
+        return fail("--heartbeat-file needs --foreground");
+    }
     return result;
 }
 
@@ -170,6 +176,11 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
     if (g.log_file) {  // TD-431: trainer_service picks each pass's file from LOG_FILE_PATH
         g.error = true;
         g.error_message = "--log-file is set by trainer_service on the passes it launches; set LOG_FILE_PATH instead";
+    } else if (g.heartbeat_file) {  // TD-569
+        g.error = true;
+        g.error_message =
+            "--heartbeat-file is set by trainer_service on the passes it launches; "
+            "TRAINER_PASS_STALL_MINUTES controls the stall check";
     } else if (g.foreground || g.admin_port) {
         g.error = true;
         g.error_message = std::string(g.foreground ? "--foreground" : "--admin-port") +
@@ -185,7 +196,8 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
                                                     const IncrementalTrainerGlobalArgs& cli,
                                                     std::optional<int> admin_port,
-                                                    const std::string& pass_log_file) {
+                                                    const std::string& pass_log_file,
+                                                    const std::string& heartbeat_file) {
     std::vector<std::string> argv = {trainer_path};
     if (cli.config_path) argv.insert(argv.end(), {"--config", *cli.config_path});
     if (cli.model_name) argv.insert(argv.end(), {"--model", *cli.model_name});
@@ -193,6 +205,8 @@ std::vector<std::string> trainer_service_child_argv(const std::string& trainer_p
     argv.push_back("--objective=" + cli.objective);
     argv.insert(argv.end(), {"--dataset-kind", resolve_dataset_kind(cli.objective, cli.dataset_kind)});
     if (!pass_log_file.empty()) argv.insert(argv.end(), {"--log-file", pass_log_file});  // TD-431
+    if (!heartbeat_file.empty())
+        argv.insert(argv.end(), {"--heartbeat-file", heartbeat_file});  // TD-569
     argv.push_back("--foreground");
     if (admin_port) argv.insert(argv.end(), {"--admin-port", std::to_string(*admin_port)});
     argv.push_back("resume");
@@ -282,6 +296,8 @@ ResetCommandArgs parse_reset_command_args(const std::vector<std::string>& args) 
             result.yes = true;
         } else if (a == "--keep-data") {
             result.keep_data = true;
+        } else if (result.error.empty()) {  // TD-571: reset is destructive; a typo must not pass
+            result.error = "Unknown reset argument '" + a + "' (reset takes --yes and --keep-data)";
         }
     }
     return result;

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.34.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.36.0
+// @adai-reviewed: 2026-11-11
 
 #include <array>
 #include <atomic>
@@ -16,17 +16,18 @@
 #include <sstream>
 #include <thread>
 #include <utility>
-#include "InitRng.hpp"
 #include "Config.hpp"
-#include "SignalSetup.hpp"
 #include "DataTransport.hpp"
 #include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
 #include "IncrementalTrainerArgs.hpp"
+#include "InitRng.hpp"
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 #include "ModelNameClient.hpp"
+#include "PassHeartbeat.hpp"
+#include "SignalSetup.hpp"
 #include "StartupSweep.hpp"
 #include "TrainerControlState.hpp"
 #ifdef BUILD_TRAINER_ADMIN
@@ -680,6 +681,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         // train_batch(), as the LeJEPA paper does) rather than one text's tokens.
         const size_t batch_size = std::max<size_t>(2, svc_config.world_model_sigreg_batch_size);
         for (size_t first = 0; first < texts.size(); first += batch_size) {
+            adai::note_pass_progress();        // TD-569: trainer_service's stall check
             if (control && control->paused) {  // TD-403: /admin/pause drains at a batch boundary
                 aborted = true;
                 break;
@@ -858,15 +860,30 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         return adai::kResumeExitFailed;
     }
 
-    const bool ok = step_count > 0;
+    bool ok = step_count > 0;
     if (ok) {
-        reg.mark_trained(run_id, reg_paths, pair_counts);  // TD-334: pairs loaded per file
         adai::Logger::info(
             "[lejepa] Pass complete — {} steps, avg predictor_loss={:.4f}, avg sigreg_loss={:.4f}",
             step_count, predictor_loss_sum / static_cast<double>(step_count),
             sigreg_loss_sum / static_cast<double>(step_count));
-        world_model.save(world_model_dir);
-        adai::Logger::info("[lejepa] World-model checkpoint saved to '{}'", world_model_dir);
+        // TD-571: the checkpoint first, and the files recorded as trained only once it is written.
+        // They used to be marked first, so a failed save (it throws) lost the pass's training while
+        // the registry said the data was done; the files now go back to the pool.
+        try {
+            world_model.save(world_model_dir);
+            adai::Logger::info("[lejepa] World-model checkpoint saved to '{}'", world_model_dir);
+        } catch (const std::exception& e) {
+            adai::Logger::error(
+                "[lejepa] Could not save the world-model checkpoint to '{}': {}; releasing the "
+                "pass's files",
+                world_model_dir, e.what());
+            ok = false;
+        }
+    }
+    if (ok) {
+        reg.mark_trained(run_id, reg_paths, pair_counts);  // TD-334: pairs loaded per file
+    } else if (step_count > 0) {
+        reg.release_pending(run_id, reg_paths);
     } else {
         reg.release_pending(run_id, reg_paths);
         adai::Logger::warn("[lejepa] No samples were long enough to train on — all skipped");
@@ -947,16 +964,17 @@ std::string resolve_model_name(const adai::ServiceConfig& svc_config,
 #endif
 
 // Forks into the background, prints a startup banner in the parent, then
-// initialises the logger and GPU in the child before running child_work().
-// init_gpu_fn and child_work are callables; child_work returns an exit code.
+// initialises the logger in the child before running child_work(), which returns an exit code.
+// TD-571: child_work initialises the GPU itself, after building its PassAdminApi, so the pass's
+// admin API answers (and a SIGTERM drains) during GPU initialisation too.
 // banner_extras are {label, value} pairs printed between Model and Log lines;
 // labels are left-padded to 7 characters to align with the fixed lines.
-template <typename InitGpuFn, typename WorkerFn>
+template <typename WorkerFn>
 int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc_config,
                           const std::string& default_model, const std::string& log_path,
                           const std::string& title,
                           const std::vector<std::pair<std::string, std::string>>& banner_extras,
-                          InitGpuFn&& init_gpu_fn, WorkerFn&& child_work, bool foreground = false) {
+                          WorkerFn&& child_work, bool foreground = false) {
     // --foreground skips the fork entirely — child_pid == 0 is exactly the
     // existing "we are the worker" path (already used for the fork-failure
     // fallback below), so this reuses it with no new branches. Needed for
@@ -985,7 +1003,6 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
     adai::ignore_sighup("incremental_trainer");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
-    init_gpu_fn();
     return child_work();
 }
 
@@ -1027,6 +1044,10 @@ int output_usage(char* argv[]) {
     std::cout << "  --log-file <path>            Log to this file instead of LOG_FILE_PATH (empty LOG_FILE_PATH:\n"
                  "                               console only, or ~/.local/state/adai/log/incremental_trainer.log\n"
                  "                               when running in the background)\n";
+    std::cout << "  --heartbeat-file <path>      Write this run's progress there for "
+                 "trainer_service's stall\n"
+                 "                               check (TRAINER_PASS_STALL_MINUTES; needs "
+                 "--foreground)\n";
     std::cout << "  --seed <n>                   Replays initialization, shuffles and dropout "
                  "(overrides SEED)\n";
     std::cout << "  --dataset-kind <kind>        Overrides the dataset registry sub-pool "
@@ -1083,6 +1104,12 @@ static int run_main(int argc, char* argv[]) {
         std::cerr << "Error: " << cli.error_message << "\n\n";
         return output_usage(argv);
     }
+    // TD-569: report this pass's progress to trainer_service from the start, so a pass that hangs
+    // even before training (GPU initialization, a first kernel compile) is seen too. Removed at
+    // exit.
+    std::unique_ptr<adai::PassHeartbeatWriter> heartbeat;
+    if (cli.heartbeat_file)
+        heartbeat = std::make_unique<adai::PassHeartbeatWriter>(*cli.heartbeat_file);
     const std::string cli_model_name = cli.model_name.value_or("");
     const bool foreground = cli.foreground;
     const std::optional<int> admin_port = cli.admin_port;
@@ -1192,10 +1219,16 @@ static int run_main(int argc, char* argv[]) {
             // fresh — see IncrementalTrainer::begin_run()/train_on_files()/etc.
             if (!rm.run_group.empty()) {
                 svc_config.run_group = rm.run_group;
-                std::cout << "[MNS] run_group resolved from MNS: '" << rm.run_group << "'\n";
+                adai::Logger::deferred(adai::Logger::Level::INFO,
+                                       "[MNS] run_group resolved from MNS: '" + rm.run_group + "'");
             }
-        } catch (...) {
-            // Model exists but has no artifact yet (initializing state) — train from scratch.
+        } catch (const std::exception& e) {
+            // TD-571: said why (it was a silent catch (...)). A model with no artifact yet lands
+            // here too, and then trains from scratch; MNS unreachable means the local paths are
+            // used.
+            adai::Logger::deferred(adai::Logger::Level::WARN,
+                                   std::string("[MNS] Could not resolve '") + resolved + "' (" +
+                                       e.what() + "); using the local MODEL_PATH and RUN_GROUP");
         }
 
         // MNS is the authoritative source for architecture — see CLAUDE.md
@@ -1211,15 +1244,18 @@ static int run_main(int argc, char* argv[]) {
                 svc_config.num_encoder_layers = arch->num_encoder_layers;
                 svc_config.num_decoder_layers = arch->num_decoder_layers;
                 svc_config.max_seq_length = arch->max_seq_length;
-                std::cout << "[MNS] Architecture resolved from MNS for model '" << resolved
-                          << "'\n";
+                adai::Logger::deferred(
+                    adai::Logger::Level::INFO,
+                    "[MNS] Architecture resolved from MNS for model '" + resolved + "'");
             } else {
-                std::cout << "[MNS] No architecture on record for '" << resolved
-                          << "'; using local config architecture\n";
+                adai::Logger::deferred(adai::Logger::Level::INFO,
+                                       "[MNS] No architecture on record for '" + resolved +
+                                           "'; using local config architecture");
             }
         } catch (const std::exception& e) {
-            std::cerr << "[MNS] Architecture lookup failed (" << e.what()
-                      << "); using local config architecture\n";
+            adai::Logger::deferred(adai::Logger::Level::WARN,
+                                   std::string("[MNS] Architecture lookup failed (") + e.what() +
+                                       "); using local config architecture");
         }
 
         // TD-196: MNS-first world-model/hippocampal resolution, closing the gap flagged in
@@ -1263,18 +1299,22 @@ static int run_main(int argc, char* argv[]) {
                     if (auto wm_conn = mns.get_connection(conn->world_model_name)) {
                         svc_config.world_model_sigreg_num_sketches = wm_conn->sigreg_num_sketches;
                     }
-                    std::cout << "[MNS] World model '" << conn->world_model_name
-                              << "' resolved from MNS link (artifact='"
-                              << wm_resolved.artifact.path << "')\n";
+                    adai::Logger::deferred(adai::Logger::Level::INFO,
+                                           "[MNS] World model '" + conn->world_model_name +
+                                               "' resolved from MNS link (artifact='" +
+                                               wm_resolved.artifact.path + "')");
                 } else {
-                    std::cout << "[MNS] World model '" << conn->world_model_name
-                              << "' linked but not yet resolvable (no artifact/architecture) — "
-                                 "using local config\n";
+                    adai::Logger::deferred(
+                        adai::Logger::Level::INFO,
+                        "[MNS] World model '" + conn->world_model_name +
+                            "' linked but not yet resolvable (no artifact/architecture) — "
+                            "using local config");
                 }
             }
         } catch (const std::exception& e) {
-            std::cerr << "[MNS] World model connection lookup failed (" << e.what()
-                      << "); using local config\n";
+            adai::Logger::deferred(adai::Logger::Level::WARN,
+                                   std::string("[MNS] World model connection lookup failed (") +
+                                       e.what() + "); using local config");
         }
     }
 #endif
@@ -1378,9 +1418,9 @@ static int run_main(int argc, char* argv[]) {
                 "LeJEPA world-model pretraining started in background",
                 {{"Data", std::to_string(pre_fork_pending_count) + " pending file(s)"},
                  {"Epochs", std::to_string(epochs)}},
-                init_gpu,
                 [&]() -> int {
                     PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                    init_gpu();                                   // TD-571: after the admin API
                     return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir, epochs,
                                                     pass.control());
                 },
@@ -1391,12 +1431,15 @@ static int run_main(int argc, char* argv[]) {
             argc, argv, svc_config, default_model, log_path, "Training started in background",
             {{"Data", std::to_string(pre_fork_pending_count) + " pending file(s)"},
              {"Epochs", std::to_string(epochs)}},
-            init_gpu, [&]() -> int {
+            [&]() -> int {
+                // TD-571: the control state (and any admin API) before GPU initialisation and the
+                // model.
+                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                init_gpu();
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
                 // TD-414: with no vocabulary yet, the first pass builds it from its data (VOCAB_BUILD_SIZE).
                 IncrementalTrainer trainer(default_vocab, default_model, config);
-                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
                 trainer.set_control_state(pass.control());
 
                 // MNS is the definitive source for run_id (continuing the
@@ -1473,14 +1516,15 @@ static int run_main(int argc, char* argv[]) {
             argc, argv, svc_config, default_model, log_path, "Full retrain started in background",
             {{"Data", std::to_string(data_file_count) + " file(s)"},
              {"Epochs", std::to_string(epochs)}},
-            init_gpu, [&]() -> int {
+            [&]() -> int {
+                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                init_gpu();                                   // TD-571: after the control state
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
                 // TD-416: AUTO_SAVE_* as configured (this used to force 30 min / 1,000 samples).
 
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 trainer.reset_model_for_config();
-                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
                 trainer.set_control_state(pass.control());
 
                 // MNS is the definitive source for run_id — retrain always
@@ -1561,6 +1605,10 @@ static int run_main(int argc, char* argv[]) {
         // Parse reset-specific flags from remaining args
         const std::vector<std::string> reset_flags(args.begin() + 1, args.end());
         const adai::ResetCommandArgs reset_args = adai::parse_reset_command_args(reset_flags);
+        if (!reset_args.error.empty()) {  // TD-571: nothing is reset
+            std::cerr << "❌ " << reset_args.error << "\n";
+            return 1;
+        }
         const bool auto_yes = reset_args.yes;
         const bool keep_data = reset_args.keep_data;
 
@@ -1618,9 +1666,10 @@ static int run_main(int argc, char* argv[]) {
             if (!lejepa_enabled()) return adai::kResumeExitFailed;
             return run_training_pipeline(
                 argc, argv, svc_config, world_model_dir, log_path,
-                "LeJEPA world-model resume started in background", {}, init_gpu,
+                "LeJEPA world-model resume started in background", {},
                 [&]() -> int {
                     PassAdminApi admin(admin_port, svc_config);  // TD-403: status, checkpoint, pause
+                    init_gpu();  // TD-571: after the admin API, so trainer_service sees this pass
                     return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir,
                                                     svc_config.num_epochs, admin.control());
                 },
@@ -1629,14 +1678,17 @@ static int run_main(int argc, char* argv[]) {
 
         return run_training_pipeline(
             argc, argv, svc_config, default_model, log_path, "Resume started in background", {},
-            init_gpu, [&]() -> int {
+            [&]() -> int {
+                // TD-172: --admin-port <N>, set only by trainer_service when it launches this as a
+                // single-pass child (always with --foreground, so this process IS the worker),
+                // hosts the per-pass admin API (PassAdminApi above) for the duration of this one
+                // pass. TD-571: started first, so it answers during GPU initialisation and the
+                // model's construction (trainer_service's /admin/status used to show only a 503
+                // until then).
+                PassAdminApi admin(admin_port, svc_config);
+                init_gpu();
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 IncrementalTrainer trainer(default_vocab, default_model, config);
-
-                // TD-172: --admin-port <N>, set only by trainer_service when it launches this as a
-                // single-pass child (always with --foreground, so this process IS the worker), hosts
-                // the per-pass admin API (PassAdminApi above) for the duration of this one pass.
-                PassAdminApi admin(admin_port, svc_config);
                 trainer.set_control_state(admin.control());
 
                 // MNS is the definitive source for run_id — resume continues

@@ -1,69 +1,34 @@
 # `BPETokenizer` — Source File Reference
 
-- **Files:** [`src/BPETokenizer.hpp`](../../../../src/BPETokenizer.hpp), [`src/BPETokenizer.cpp`](../../../../src/BPETokenizer.cpp)
+- **Files:** [`src/BPETokenizer.hpp`](../../../../src/BPETokenizer.hpp) (338 lines), [`src/BPETokenizer.cpp`](../../../../src/BPETokenizer.cpp) (1,282 lines)
 - **Library:** `adai_nlp`
-- **Status tag:** `@adai-status: stable`; `BPETokenizer.cpp` `@adai-version: 1.1.1`, `@adai-reviewed: 2026-10-19`; `BPETokenizer.hpp` `1.0.0`, `2026-09-10`
-- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (60 tests, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36, TD-002); indirect coverage in `vocabbuilder_test.cpp` (59) and most model/trainer suites
-- **Last traced against the code:** 2026-10-19
+- **Status tags:** `@adai-status: stable`; `BPETokenizer.cpp` `@adai-version: 2.0.2`, `BPETokenizer.hpp` `2.0.1`; `@adai-reviewed: 2026-11-11`
+- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (99, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36); indirect coverage in `vocabbuilderTests`, `specialtokensTests` and most model and trainer suites
+- **Last traced against the code:** 2026-11-11
 
-> Code-traced reference: every "where it's used" claim points at a real call site, and every
-> behaviour flagged as surprising was confirmed by running the real code (a scratch program
-> linked against `BPETokenizer.cpp`). It supersedes the older `docs/development/api/nlp/tokenizer.md`
-> ("BPETokenizer Class - Context Document", now deleted), whose accurate content has been merged in
-> here. See [§12](#12-merge-notes-what-changed-from-the-old-document) for what was corrected or
-> dropped.
-
----
-
-## Contents
-
-1. [What this file is](#1-what-this-file-is)
-2. [Where it's used](#2-where-its-used)
-3. [Exceptions and `TokenizerMode`](#3-exceptions-and-tokenizermode)
-4. [Construction and state](#4-construction-and-state)
-5. [Training: `build_vocab()` and the merge learner](#5-training-build_vocab-and-the-merge-learner)
-6. [The encode path: `pre_tokenize()` → `apply_bpe()` → `tokenize()` → `encode()`](#6-the-encode-path)
-7. [`decode()`](#7-decode)
-8. [Persistence: `save_vocab()` / `load_vocab()` and the file format](#8-persistence-save_vocab--load_vocab-and-the-file-format)
-9. [Sizing and diagnostics](#9-sizing-and-diagnostics)
-10. [Thread safety](#10-thread-safety)
-11. [Known gaps and gotchas (summary)](#11-known-gaps-and-gotchas-summary)
-12. [Merge notes](#12-merge-notes-what-changed-from-the-old-document)
+> Code-traced reference. Behaviour marked **verified** was confirmed by running the real code (a scratch program linked against the debug
+> `adai_nlp`). This document absorbed the old `docs/development/api/nlp/tokenizer.md` in October 2026; what that document got wrong is not
+> repeated here.
 
 ---
 
 ## 1. What this file is
 
-`BPETokenizer` turns text into integer token IDs and back, using **byte-pair encoding** (Sennrich
-et al., 2016; the GPT-2-style regex pre-tokenizer). It's the single tokenizer every model in the
-project uses: the encoder-decoder chatbot, the LeJEPA world model, and every trainer and server
+`BPETokenizer` turns text into token ids and back with **byte-pair encoding** (Sennrich et al., 2016) behind a GPT-2-style regex
+pre-tokenizer. It is the one tokenizer every model here uses: the encoder-decoder chatbot, the LeJEPA world model, and every trainer and server
 that feeds them.
 
-**Training** (once per vocabulary):
-
 ```text
-corpus ─► count atomic units (bytes or code points) ─► base vocab (IDs 4…)
-       ─► pre-tokenize into words ─► repeat N times: merge the most frequent adjacent pair
-       ─► vocab = 4 specials + base units + N merged strings;  merges = ordered rule list
+training:  corpus ─► base units (code points or bytes) by frequency ─► pre-tokenize into words
+                  ─► repeat: merge the most frequent adjacent pair ─► vocab + ordered merge list
+encoding:  text ─► pre-tokenize (regex split; optional lowercasing / whitespace collapsing)
+                ─► per word: split into units, replay every merge in order ─► ids (unknown → <unk>)
 ```
 
-**Encoding** (every request):
-
-```text
-text ─► lowercase + regex split into "words" ─► per word: split to units, replay every merge rule in order
-     ─► look up each subword's ID (unknown → <unk>) ─► [<bos>] ids… [<eos>]
-```
-
-### Why it matters
-
-- **The vocabulary is part of the model.** Token IDs index the embedding table and the LM head, so
-  a checkpoint is only meaningful together with the exact vocab file it was trained with. That's
-  why `EncoderDecoderModel::save()`/`load()` write and read `<checkpoint>.vocab` alongside the
-  weights, and why `IncrementalTrainer` probes a vocab file's size before constructing a model.
-- **It defines what the model can see.** Lowercasing and whitespace collapsing (§6) happen here,
-  so the model never sees capital letters, newlines or tabs, and can never generate them.
-- **It's on every hot path.** Training preprocessing encodes the whole dataset in parallel
-  (OpenMP); every chat request is encoded and every response decoded.
+**The vocabulary is part of the model.** Ids index the embedding table and the LM head, so a checkpoint is only meaningful with the exact
+vocabulary it was trained with. `EncoderDecoderModel::save()`/`load()` write and read `<checkpoint>.vocab`; servers and every training pass after
+the first load the vocabulary from that file. A save-and-load that doesn't reproduce the vocabulary exactly therefore changes what the model
+sees between passes (§8).
 
 ---
 
@@ -71,487 +36,184 @@ text ─► lowercase + regex split into "words" ─► per word: split to units
 
 | Area | Call sites | Uses |
 |---|---|---|
-| **Vocabulary creation** | `src/VocabBuilder.cpp` (`vocab_builder` tool, ≈ lines 178–183) | `build_vocab()`, `save_vocab()`, `print_vocab_stats()`, `get_top_tokens()` |
-| | `src/IncrementalTrainer.cpp` (≈ lines 215–262, vocab bootstrap) | `recommend_vocab_size()` (when `VOCAB_BUILD_SIZE` is unset), `build_vocab()`, `save_vocab()`, then `measure_fertility()` with warnings above 2.5 / below 1.1 |
-| | `src/ChatbotTrainer.cpp` — `build_vocabulary()` (≈ line 78) | `build_vocab(texts, size, 1)` + `save_vocab()` |
-| | `src/LLMEncoder.cpp` (≈ 218–223), `src/LeJEPAEncoder.cpp` (≈ 294–299) | Each owns a **private** tokenizer: `load_vocab()` or `build_vocab()` on it |
-| **Loading** | `src/ChatbotAPIServer.cpp` (≈ line 315), `src/ChatbotGUI.cpp`, `src/ChatbotTrainer.cpp` (≈ 64), `src/IncrementalTrainer.cpp` — `build_model()` (≈ 122) and vocab-size probes (≈ 166), `src/IncrementalTrainingTool.cpp` (≈ 228) | `load_vocab()` (restores the saved mode) |
-| **Checkpoints** | `src/EncoderDecoderModel.cpp` — `save()` (≈ 771) / `load()` (≈ 843) | `save_vocab(path + ".vocab")` / `load_vocab(path + ".vocab")` |
-| **Training preprocessing** | `src/ChatbotTrainer.cpp` (≈ lines 533, 581: `#pragma omp parallel for`), `src/RLHFTrainer.cpp` | `encode()` concurrently from many threads on one shared instance |
-| **Inference** | `src/ChatbotAPI.cpp` (`generate_response()`, `generate_batch_responses()`), `src/TextGenerator.cpp` (`generate_text()`), `src/RAGInference.hpp`, `src/PipelineInferenceEngine.hpp`, `src/IntegratedInferenceEngine.hpp`, `src/BatchedInferenceEngine.hpp`, `src/ChatbotCLI.hpp`, `src/ChatbotGUI.cpp` | `encode(text, false)` for encoder input; `decode()` of generated IDs; special-token ID getters |
+| **Building** | `VocabBuilder.cpp` (`vocab_builder`); `IncrementalTrainer.cpp`'s first-pass bootstrap (TD-414); `ChatbotTrainer::build_vocabulary()` | `build_vocab()` + `save_vocab()`; the bootstrap sizes it with `recommend_vocab_size()` unless `VOCAB_BUILD_SIZE` is set, then logs `measure_fertility()`; `vocab_builder` prints `vocab_stats()` and `get_tokens_by_id()` |
+| **Loading** | `IncrementalTrainer.cpp` (the model's tokenizer and size probes), `IncrementalTrainingTool.cpp` (the LeJEPA pass's size probe), `ChatbotAPIServer.cpp`, `ChatbotTrainer.cpp`, `LLMEncoder.cpp`, `LeJEPAEncoder.cpp` | `load_vocab()`; `LLMEncoder` and `LeJEPAEncoder` own a private tokenizer |
+| **Checkpoints** | `EncoderDecoderModel.cpp` | `save_vocab(path + ".vocab")` / `load_vocab(path + ".vocab")` |
+| **Prompts** | `EncoderDecoderModel.cpp`, `ChatbotAPI.cpp`, `ChatbotTrainer.cpp`, `ConversationContext.cpp`, `RAGInference.cpp` | `encode_prompt()` / `encode_conversation()` (turn tokens, TD-295) |
+| **Training preprocessing** | `ChatbotTrainer::preprocess_data()` (OpenMP) | `encode()` from many threads on one tokenizer |
+| **Generation** | `ChatbotAPI.cpp`, `TextGenerator.cpp`, `RAGInference`, `BatchedInferenceEngine`, the clients | `decode()`, the special-id getters |
 
-Configuration: `TOKENIZER_MODE = ascii | unicode` (`src/Config.{hpp,cpp}`) → `ServiceConfig::tokenizer_mode`
-→ the `BPETokenizer(mode)` constructor in `IncrementalTrainer`; `vocab_builder` has its own
-Unicode flag. Loading a vocab file always overrides the constructor's mode with the file's
-`TOKENIZER_MODE` line. Per an inline comment in `IncrementalTrainingTool.cpp`, `TOKENIZER_MODE` is
-not yet threaded through the LeJEPA path (TD-177).
-
-Several callers carry the same warning comment: `encode("")` **throws** rather than returning an
-empty vector, so they check for empty strings first (see `ChatbotTrainer.cpp` ≈ 533 and
-`RLHFTrainer.cpp` ≈ 179). `BatchedInferenceEngine` was bitten by this once (see its reference).
-
-`src/DataFetcher.cpp` doesn't use the tokenizer. Its only mention is a TD-006 TODO saying FIM
-special tokens (`<|first|>`/`<|middle|>`/`<|last|>`) must be "defined first (see BPETokenizer.cpp)".
-No such definition exists yet: the tokenizer knows only the four specials. Tracked in [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene).
+`TOKENIZER_MODE` (`unicode` by default, TD-564) chooses the mode of a **new** vocabulary; a loaded one always takes the mode, letter case and
+whitespace handling recorded in its file.
 
 ---
 
-## 3. Exceptions and `TokenizerMode`
+## 3. Exceptions and settings
 
 | Exception | Base | Thrown by |
 |---|---|---|
 | `TokenizerInputError` | `std::invalid_argument` | `encode("")`, `decode({})` |
 | `TokenizerEncodingError` | `std::runtime_error` | `encode()` / `pre_tokenize()` on invalid UTF-8 |
-| `VocabularyFileError` | `std::runtime_error` | `load_vocab()`: empty filename, unopenable file, malformed lines, bad/negative IDs, missing specials |
-| `TokenIDError` | `std::out_of_range` | `decode()` on a negative ID |
+| `VocabularyFileError` | `std::runtime_error` | `save_vocab()`/`load_vocab()`: empty name, unopenable or unwritable file, malformed lines, bad ids, a newer format, an unknown header line, special ids other than 0–3 |
+| `TokenIDError` | `std::out_of_range` | `decode()` on a negative id |
 
-Each prefixes its message ("Tokenizer Input Error: …"). The four live in two different standard
-hierarchies, so a `catch (const std::runtime_error&)` does **not** catch `TokenizerInputError` or
-`TokenIDError`. That's the mistake `ChatbotTrainer`'s comment describes.
+They sit in two standard hierarchies, so `catch (const std::runtime_error&)` misses `TokenizerInputError` and `TokenIDError`.
 
-```cpp
-enum class TokenizerMode { ASCII, UNICODE };
-```
+| Setting | Values (new-tokenizer default first) | Effect |
+|---|---|---|
+| `TokenizerMode` | `UNICODE` (TD-564), `ASCII` | The atomic unit: a UTF-8 code point, or a byte (a non-ASCII character becomes several byte tokens). Each mode has its own pre-tokenizer regex (the Unicode one counts bytes `0x80`–`0xFF` as letters) |
+| `TextNormalization` | `CASED` (TD-560), `LOWERCASE` | `LOWERCASE` lowercases before splitting (in Unicode mode only ASCII bytes) |
+| `WhitespaceHandling` | `PRESERVE` (TD-224), `COLLAPSE` | `COLLAPSE` turns each whitespace match into one space; `PRESERVE` keeps text exactly, so line breaks and indentation round-trip |
 
-- **`ASCII`** (default) — byte-level. Each byte is one atomic unit, so a multi-byte UTF-8
-  character becomes several single-byte tokens, which BPE may later merge back together.
-  Lowercasing applies `std::tolower` to every byte.
-- **`UNICODE`** — code-point-level. Each UTF-8 code point is one atomic unit. Only ASCII bytes are
-  lowercased (lowercasing continuation bytes would corrupt sequences). The pre-tokenizer regex
-  treats bytes `0x80`–`0xFF` as letters, so non-ASCII words stay together.
-
-Both modes reject invalid UTF-8 at `encode()`. The ASCII-mode comment ("non-ASCII input passes
-through") means *valid* non-ASCII is accepted and split into bytes.
-
-`get_mode()` / `is_unicode_mode()` report the active mode; `IncrementalTrainer` logs it.
+`set_normalization()`/`set_whitespace()` are meant for before `build_vocab()`; changing them on a loaded vocabulary makes encoding split text
+differently from how the vocabulary was learned. Both renew the cache key (§6). `*_name()` give `"cased"`/`"preserve"` etc.
 
 ---
 
-## 4. Construction and state
+## 4. Construction, state and special ids
 
-```cpp
-explicit BPETokenizer(TokenizerMode mode = TokenizerMode::ASCII);
-```
+`BPETokenizer(mode = UNICODE)` registers `<pad>`=0, `<unk>`=1, `<bos>`=2, `<eos>`=3 and compiles the mode's regex. State: `vocab`
+(token → id), `inverse_vocab`, `bpe_merges` (ordered; **order is the algorithm**), `special_tokens`, the four special ids, the three settings,
+`has_turn_tokens_`, `first_ordinary_id_`, and `cache_key_`.
 
-Registers the four special tokens from `SpecialTokens.hpp` (`<pad>`=0, `<unk>`=1, `<bos>`=2,
-`<eos>`=3) in `vocab`, `inverse_vocab` and `special_tokens`, and compiles the mode's regex once.
+**Id layout of a vocabulary built today** (TD-295, TD-565): 0–3 the four specials, 4–6 `<system>`/`<user>`/`<assistant>`, 7–19 placeholder
+entries `<reserved_7>`…`<reserved_19>` (all special), ordinary tokens from 20. `first_ordinary_id()` reports 20; a TD-295 vocabulary reports 7,
+an older one 4; a vocabulary of 20 or fewer ids keeps the old layout. `encode()` never produces an id below `first_ordinary_id()`, `decode()`
+skips them, and `EncoderDecoderModel::mask_unknown_ids()` masks them in generation.
 
-| Member | Holds |
-|---|---|
-| `vocab` | `unordered_map<string, int>`, token → ID |
-| `inverse_vocab` | `unordered_map<int, string>`, ID → token |
-| `bpe_merges` | ordered `vector<pair<string,string>>`; **order is the algorithm** (earlier merges take precedence) |
-| `special_tokens` | set of the 4 special strings, for `decode(skip_special_tokens=true)` |
-| `pad/unk/bos/eos_token_id` | defaults from `SpecialTokenIDs`; may be overridden by a vocab file (§8) |
-| `token_pattern` | compiled pre-tokenizer regex |
-
-Getters: `get_vocab_size()`, `get_bos/eos/pad/unk_token_id()`. A fresh tokenizer has
-`get_vocab_size() == 4`; it can encode (every word becomes `<unk>`) but is useless until trained
-or loaded.
-
-**Special tokens can't be injected from text.** `encode("<eos>")` tokenizes the characters
-`<`, `eos`, `>` as ordinary text; only `add_special_tokens` produces the real IDs.
+**Turn tokens enter only as ids.** `encode_conversation(turns)` writes each turn's token then its content (`encode(content, false)`), and a
+closing `<assistant>`; it requires `has_turn_tokens()`. `encode_prompt(text)` is `<user> text <assistant>` with turn tokens, the plain encoding
+without. `encode("<user>")` gives ordinary characters, since the pre-tokenizer splits `<` from letters.
 
 ---
 
-## 5. Training: `build_vocab()` and the merge learner
+## 5. Building: `build_vocab(texts, vocab_size = 10000, frequency_threshold = 1)`
 
-```cpp
-void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
-                 int frequency_threshold = 1);
-```
+1. A tokenizer that already has a vocabulary is first replaced by a new one keeping only the three settings (TD-223), so a second build
+   shares no ids with the first.
+2. **Count units** across the texts as `pre_tokenize()` will see them (lowercased for `LOWERCASE`, TD-560).
+3. **Reserve ids** 4–19 as above when `vocab_size` is above 20.
+4. Under `PRESERVE`, give space, newline and tab ids first: a corpus read line by line never contains a newline (TD-224).
+5. **Base units** take ids by frequency, most frequent first, ties by their bytes (TD-225), while they meet `frequency_threshold` and fit
+   under `vocab_size`. A unit left out encodes as `<unk>`.
+6. **Merges:** `build_bpe_merges(texts, vocab_size − next id)`. It pre-tokenizes the corpus into words and, each round, takes the most
+   frequent adjacent pair (`get_most_frequent_pair()`; pairs keyed by the pair itself, ties to the lexicographically smallest, TD-220), appends
+   it to `bpe_merges`, gives the merged string the next id, renews the cache key and rewrites every word (`merge_tokens()`, left to right, no
+   overlaps). It stops early when no pair is left, which small corpora reach quickly. Each round notes progress for `trainer_service`'s stall
+   check (TD-569). Cost: O(merges × corpus tokens), since counts are rebuilt every round.
 
-1. **Count atomic units** (bytes or code points) across `texts`.
-2. **Base vocabulary:** every unit seen at least `frequency_threshold` times gets the next ID from
-   4 upward, until `vocab_size` is reached. Units below the threshold, or beyond the cap, are not
-   in the vocab and encode as `<unk>`.
-3. **Merges:** `build_bpe_merges(texts, vocab_size − next_id)`, so the final vocab is roughly
-   `vocab_size`, unless the corpus runs out of pairs first, which small corpora do quickly.
-
-Progress is printed to `std::cout` throughout (see §11).
-
-**Calling it twice corrupts the vocabulary.** The second call restarts base IDs at 4 and appends
-to the existing merges. Running the real code, two `build_vocab()` calls produced 22 tokens with 3
-IDs shared by two different tokens. `tokenizer_test`'s `RepeatedBuildVocab` says "Second build
-should replace vocabulary" but only checks that the size changed, so it passes. Always use a
-fresh instance per build (every production caller does).
-
-**Base IDs depend on hash order.** Base units get IDs in `unordered_map` iteration order, and
-`get_most_frequent_pair()` breaks frequency ties by that order too. The same corpus gives the same
-vocab with the same standard library, but not necessarily across library implementations or
-versions. The saved file is what makes a vocab reproducible, so always ship the file, never
-"rebuild from the same data".
-
-### `build_bpe_merges(texts, num_merges)`
-
-Pre-tokenizes the whole corpus into words, splits each into units, then for each of `num_merges`
-rounds:
-
-1. `get_most_frequent_pair()` counts every adjacent pair in every word;
-2. if none is left, stops early;
-3. appends the pair to `bpe_merges`, gives `first+second` the next ID (`vocab.size()`);
-4. `merge_tokens()` rewrites every word with that pair merged.
-
-Cost is O(num_merges × corpus tokens) since counts are recomputed from scratch each round. That's
-fine at this project's vocab sizes but slow for very large corpora.
-
-### `get_most_frequent_pair(word_tokens)` (static)
-
-Counts every adjacent pair in an `unordered_map` keyed by the `std::pair<std::string, std::string>` itself (a small combining hash), and
-returns the pair with the highest count. Ties go to the lexicographically smallest pair, so the learned merges don't depend on hash-table
-iteration order. Hardened against empty word entries in TD-058.
-
-> **Fixed (TD-220, October 17, 2026): pipe characters used to break it.** Pairs were keyed by `first + "|||" + second` and split back at the
-> first `"|||"`. A pair whose split landed inside the separator, such as `("|", "|")` with key `"|||||"`, came back as `first = ""`. The caller
-> treats that as "no more pairs", so training stopped entirely: a corpus of `"|| || || ab ab"` lines asked for 52 merges and learned **zero**.
-> A non-empty mis-split instead recorded the wrong rule every round. Markdown tables, `||` in code and shell pipelines were realistic
-> triggers.
->
-> The tests that cover the fix:
-> - the pipe corpus above now learns merges, including `("|", "|")`;
-> - 40 random corpora over `{|, !}` all learn merges with no repeated rule;
-> - direct `get_most_frequent_pair()` checks cover pipe tokens and ties.
->
-> Vocabularies built before the fix may be damaged. `scripts/audit_vocab_merges.py` flags duplicate rules, and, given `--expected-merges N`,
-> short merge lists.
-
-### `merge_tokens(word_tokens, first, second)` (static)
-
-Left-to-right, non-overlapping replacement of `first, second` with `first+second` in every word.
+One corpus gives a byte-identical vocabulary file on any platform (TD-225). Logging is `info` per stage and `debug` per tenth of the merges.
 
 ---
 
-## 6. The encode path
+## 6. Encoding and decoding
 
-### `pre_tokenize(text)`
+- **`pre_tokenize(text)`:** rejects invalid UTF-8 (`is_valid_utf8()`, RFC 3629: no overlong forms, surrogates, code points past U+10FFFF or lead
+  bytes F5–FF, TD-225); lowercases per §3; splits with the mode's regex (contractions, words with an optional leading space, digit runs,
+  punctuation runs, whitespace runs); under `COLLAPSE` rewrites each whitespace match to one space (the pattern can match twice between two
+  words, so a run isn't always one space).
+- **`apply_bpe(word)`:** splits the word into units and replays every merge in order, O(merges × word length). The result is cached per thread,
+  keyed by `cache_key_`, a process-unique id renewed by every change to the merges or settings (TD-222), so a reloaded tokenizer, or a new one at
+  a reused address, starts with an empty cache. Each thread keeps 4 states' caches, each cleared at 65,536 words.
+- **`tokenize()` / `encode(text, add_special_tokens = true)`:** `encode()` validates (empty → `TokenizerInputError`), maps each subword through
+  `vocab` (missing, or below `first_ordinary_id()` → `<unk>`), and wraps the result in `<bos>`…`<eos>` when asked. Encoder inputs use
+  `add_special_tokens = false`.
+- **`decode(ids, skip_special_tokens = true)`:** concatenates each id's token, skipping specials when asked. An empty list throws, a negative id
+  throws `TokenIDError`, and ids with no token are left out with one warning per call naming how many and the first (TD-225). Leading spaces are
+  part of tokens, so concatenation restores spacing.
 
-1. Rejects invalid UTF-8 (`TokenizerEncodingError`); empty input returns `{}`.
-2. **Lowercases** (all bytes in ASCII mode; ASCII bytes only in Unicode mode).
-3. Splits with the mode's regex:
-
-   ```text
-   ASCII:   's|'t|'re|'ve|'m|'ll|'d| ?[A-Za-z]+| ?[0-9]+| ?[^ \t\r\nA-Za-z0-9]+|\s+(?!\S)|\s+
-   UNICODE: same, with \x80-\xFF added to the letter class and excluded from the punctuation class
-   ```
-
-   That gives contractions, words with an optional leading space, digit runs, punctuation runs,
-   and whitespace runs.
-4. **Collapses every whitespace run to a single space** (`regex_replace("\s+", " ")`).
-
-Steps 2 and 4 make tokenization **lossy**. Verified: `"Hello World\nSecond\tline  here"`
-round-trips as `"hello world second line  here"`. Case, newlines and tabs are gone. (The double
-space survives as `" "` plus `" here"`.) So no model trained here can learn to produce line
-breaks or capitals, and the vocab file's `\n`/`\t` escaping (§8) never fires for real tokens.
-
-For inputs producing ≥ 1,000 matches it also prints progress lines to `std::cout`. That includes
-long chat inputs on the server, and interleaved output from parallel preprocessing threads.
-
-### `apply_bpe(word)`
-
-Splits the word into units and replays **every** merge rule in order, so the cost is
-O(merges × word length). Results are memoized in a **`thread_local`** cache keyed by
-`(tokenizer address, word)`. Natural text is heavily repetitive, so this removed a big
-preprocessing bottleneck. The design comment says it's safe because merges are immutable during
-parallel encoding. The cache is never invalidated, though:
-
-> **Stale cache (verified).** (1) After `load_vocab()` on an instance that has already encoded
-> text, words encode with the **old** merges: a reload to a tiny vocab still returned the old
-> 1-token result instead of the correct 4 tokens. (2) If a tokenizer is destroyed and another is
-> constructed **at the same address** on the same thread, the new one gets the old one's cached
-> results. Entries for destroyed tokenizers are never freed, either. `measure_fertility()` creates
-> a temporary tokenizer per call, which adds one more cache entry each time (§9). Production mostly
-> avoids this because each `trainer_service` pass is a fresh process and servers load once, but
-> nothing in the class prevents it.
-
-### `tokenize(text)` / `encode(text, add_special_tokens = true)`
-
-`tokenize()` is `pre_tokenize()` then `apply_bpe()` per word, concatenated. `encode()` validates
-(empty → `TokenizerInputError`, bad UTF-8 → `TokenizerEncodingError`), then maps each subword
-through `vocab`, giving `unk_token_id` when it's missing. With `add_special_tokens` it wraps the
-result in `bos … eos`.
-
-Encoder inputs are encoded **without** specials (`encode(text, false)`) throughout `ChatbotAPI`.
-`TextGenerator` seeds decoding with BOS itself.
+`encode()`, `decode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `encode_conversation()` and `encode_prompt()` are `const` and safe to call
+concurrently on one tokenizer; `build_vocab()` and `load_vocab()` must finish before any of them start.
 
 ---
 
-## 7. `decode()`
+## 7. Sizing and diagnostics
 
-```cpp
-std::string decode(const std::vector<int>& ids, bool skip_special_tokens = true);
-```
-
-Concatenates `inverse_vocab[id]` for each ID. With `skip_special_tokens`, the four special
-strings are dropped. Leading spaces are part of tokens (`" world"`), so plain concatenation
-restores word spacing.
-
-- Empty `ids` → `TokenizerInputError`; negative ID → `TokenIDError`.
-- An ID that isn't in the vocab (≥ vocab size) is **skipped with a `std::cerr` warning**, not an
-  exception, so a model emitting out-of-range IDs produces silently shortened text.
-
-`encode()` and `decode()` aren't `const`, though neither mutates anything. That forces the
-copy-the-whole-tokenizer workaround in `measure_fertility()`, and stops callers holding a
-`const BPETokenizer&` from encoding.
+- **`recommend_vocab_size(texts, d_model, enc_layers, dec_layers, max_seq_length, mode, normalization)`** (static): a starting point, not a
+  fitted value. It combines a dataset base `2000 + 3500·√(words/1000)` (≤ 64,000); a script multiplier (CJK > 30% ×0.55, Arabic/Hebrew > 20%
+  ×1.5, Cyrillic > 30% ×1.2, other multibyte > 30% ×1.25 or > 10% ×1.1); a context-length multiplier (≤ 128 ×1.4, ≤ 256 ×1.2, ≥ 1024 ×0.92,
+  ≥ 2048 ×0.85); ×1.1 for Unicode mode with more than 5% multibyte; and for `CASED`, 1 + the share of words with an ASCII capital, capped at +30%
+  (TD-562). Then it caps at `(3/7)·(12·L_enc + 16·L_dec)·d_model` (embeddings ≤ ~30% of parameters), floors at 2,000 and rounds to 500. No text
+  → 2,000.
+- **`measure_fertility(texts, sample_limit = 500)`:** tokens per whitespace word over up to `sample_limit` texts (texts that fail to encode are
+  skipped). About 1.2–1.8 is healthy; `IncrementalTrainer` warns above 2.5 or below 1.1.
+- **`vocab_stats()`** returns mode, settings, size, merge and special counts as text; **`get_tokens_by_id(k)`** the `k` lowest-id tokens (TD-225
+  renamed both from `print_vocab_stats()`/`get_top_tokens()`).
 
 ---
 
-## 8. Persistence: `save_vocab()` / `load_vocab()` and the file format
+## 8. The vocabulary file: `save_vocab()` / `load_vocab()`
 
 ```text
-# BPE Tokenizer Vocabulary v1.0
-TOKENIZER_MODE ASCII|UNICODE
-VOCAB_SIZE <n>                       (informational; ignored on load)
+# BPE Tokenizer Vocabulary v4.0
+TOKENIZER_MODE UNICODE|ASCII
+NORMALIZATION CASED|LOWERCASE            (v2+, TD-560)
+WHITESPACE PRESERVE|COLLAPSE             (v3+, TD-224)
+VOCAB_SIZE <n>                           (informational)
+RESERVED_SPECIAL_IDS 4|7|20              (v4+, TD-565)
 SPECIAL_TOKENS
-pad_token_id 0
-unk_token_id 1
-bos_token_id 2
-eos_token_id 3
+pad_token_id 0 … eos_token_id 3
 VOCAB
-<escaped token>\t<id>                (unordered_map order, NOT sorted)
-...
+<escaped token>\t<id>                    (in id order, TD-225)
 BPE_MERGES <count>
-<escaped first>\t<escaped second>    (in learned order; order matters)
-...
+<escaped first>\t<escaped second>        (in learned order)
 ```
 
-Escapes: space → `\s`, newline → `\n`, tab → `\t`, CR → `\r`, backslash → `\\`.
+Escapes: space `\s`, newline `\n`, tab `\t`, CR `\r`, backslash `\\`. Nothing else is escaped.
 
-### `save_vocab(filename) const`
+**`save_vocab(filename)`** writes `<filename>.tmp`, checks the stream, and renames it into place with `std::filesystem::rename()` (which replaces
+an existing file on Windows too). Any failure is a `VocabularyFileError` and removes the temporary file, so a failed save never replaces a good
+vocabulary (TD-221). A failed checkpoint save fails the training pass.
 
-Writes the format above to `<filename>.tmp`, checks the stream after flushing and closing, then moves it into place with
-`std::filesystem::rename()`. That call replaces an existing file on every platform; `std::rename()` doesn't on Windows. It throws
-`VocabularyFileError` when:
-- the name is empty;
-- the file can't be opened, written or renamed (the temp file is removed first, so a failed save never replaces a good vocab with a truncated
-  one).
+**`load_vocab(filename)`** parses into a new tokenizer (`read_vocab_file()`) and takes it only when the whole file loads, so a failure leaves the
+tokenizer as it was (TD-223). It starts from the oldest format's meaning (ASCII, `LOWERCASE`, `COLLAPSE`), so a file without those lines reads as
+it was written. It refuses a format newer than `kVocabFormatMajor` (4) and an unknown line before the first section (TD-563), an unsupported
+`RESERVED_SPECIAL_IDS`, a missing reserved slot, a reserved count above 4 without turn tokens, malformed or negative ids, empty merge halves,
+an empty vocabulary, and special ids other than 0–3 or not on their tokens (TD-505). Turn tokens count only when spelled and numbered exactly so.
 
-On success it logs a summary to `std::cout`.
+### Fixed: the reader took header syntax inside the token and merge sections (TD-570, November 11, 2026; was verified)
 
-How the callers handle a failure (each catches the exception, rechecked October 19, 2026):
-- **`EncoderDecoderModel::save_model()`** lets it through. `IncrementalTrainer::save_model()`, the best-snapshot callback and the auto-save
-  path each catch it. An end-of-pass checkpoint that fails to save fails the pass: no session is recorded, no MNS candidate is reported, and
-  the claimed files are released, not marked trained.
-- **`ChatbotTrainer::build_vocabulary()`** and `IncrementalTrainer`'s vocab bootstrap return false.
-- **`vocab_builder`** reaches its error path and exits 1.
+`read_vocab_file()` applied its header rules to **every** line, whatever section it was in: a line starting with `#` was skipped as a
+comment, and one starting with `NORMALIZATION`, `WHITESPACE`, `TOKENIZER_MODE`, `VOCAB_SIZE`, `RESERVED_SPECIAL_IDS` or `BPE_MERGES`, or equal
+to `SPECIAL_TOKENS`/`VOCAB`, was read as that header line. `save_vocab()` escapes neither `#` nor letters, so a token or merge starting with one
+of these was misread on load:
 
-> **Fixed (TD-221, October 17, 2026): it used to fail silently.** An unopenable file printed to `std::cerr` and returned normally, and write
-> errors weren't checked. So a full disk or a bad path left a checkpoint with weights but no `.vocab`, which then failed at load.
+- **A `#` token disappeared.** Built from text with `## Heading`, `#include` and `#tag`, a vocabulary of 60 tokens loaded back as 58: the `#`
+  and `##` tokens and the `#`+`#` merge were skipped. `"## Heading #include #tag"` then encoded to 7 ids instead of 6 and decoded as
+  `" Heading #include #tag"`.
+- **A keyword token stopped the load.** A cased vocabulary with the token `WHITESPACE` at id 40 made `load_vocab()` throw `Unknown WHITESPACE
+  '40'`, so a checkpoint carrying it couldn't be loaded. A token starting `TOKENIZER_MODE` would have switched the mode mid-file, one starting
+  `BPE_MERGES` ended the token section early.
 
-### `load_vocab(filename)`
-
-1. Throws `VocabularyFileError` for an empty filename or unopenable file.
-2. **Clears** `vocab`, `inverse_vocab`, `bpe_merges` and `special_tokens`, then parses line by
-   line. `TOKENIZER_MODE` switches the mode and recompiles the regex. Special-token IDs come from
-   `SPECIAL_TOKENS`. Malformed lines, non-numeric/negative/out-of-range IDs, and empty merge
-   halves throw `VocabularyFileError`.
-3. Requires all four special strings to be present, then re-forces `inverse_vocab[special_id]` to
-   the canonical strings.
-
-Gotchas:
-
-- **Not exception-safe (verified).** Because it clears first, a malformed file leaves the
-  tokenizer **gutted**: a trained 12-token tokenizer had 1 token after a failed load. A caller that
-  catches the exception and keeps going ends up with a broken tokenizer rather than the previous
-  one. `chatbot_api_server --pipeline-inference` does exactly that (`ChatbotAPIServer.cpp` ≈ 540):
-  it catches a failed `enable_pipeline_inference()`, which reloads the encoder's private
-  tokenizer, logs a warning, and keeps serving.
-- **Doesn't invalidate the `apply_bpe()` cache** (§6).
-- **Special IDs from the file may disagree with `SpecialTokenIDs`.** The loader honours whatever
-  IDs the file declares, but other code (`BatchProcessor`, `TextGenerator`, `Dataset`) uses
-  `adai::SpecialTokenIDs` constants directly. Every vocab produced here uses 0–3, so they agree in
-  practice. A hand-edited or foreign file wouldn't, and nothing checks.
-- A file without a `TOKENIZER_MODE` line (pre-Unicode vocabularies) keeps the constructor's mode.
+Markdown headings, code, hashtags and upper-case identifiers are ordinary training text, and every training pass and server loads the
+vocabulary from its file, so `#` tokens never reached a model. **Now** section markers carry no tab and every entry does, so a line with a tab
+is always an entry, and the header rules apply only before the first section. Vocabulary files were always written correctly and now load
+whole. Tests: `TokensStartingWithAHashSurviveSaveAndLoad`, `TokensStartingWithAHeaderKeywordSurviveSaveAndLoad`,
+`HeaderCommentsAndUnknownHeaderLinesAreStillHandled`.
 
 ---
 
-## 9. Sizing and diagnostics
+## 9. Known gaps and gotchas (summary)
 
-### `recommend_vocab_size(texts, d_model, enc_layers, dec_layers, max_seq_length, mode)` (static)
-
-A heuristic used by `IncrementalTrainer` when no explicit size is configured. It combines:
-
-1. **Dataset size:** `2000 + 3500·√(words/1000)`, capped at 64,000 (≈3k vocab at 1k words, ≈14k
-   at 100k, ≈44k at 1M);
-2. **Script mix** (by Unicode block counts): CJK > 30% → ×0.55; Arabic/Hebrew > 20% → ×1.5;
-   Cyrillic > 30% → ×1.2; other multibyte > 30% → ×1.25, > 10% → ×1.1;
-3. **Embedding budget cap:** `V ≤ (3/7)·(12·L_enc + 16·L_dec)·d_model`, which keeps the input
-   embedding at about 30% of parameters or less;
-4. **Context length:** ≤128 → ×1.4; ≤256 → ×1.2; ≥1024 → ×0.92; ≥2048 → ×0.85;
-5. **Unicode mode** with > 5% multibyte → ×1.1;
-
-then clamps to ≥ 2000 and rounds to the nearest 500. Empty input returns 2000. The constants are
-engineering judgement, not fitted, so treat the result as a starting point and check it with
-`measure_fertility()`.
-
-### `measure_fertility(texts, sample_limit = 500) const`
-
-Average BPE tokens per whitespace word over up to `sample_limit` non-empty texts (texts that fail
-to encode are skipped). Roughly 1.2–1.8 is healthy, above 2.5 means the vocab is too small, and
-below 1.1 suggests it's oversized. `IncrementalTrainer` logs it and warns outside those bands.
-Because `encode()` isn't `const`, it **copies the entire tokenizer** into a temporary on every
-call. That's expensive for large vocabs, and it adds an `apply_bpe()` cache entry each time.
-
-### `print_vocab_stats() const` / `get_top_tokens(k) const`
-
-Used by `vocab_builder`. `print_vocab_stats()` prints mode, size, merge count and special count
-to `std::cout`. **`get_top_tokens(k)` is misnamed:** it returns the `k` tokens with the **lowest
-IDs** (always the four specials, then base units in hash order), not the most frequent. The
-tokenizer keeps no frequencies at all. Verified: on a corpus that's almost all `z`, it returned
-`<pad> <unk> <bos> <eos> a`.
-
----
-
-## 10. Thread safety
-
-| Operation | Concurrent with itself? | Notes |
-|---|---|---|
-| `encode()`, `tokenize()`, `decode()`, getters | Yes | Read-only on shared maps and regex; `apply_bpe()`'s cache is per-thread. This is what `ChatbotTrainer`'s OpenMP preprocessing relies on |
-| `build_vocab()`, `load_vocab()` | No, and not with any reader | Mutate every table; must finish before any concurrent encoding starts |
-| `pre_tokenize()` progress output | — | Threads interleave `\r` progress lines on stdout |
-
----
-
-## 11. Known gaps and gotchas (summary)
-
-Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
-
-| Item | Impact | Verified | Tracked as |
+| Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `"|||"` pair separator: pairs whose split lands in the separator (e.g. `("|","|")`) stop merge learning (§5) | Pipe-heavy corpora got few or no merges | **Fixed October 17, 2026** (was verified: 0 of 52 merges) | [TD-220](../../guides/TECHNICAL_DEBT.md#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) |
-| `apply_bpe()` thread-local cache never invalidated; keyed by address; never freed (§6) | Stale tokenization after `load_vocab()` or address reuse; slow memory growth | Yes, both cases | [TD-222](../../guides/TECHNICAL_DEBT.md#td-222-apply_bpes-thread-local-cache-is-never-invalidated) |
-| `save_vocab()` fails silently (§8) | Checkpoints could be written without their `.vocab` | **Fixed October 17, 2026**; Windows-safe rename added October 19, 2026 | [TD-221](../../guides/TECHNICAL_DEBT.md#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) |
-| `load_vocab()` not exception-safe (§8) | Failed load leaves a gutted tokenizer | Yes: 12 → 1 tokens | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
-| Second `build_vocab()` corrupts IDs; `RepeatedBuildVocab` test doesn't catch it (§5) | Duplicate IDs if an instance is reused | Yes: 3 shared IDs | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
-| Lowercasing and whitespace collapsing are lossy (§6) | Models can't see or produce capitals, newlines, tabs | Yes | [TD-224](../../guides/TECHNICAL_DEBT.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) |
-| `std::cout`/`std::cerr` throughout library code (§5–9) | Breaks the logging convention; progress spam on long inputs and in parallel preprocessing | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
-| `decode()` skips unknown IDs with only a `cerr` warning (§7) | Silent truncation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
-| `encode()`/`decode()` not `const` (§7, §9) | Full tokenizer copy in `measure_fertility()`; can't encode via `const&` | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
-| `get_top_tokens()` returns lowest IDs, not most frequent (§9) | Misleading `vocab_builder` output | Yes | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
-| Base IDs and tie-breaks depend on `unordered_map` order (§5) | Rebuilds aren't portable across standard libraries | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
-| Vocab-file special IDs aren't checked against `SpecialTokenIDs` (§8) | Foreign/hand-edited vocabs could disagree with code using the constants | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) |
-| `is_valid_utf8()` accepts overlong forms, surrogates and lead bytes up to `0xF7` | Lenient validation | By inspection | [TD-225](../../guides/TECHNICAL_DEBT.md#td-225-bpetokenizer-logging-and-api-hygiene) Fixed November 10, 2026 |
+| The reader applied `#`-comment and header-keyword rules inside the token and merge sections (§8); the constructor's comment called ASCII the default | `#` tokens lost on load; a keyword token failed the load | **Fixed November 11, 2026** (was verified) | [TD-570](../../guides/TECHNICAL_DEBT.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections) |
+| `"|||"` pair keys stopping merge learning | — | **Fixed October 17, 2026** | TD-220 (audit old vocabularies with `scripts/audit_vocab_merges.py`) |
+| Silent `save_vocab()` failures | — | **Fixed October 17, 2026** | TD-221 |
+| Never-invalidated `apply_bpe()` cache | — | **Fixed October 27, 2026** | TD-222 |
+| A failed load gutting the tokenizer; a second build sharing ids | — | **Fixed November 9, 2026** | TD-223 |
+| Lossy normalization (case, whitespace) | — | **Fixed** for new vocabularies (TD-560 November 4, TD-224 November 8) | TD-224, TD-560–TD-563 |
+| Logging, `const`, misnamed helpers, unordered ids, lenient UTF-8 | — | **Fixed November 10, 2026** | TD-225 |
+| Non-standard special ids | — | **Fixed November 9, 2026** | TD-505 |
 
----
+`stable` holds again with TD-570 fixed.
 
-## 12. Merge notes: what changed from the old document
+## 10. History
 
-This file absorbed `docs/development/api/nlp/tokenizer.md`. Where they disagreed, this file's
-code-traced details won.
-
-**Corrected:**
-- *No `TokenizerMode`.* The old doc predates Unicode mode entirely. Added §3 and per-mode
-  behaviour throughout.
-- *Pre-tokenizer regex* was an older pattern (`?[^\s\w]+|\s+`); the real patterns are in §6.
-- *File format* lacked the `TOKENIZER_MODE` line and showed the `VOCAB` section sorted by ID; it's
-  written in hash-map order (§8).
-- *"Thread-safe after vocabulary is built"*: true for concurrent reads, but missed the
-  never-invalidated `apply_bpe()` cache and the reload hazards (§6, §10).
-- *Example 1's output* claimed a 1,000-token vocab from three short sentences; small corpora run
-  out of pairs long before that. Example 2's IDs and Example 3's "pre/process/ing" split were
-  illustrative, not real output, so they were dropped.
-- *Example 4 / "Get most common tokens"*: `get_top_tokens()` returns lowest IDs (§9).
-- *Time-complexity table* listed `encode` as O(T). It's dominated by `apply_bpe()`'s
-  O(merges × word length) per *new* word (cached afterwards). The memory estimates were dropped as
-  unverified.
-- *"Future enhancements: byte-level BPE, caching, token statistics"*: ASCII mode is already
-  byte-level, `apply_bpe()` caching exists, and `measure_fertility()`/`recommend_vocab_size()`
-  exist.
-- *Unit test sample* asserted `decode(encode("test input")) == "test input"`. That only holds
-  because the input is already lowercase with single spaces (§6).
-
-**Dropped (wouldn't compile or don't apply):**
-- Example 5, "Integration with Neural Network": there's no `NeuralNetwork` class.
-- "Batch Encoding" pattern: took `const BPETokenizer&` and called non-`const` `encode()`.
-- "Vocabulary Expansion" pattern: there's no API to add tokens.
-- Machine-translation and classification use cases: generic.
-- "Optimization strategies": described code that isn't there.
-
-**Kept and merged:** the BPE algorithm overview, the special-token table, merge and pair-counting
-descriptions (now with the separator caveat), escape sequences, the vocab-size and
-frequency-threshold guidance (now tied to `recommend_vocab_size()`/`measure_fertility()`),
-"specials on or off" guidance, the lowercase note, merge-order precedence, and references.
-
-**References:** Sennrich, Haddow & Birch, *Neural Machine Translation of Rare Words with Subword
-Units* (2016); Radford et al., *Language Models are Unsupervised Multitask Learners* (2019,
-GPT-2 pre-tokenizer).
-
-## Addendum (October 27, 2026): the BPE cache follows the merges (TD-222)
-
-`apply_bpe()`'s per-thread cache is keyed by `cache_key_`, a process-unique id renewed by `build_bpe_merges()` (so `build_vocab()`)
-and `load_vocab()`, instead of the tokenizer's address. A reloaded tokenizer, or a new one where a destroyed one lived, no longer
-encodes with another state's cached merges. Each thread keeps the 4 most recently used keys' caches, each cleared at 65,536 words.
-Tests: `BPETokenizerCacheTest`.
-
-## Addendum (October 28, 2026): engine modes retired
-
-`PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.
-
-## Addendum (November 4, 2026): letter case and the v2 vocabulary format (TD-560, TD-562, TD-563)
-
-- **`TextNormalization`** (`CASED` | `LOWERCASE`), with `get_normalization()`/`set_normalization()`/`normalization_name()`.
-  `pre_tokenize()` lowercases only for `LOWERCASE`. A new tokenizer is `CASED`, so new vocabularies keep case. `build_vocab()` counts
-  base characters as `pre_tokenize()` will see them, so a lowercase vocabulary no longer spends ids on capital letters encoding
-  never produces. `measure_fertility()`'s probe copies the setting.
-- **Format v2:** `save_vocab()` writes `# BPE Tokenizer Vocabulary v2.0` and `NORMALIZATION CASED|LOWERCASE`. `load_vocab()` starts
-  from `LOWERCASE`, so a v1 file (no such line) tokenizes exactly as before, and an unknown value is a `VocabularyFileError`.
-- **Unknown formats are refused (TD-563):** a format comment newer than `kVocabFormatMajor` (2), or an unrecognized header line
-  before the first section, is a `VocabularyFileError`. The old loader skipped unknown header lines, so it would have lowercased a
-  cased vocabulary.
-- **Sizing (TD-562):** `recommend_vocab_size()` takes a `TextNormalization` (default `CASED`) and multiplies by 1 + the share of words
-  with an ASCII capital, capped at +30%, before the architecture cap. On English prose the distinct words grew by about the share of
-  capitalized words. `IncrementalTrainer::bootstrap_vocab()` logs the letter case.
-
-## Addendum (November 4, 2026): Unicode mode is the default (TD-564)
-
-A new `BPETokenizer` is in `TokenizerMode::UNICODE` (each UTF-8 code point, an ISO/IEC 10646 character, is one unit), as are
-`TrainingConfig::tokenizer_mode`, `ServiceConfig::unicode_tokenizer` (`TOKENIZER_MODE`, now `unicode` unless set to `ascii`),
-`recommend_vocab_size()`'s default and `vocab_builder` (which gains `--ascii`; `--unicode` still works). On plain ASCII text the two
-modes split identically; they differ on accented and non-Latin text, which ASCII mode splits into bytes. Only new vocabularies are
-affected: `load_vocab()` takes the mode from the file, and a file without a `TOKENIZER_MODE` line (the oldest format) now loads as
-ASCII; it used to keep the constructor's mode, which would have become Unicode for those byte-built files. The note above that a
-file without the line keeps the constructor's mode no longer applies.
-
-## Addendum (November 8, 2026): whitespace and the v3 vocabulary format (TD-224)
-
-- **`WhitespaceHandling`** (`PRESERVE` | `COLLAPSE`), with `get_whitespace()`/`set_whitespace()`/`whitespace_name()`. A new tokenizer
-  is `PRESERVE`: `pre_tokenize()` leaves whitespace alone, and any text decodes back exactly (given its characters are in the vocabulary).
-- **`build_vocab()`** always gives space, newline and tab a base token under `PRESERVE`; a line-by-line corpus never contains a newline.
-- **Format v3:** `save_vocab()` writes `# BPE Tokenizer Vocabulary v3.0` and `WHITESPACE PRESERVE|COLLAPSE`. `load_vocab()` starts from
-  `COLLAPSE`, so a v1 or v2 file tokenizes exactly as before; an unknown value is a `VocabularyFileError`.
-- `COLLAPSE` rewrites each whitespace *match* to one space, as it always did. The pattern can match more than once between two words
-  (`"a\n\tb"` gives two spaces), so "one space per run" (§6) was only approximately true.
-
-## Addendum (November 8, 2026): turn tokens (TD-295)
-
-`build_vocab()` reserves `<system>`/`<user>`/`<assistant>` at ids 4-6; `has_turn_tokens()` reports them. `encode_conversation()` and `encode_prompt()` are
-the only ways they enter a sequence: the pre-tokenizer always splits `<` from letters, so `encode()` can't produce one from text. `decode()` skips them.
-
-## Addendum (November 9, 2026): reserved special ids and the v4 format (TD-565)
-
-`build_vocab()` now reserves ids 0-19 for special tokens: the turn tokens at 4-6 and a placeholder entry, `<reserved_7>` to
-`<reserved_19>` (`adai::reserved_slot_token()`), at each of 7-19, all special. Ordinary tokens start at 20; `first_ordinary_id()`
-reports 20, 7 for a TD-295 vocabulary, or 4 for an older one. `encode()` never returns an id below `first_ordinary_id()`,
-`decode()` skips them, and `EncoderDecoderModel::mask_unknown_ids()` masks 4 to `first_ordinary_id() - 1` on every generation path.
-`save_vocab()` writes format v4 with `RESERVED_SPECIAL_IDS <n>`; `load_vocab()` treats every id below it as special whatever its
-name, so a later build can name a slot without moving other ids, and refuses a missing slot or an unsupported count. A vocabulary
-of 20 or fewer ids keeps the old layout, with no turn tokens.
-
-## Addendum (November 9, 2026): load and rebuild are all or nothing (TD-223)
-
-`load_vocab()` parses into a new tokenizer (`read_vocab_file()`) and moves it into place only when the whole file has loaded; a
-`VocabularyFileError` leaves the previous vocabulary, settings and layout untouched. `build_vocab()` on a tokenizer that already has a
-vocabulary starts from a new one that keeps only the mode, normalization and whitespace settings, so the second build's ids run from 0
-with none shared. The gaps listed for both functions above no longer apply.
-
-## Addendum (November 10, 2026): logging and API hygiene (TD-225)
-
-`BPETokenizer.cpp` no longer writes to `std::cout`/`std::cerr`. `build_vocab()` logs its stages and result at `info` and merge progress
-at `debug`; `save_vocab()`/`load_vocab()` log one `info` line each; `pre_tokenize()` prints no progress. `print_vocab_stats()` is
-replaced by `vocab_stats()`, which returns the text, and `get_top_tokens()` by `get_tokens_by_id()`, the same lowest-id list under an
-accurate name. `decode()` still leaves out ids with no token, and logs one warning per call with their count and the first one.
-`encode()`, `decode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `encode_conversation()` and `encode_prompt()` are `const`, so
-`measure_fertility()` no longer copies the tokenizer. Base units take ids by frequency, ties by their bytes, and `save_vocab()` writes
-the vocabulary in id order, so one corpus gives a byte-identical file everywhere. `is_valid_utf8()` follows RFC 3629 (no overlong
-forms, surrogates, code points past U+10FFFF or lead bytes `F5`-`FF`). `DataFetcher.cpp`'s FIM comment now says the tokens don't exist
-yet and would take reserved ids. The sections above describing the old behaviour no longer apply.
+- **October 2026:** merged in the old `tokenizer.md`; TD-220, TD-221 (October 17), TD-222 (October 27).
+- **November 4, 2026:** letter case, format v2 (TD-560–TD-563); Unicode by default (TD-564).
+- **November 8, 2026:** whitespace, format v3 (TD-224); turn tokens (TD-295).
+- **November 9, 2026:** reserved special ids, format v4 (TD-565); all-or-nothing load and rebuild (TD-223); standard special ids (TD-505).
+- **November 10, 2026:** logging and API hygiene (TD-225).
+- **November 11, 2026:** progress per merge (TD-569). This document was re-traced against the code, replacing its October sections and folding
+  in its addenda; the trace found the §8 reader bug, fixed the same day (TD-570).

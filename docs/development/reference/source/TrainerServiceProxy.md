@@ -1,146 +1,100 @@
 # `TrainerServiceProxy` — Source File Reference
 
-- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (94 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (363 lines)
+- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (118 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (379 lines)
 - **Namespace:** `adai`
 - **Used by:** `trainer_service` ([TrainerServiceMain.md](TrainerServiceMain.md)): its public admin listener on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` (127.0.0.1:8084 shipped), started only with `TRAINER_ADMIN_ENABLED=true`. Clients: `curl`, the Android ops dashboard's Trainer tab (via the `trainer.kerfbit.dev` tunnel)
-- **Status tag:** `@adai-status: experimental`, `TrainerServiceProxy.cpp` `@adai-version: 0.3.0`, `@adai-reviewed: 2026-10-19`; `.hpp` `0.2.0`, `2026-09-14`
-- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) (18 tests, `trainerServiceProxyTests`; all pass)
-- **Last traced against the code:** 2026-10-19
+- **Status tags:** `@adai-status: beta`; `TrainerServiceProxy.cpp` `@adai-version: 0.8.0`, `.hpp` `0.4.1`; `@adai-reviewed: 2026-11-11`
+- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) → `trainerServiceProxyTests` (26, all pass)
+- **Last traced against the code:** 2026-11-11
 
-> Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program running the real proxy in front of a real
-> [`TrainerAdminAPI`](TrainerAdminAPI.md) child instance, called with `curl`.
+> Code-traced reference. Behaviour marked **verified** was confirmed with the real proxy, in front of a real [`TrainerAdminAPI`](TrainerAdminAPI.md)
+> child or, on November 11, 2026, inside the real `trainer_service` with a stub pass.
 
 ---
 
 ## 1. What this file is
 
-The always-on admin endpoint of `trainer_service`. While a child pass is alive (`set_child_port(N)`), requests are forwarded to the child's private
-`TrainerAdminAPI` on `127.0.0.1:N`; while none is (`set_child_port(0)`), it answers itself.
+The always-on admin endpoint of `trainer_service` (TD-172). While a pass is alive (`set_child_port(N)`), requests go to the pass's own
+`TrainerAdminAPI` on `127.0.0.1:N`; while none is (`set_child_port(0)`), the proxy answers itself. The HTTP server is hidden behind a pimpl
+(`ServerImpl`). It installs the browser write guard (TD-550: a write with an `Origin` gets 403, a preflight-free `Content-Type` 415) and binds
+without `SO_REUSEPORT` (TD-551).
 
-| Endpoint | Child alive | No child |
+| Endpoint | Pass alive | No pass |
 |---|---|---|
-| `GET /health` | Answered here (never proxied) | Same |
-| `GET`/`PUT /admin/config` | Proxied | Read/write `TRAINER_ADMIN_DIR/daemon_config.db` directly (same validation as the child, TD-305's partial-apply included); GET overlays the file onto **hardcoded** defaults |
-| `GET /admin/status` | Proxied; on 200, supervisor fields appended | Idle-shaped body with the supervisor's `paused`; supervisor fields appended |
-| `GET /admin/logs` | Proxied | `{"entries":[]}` |
-| `POST /admin/checkpoint[?wait_ms=N]` | Proxied (`wait_ms` copied into the path) | 409 |
-| `POST /admin/pause` / `resume` | Always set/clear `TrainerServiceControlState::paused` and `wake()` the supervisor (TD-173); then best-effort proxy to the child (response ignored); 202 | Same, without the proxy |
+| `GET /health` | `{"status":"ok"}`, never proxied | Same |
+| `GET /admin/config` | Proxied | The constructor's `TrainerAdminDefaults` (the `config.trainer.conf` values, TD-525), overlaid with `TRAINER_ADMIN_DIR/daemon_config.db` through `parse_trainer_admin_overrides()`; a saved value `PUT` would reject is skipped with a warning (TD-521); an unreadable store is a warning and the defaults |
+| `PUT /admin/config` | Proxied | Parsed by the shared `parse_trainer_admin_config()` (TD-519; the same rules as the pass), 400 with the reason; else every key saved with one `DaemonConfigStore::set_many()` under `idle_config_mutex_` (TD-305), 500 "nothing was changed" if that fails; then answers like the idle `GET` |
+| `GET /admin/status` | Proxied; every answer that is a JSON object, a 503/504 included, gets the supervisor fields (TD-571) | The idle body (below) with the supervisor fields |
+| `GET /admin/logs[?limit=N]` | Proxied, the limit rebuilt from the number | `{"entries":[]}`; `limit` must be 0–200 (`kMaxAdminLogEntries`), else 400 even with no pass (TD-522) |
+| `POST /admin/checkpoint[?wait_ms=N]` | Proxied with a read timeout of `wait_ms` + 5 s; `wait_ms` 0–60,000 (`kMaxCheckpointWaitMs`, the pass's own limit, TD-521), else 400 | 409 "no active training pass" |
+| `POST /admin/pause` | Sets `TrainerServiceControlState::paused` and `wake()`s the loop (TD-173), then asks the pass to pause; a refusal is logged; 202 `{"paused":true}` | Same, without the pass |
+| `POST /admin/resume` | Clears `paused`, `wake()`, asks the pass to resume (a refusal is logged); 202 `{"paused":false}` | Same, without the pass |
 
-`with_supervisor_fields()` appends `supervisor_paused`, `total_passes_launched`, `total_passes_did_work`, `total_passes_crashed`,
-`total_passes_failed`, `consecutive_failures`, `last_failure_unix` (the last three since TD-523), `last_exit_code` and `service_uptime_seconds` before
-the final `}` (only if the body ends with one). Proxy requests use a new `httplib::Client` with a 1 s connection and 5 s
-read timeout; a connection failure becomes **503 "training pass is starting or exiting; try again shortly"**.
+**Proxying** (`proxy(method, path, body, read_timeout_ms)`): a new `httplib::Client` per request to `127.0.0.1:<child port>`, 1 s to connect,
+5 s to read by default. A refused or timed-out connection is **503** "training pass is starting or exiting; try again shortly"; any other failure
+(the pass took the request but didn't answer in time) is logged and is **504** "did not answer within N s; the request may still have been
+applied" (TD-525). Any answer, whatever its status, is relayed unchanged, except that a status answer gets the supervisor fields (below).
+
+**The idle status body** has the per-pass shape with a fresh pass's values: `phase "idle"`, empty ids, zero counters, `last_loss`/`best_loss`
+`null` and `loss_diverged false` (TD-520). Its `paused` is the supervisor's flag; during a pass, `paused` is the pass's own.
+
+**The supervisor fields** (`with_supervisor_fields()`, appended before the closing `}` of a body that ends with one): `supervisor_paused`,
+`total_passes_launched`, `total_passes_did_work`, `total_passes_crashed`, `total_passes_failed`, `consecutive_failures`, `last_failure_unix`,
+`total_passes_stalled`, `seconds_since_pass_progress` (TD-569), `last_exit_code`, `service_uptime_seconds`. The meanings are in
+[TrainerServiceControlState.md](TrainerServiceControlState.md). The idle `PUT`'s 400 and 500 bodies carry variable text (the parser's reason,
+an exception message) and are built with nlohmann/json (`error_json()`, TD-571); the other error bodies are fixed text.
 
 ---
 
 ## 2. Problems
 
-### A long checkpoint wait is reported as "starting or exiting" (verified)
+### Fixed: the service's own status was hidden while a pass's admin API wasn't up (TD-571, November 11, 2026; was verified)
 
-The child honours any `wait_ms`, but the proxy's read timeout is 5 s. `POST /admin/checkpoint?wait_ms=8000` through the proxy returned **503 "training
-pass is starting or exiting; try again shortly"** (after 10 s, httplib retrying the read once) while the child had in fact accepted the request
-(`checkpoint_requested` was set). The caller is told the request failed for the wrong reason, and retrying requests yet another checkpoint. The same
-503 text is returned for every proxied request when the child's admin API failed to bind, for the whole pass. (The Android dashboard doesn't send
-`wait_ms`, so it isn't affected.)
+`/admin/status` added the supervisor fields only to a 200, and a pass started its `TrainerAdminAPI` only after GPU initialization. So a pass
+stuck there (which TD-569 stops after `TRAINER_PASS_STALL_MINUTES`) showed only `{"error":"training pass is starting or exiting; try again
+shortly"}` with 503, without `seconds_since_pass_progress` or the pass counters; seen with the real `trainer_service` and a stub pass. **Now**
+the fields go on every status answer that is a JSON object, a 503/504 included, and the pass starts its admin API before GPU initialization
+([IncrementalTrainingTool.md](IncrementalTrainingTool.md)). The same review moved the idle `PUT`'s error bodies from a five-character
+`json_escape()` to nlohmann/json.
 
-### Idle config doesn't match what the next pass will use (verified)
+### Notes
 
-Idle `GET /admin/config` starts from hardcoded defaults (1000 / 30 / 50 / true) and overlays `daemon_config.db`; it never sees `config.trainer.conf`,
-which the child seeds its tunables from before applying the same overlay. With a child seeded `auto_save_every_samples = 250` (as from a config file
-with `AUTO_SAVE_EVERY_SAMPLES=250`), the proxy reported **1000 while idle and 250 while the child ran**, so an operator checking settings between
-passes sees values that won't apply. The shipped config uses the same numbers as the hardcoded defaults, which hides it.
-
-### Smaller items (by inspection)
-
-- **`wait_ms` is re-inserted into the proxied path unencoded** (the decoded query value is concatenated), so a crafted value can alter the request line
-  sent to the child (loopback only).
-- **`paused` means two things** in `/admin/status`: the child's per-pass flag while a pass runs, the supervisor's flag when idle (`supervisor_paused` is
-  always the supervisor's).
-- **A new client and connection per proxied request**; pause/resume proxy failures are silently ignored.
-
-### Already tracked
-
-| Item | Tracked as |
-|---|---|
-| Spaced `"auto_save_enabled": true` read as false (idle handler copy); fixed October 19, 2026 with the shared `parse_trainer_admin_config()` | TD-519 |
-| NaN losses in the child's status relayed as invalid JSON | TD-520 |
-| Idle PUT persisted earlier keys before rejecting a later one; fixed October 19, 2026 (validated first) | TD-305 |
-| Duplicated hand-written JSON helpers | TD-453 |
-| A failing child looked idle in the supervisor fields; fixed October 19, 2026 (`total_passes_failed`, …) | TD-523 |
+- **A new client and connection per proxied request.** It is cheap on loopback, and a request is rare.
 
 ---
 
 ## 3. Tests
 
-`trainer_service_proxy_test.cpp` (17): health never proxied; idle status/logs/checkpoint/config; idle PUT persisting and rejecting immutable keys;
-status and PUT proxied verbatim to a live child; 503 for an unreachable child port; returning to idle; pause persisting, waking a sleeping supervisor
-and also reaching a live child; resume; idle status showing the real pause state; supervisor fields in status.
+`trainer_service_proxy_test.cpp` (26), against the real proxy and, for the proxied cases, a real `TrainerAdminAPI`:
 
-**Not covered:** `wait_ms` longer than the read timeout, idle config vs a non-default `config.trainer.conf`.
+- `/health` never proxied;
+- idle status, logs, checkpoint (409) and config (the config-file defaults, TD-525);
+- idle `PUT`: persists and reads back, parses spaced JSON and rejects a body as a whole, stores nothing when the save fails, rejects an
+  immutable key;
+- status and `PUT` proxied verbatim to a live pass; `?limit=` checked and passed on;
+- an unreachable pass port → 503; a pass that never answers → 504; port 0 → idle again;
+- pause persisting, waking a sleeping supervisor and reaching a live pass; resume; the idle status showing the real pause state;
+- valid JSON idle and with a diverged pass (`null` losses);
+- every supervisor field in `/admin/status`, TD-569's included;
+- a checkpoint wait longer than 5 s relayed; a malformed or oversized `wait_ms` → 400;
+- an unreachable pass's 503 carrying the supervisor fields (TD-571).
 
 ---
 
 ## 4. Known gaps and gotchas (summary)
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
-
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| 5 s proxy read timeout vs unbounded `wait_ms`; generic "starting or exiting" 503 (§2) | An accepted checkpoint reported as a failure; misleading errors when the child API is down | **Verified** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
-| Idle config ignores `config.trainer.conf` (§2) | Between passes, reported settings differ from what the next pass uses | **Verified** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
-| Unencoded `wait_ms` in the proxied path; two meanings of `paused`; per-request clients; ignored pause/resume proxy failures (§2) | Hygiene | By inspection | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
-| NaN status, duplicated JSON | Already tracked | — | TD-520, TD-453 (boolean parsing, partial PUT and the idle-looking failing child, TD-519/305/523, fixed October 19, 2026) |
+| Supervisor fields only on a 200; a pass's admin API started after GPU initialization; a five-character `json_escape()` (§2) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| Long checkpoint waits misreported, idle config ignoring the config file, unencoded `wait_ms`, ignored pause/resume failures | — | **Fixed November 2, 2026** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
+| Spaced JSON booleans, partial idle saves, `null` losses, `?limit=`, the shared `wait_ms` limit, a failing pass looking idle | — | **Fixed** | TD-519, TD-305, TD-520, TD-522, TD-521, TD-523 |
+| Browser writes, a second instance on the same port, a test harness abort | — | **Fixed** | TD-550, TD-551, TD-556 |
 
-## Addendum (October 19, 2026): shared PUT parser and failure fields (TD-519, TD-523)
+## 5. History
 
-`handle_put_config_idle()` uses the same `parse_trainer_admin_config()` as `TrainerAdminAPI`, so a live pass and an idle service accept and reject the same bodies, and nothing is written to `daemon_config.db` for a rejected one. `with_supervisor_fields()` adds `total_passes_failed`, `consecutive_failures` and `last_failure_unix` to `/admin/status`.
-
----
-
-## Addendum (October 24, 2026): browser write guard (TD-550)
-
-This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](BrowserWriteGuard.md)) as its pre-routing handler. A write
-(POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
-page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
-as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).
-
-## Addendum (October 26, 2026): test harness no longer aborts under load (TD-556)
-
-`tests/trainer_service_proxy_test.cpp` runs each server through an RAII thread holder (stop and join on destruction) on kernel-assigned ports, with a 10 s readiness
-wait that stops when `start()` fails. Its fixed ports in the ephemeral range used to be taken under a parallel `ctest`, and the failed
-`ASSERT` then left a joinable `std::thread` that aborted the whole binary.
-
-## Addendum (November 2, 2026): checkpoint waits, timeouts and idle defaults (TD-525)
-
-`POST /admin/checkpoint?wait_ms=N` takes a whole number from 0 to `kMaxCheckpointWaitMs` (300,000, 5 minutes; 60,000 since TD-521, the pass's own limit), else 400, and
-the proxy waits N ms + 5 s for the child's answer, so an accepted checkpoint is relayed as the child's 202 instead of a 503.
-Every proxied request goes through one `proxy(method, path, body, read_timeout_ms)`. A refused connection is 503 "training pass
-is starting or exiting", and a child that accepted the connection but didn't answer in time is 504 "did not answer within N s;
-the request may still have been applied", so a caller doesn't retry a request that may have been applied. The constructor's
-`TrainerAdminDefaults` (from `config.trainer.conf` in `trainer_service`) are what the idle `GET`/`PUT /admin/config` report
-under the `daemon_config.db` overlay, matching what the next pass seeds from. A pause or resume the running pass doesn't
-accept is logged. During a pass `paused` is still the child's flag; `supervisor_paused` is the service's.
-
-## Addendum (November 2, 2026): shared `wait_ms` limit and checked saved settings (TD-521)
-
-`kMaxCheckpointWaitMs` is now `adai::kMaxCheckpointWaitMs` (`TrainerAdminConfig.hpp`, 60 s), the same limit the pass's own
-`TrainerAdminAPI` enforces. The idle `GET /admin/config` reads saved settings through `parse_trainer_admin_overrides()`, so
-a value that `PUT` would reject is skipped with a warning and the `config.trainer.conf` value is reported.
-
-
-## Addendum (November 2, 2026): idle status losses (TD-520)
-
-The idle `/admin/status` body sends `"last_loss":null,"best_loss":null,"loss_diverged":false` (it used to send zeros). A child's status
-is still relayed unchanged, and the child now writes a non-finite loss as `null`, so a diverged pass's status is valid JSON through the proxy too.
-
-## Addendum (November 3, 2026): `GET /admin/logs?limit=` (TD-522)
-
-The proxy checks `?limit=N` (0 to `kMaxAdminLogEntries`, 200) the same way it checks `wait_ms`, answers 400 for anything else
-even with no child, and passes the limit on rebuilt from the number. With no child it still returns `{"entries":[]}`.
-
-## Addendum (November 3, 2026): idle saves in one transaction (TD-305)
-
-`handle_put_config_idle()` saves the body's keys with one `DaemonConfigStore::set_many()` call, under
-`idle_config_mutex_`, so a failure stores none of them. The 500 now reads `could not save the admin config while idle
-(<reason>); nothing was changed`.
+- **October 19, 2026:** shared `PUT` parser (TD-519); failure fields (TD-523).
+- **October 24–26, 2026:** browser write guard (TD-550); exclusive port (TD-551); test harness (TD-556).
+- **November 2–3, 2026:** checkpoint waits, 503 vs 504, idle defaults, logged pause/resume refusals (TD-525); shared `wait_ms` limit and checked
+  saved settings (TD-521); `null` losses (TD-520); `?limit=` (TD-522); idle saves in one transaction (TD-305).
+- **November 11, 2026:** `total_passes_stalled` and `seconds_since_pass_progress` (TD-569); the fields on every status answer and nlohmann
+  error bodies (TD-571). This document was re-traced against the code, replacing its October sections and folding in its addenda.

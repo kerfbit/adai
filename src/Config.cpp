@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.30.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.31.1
+// @adai-reviewed: 2026-11-11
 
 #include "Config.hpp"
 #include <algorithm>
@@ -552,6 +552,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.trainer_admin_dir = value;
             } else if (key == "TRAINER_CHILD_ADMIN_PORT") {
                 config.trainer_child_admin_port = parse_int(value);
+            } else if (key == "TRAINER_PASS_STALL_MINUTES") {  // TD-569
+                config.trainer_pass_stall_minutes = parse_int(value);
                 // World-model (LeJEPA) pretraining configuration (TD-183)
             } else if (key == "WORLD_MODEL_ENABLED") {
                 config.world_model_enabled = parse_file_bool(key, value);  // TD-286
@@ -1082,6 +1084,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("TRAINER_CHILD_ADMIN_PORT")) {
         config.trainer_child_admin_port = *val;
     }
+    if (auto val = get_env_int("TRAINER_PASS_STALL_MINUTES")) {  // TD-569
+        config.trainer_pass_stall_minutes = *val;
+    }
 
     // World-model (LeJEPA) pretraining configuration (TD-183)
     if (auto val = get_env_bool("WORLD_MODEL_ENABLED")) {
@@ -1605,6 +1610,10 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     is_port(config.trainer_child_admin_port, "trainer_child_admin_port");
     require(config.trainer_child_admin_port != config.trainer_admin_port, "trainer_child_admin_port",
             std::to_string(config.trainer_child_admin_port), "must differ from trainer_admin_port");
+    // TD-569: 0 = off; a week at most, so the minutes always fit the supervisor's clock arithmetic.
+    require(config.trainer_pass_stall_minutes >= 0 && config.trainer_pass_stall_minutes <= 10080,
+            "trainer_pass_stall_minutes", std::to_string(config.trainer_pass_stall_minutes),
+            "must be 0 (off) to 10080");
 
     // Metrics client and daemon. 0 means "off" or "no limit" where a field allows it.
     at_least(config.metrics_push_timeout_ms, 1, "metrics_push_timeout_ms");
@@ -1655,8 +1664,11 @@ void ConfigLoader::validate_or_exit(const ServiceConfig& config, const std::stri
 }
 
 namespace {
-// TD-285: keys whose values shouldn't appear in a log.
+// TD-285: keys whose values shouldn't appear in a log. TD-571: METRICS_DB_URL too, a database URL
+// that can carry a password; to_string() hid it, but the reload diff showed it.
 bool is_secret_key(const std::string& key) {
+    if (key == "METRICS_DB_URL")
+        return true;
     for (const char* marker : {"SECRET", "PASSWORD", "TOKEN", "HEADERS", "CREDENTIAL"}) {
         if (key.find(marker) != std::string::npos) return true;
     }
@@ -1669,7 +1681,8 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     auto section = [&](const char* name) { out << name << ":\n"; };
     auto item = [&](const std::string& key, const std::string& value) {
         std::string shown = value.empty() ? "<not set>" : value;
-        if (!value.empty() && (is_secret_key(key) || key == "METRICS_DB_URL")) shown = "<hidden>";
+        if (!value.empty() && is_secret_key(key))
+            shown = "<hidden>";
         out << "  " << std::left << std::setw(36) << key << shown << '\n';
     };
     auto num = [](auto v) {
@@ -1838,6 +1851,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("TRAINER_ADMIN_PORT", num(c.trainer_admin_port));
     item("TRAINER_ADMIN_DIR", c.trainer_admin_dir);
     item("TRAINER_CHILD_ADMIN_PORT", num(c.trainer_child_admin_port));
+    item("TRAINER_PASS_STALL_MINUTES", num(c.trainer_pass_stall_minutes));
     section("World model");
     item("WORLD_MODEL_ENABLED", flag(c.world_model_enabled));
     item("WORLD_MODEL_ARTIFACT_PATH", c.world_model_artifact_path);

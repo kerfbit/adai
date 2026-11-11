@@ -86,6 +86,7 @@ class ConfigTest : public ::testing::Test {
         _putenv("WORLD_MODEL_SIGREG_NUM_SKETCHES=");
         _putenv("WORLD_MODEL_SIGREG_BATCH_SIZE=");
         _putenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS=");
+        _putenv("TRAINER_PASS_STALL_MINUTES=");  // TD-569
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -142,6 +143,7 @@ class ConfigTest : public ::testing::Test {
         unsetenv("WORLD_MODEL_SIGREG_NUM_SKETCHES");
         unsetenv("WORLD_MODEL_SIGREG_BATCH_SIZE");
         unsetenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS");
+        unsetenv("TRAINER_PASS_STALL_MINUTES");  // TD-569
 #endif
     }
 
@@ -811,6 +813,20 @@ TEST_F(ConfigTest, ReloadReportsAddedRemovedAndHidesSecrets) {
     EXPECT_NE(all.find("TOP_P: added ('0.8')"), std::string::npos) << all;
     EXPECT_NE(all.find("RAG_NUM_DOCS: removed (was '3')"), std::string::npos) << all;
     EXPECT_EQ(all.find("PORT"), std::string::npos) << "an unchanged key was reported";
+}
+
+// TD-571: METRICS_DB_URL can carry a database password; to_string() hid it, the reload diff didn't.
+TEST_F(ConfigTest, ReloadHidesTheMetricsDatabaseUrl) {
+    createConfigFile({{"METRICS_DB_URL", "postgresql://u:old-pass@h/db"}});
+    const ServiceConfig before = ConfigLoader::load(test_file.string());
+    createConfigFile({{"METRICS_DB_URL", "postgresql://u:new-pass@h/db"}});
+    const ServiceConfig after = ConfigLoader::load(test_file.string());
+    std::string all;
+    for (const auto& c : ConfigLoader::detect_changes(before, after))
+        all += c + "\n";
+    EXPECT_NE(all.find("METRICS_DB_URL: <hidden> -> <hidden>"), std::string::npos) << all;
+    EXPECT_EQ(all.find("pass@"), std::string::npos) << "the password was logged: " << all;
+    EXPECT_EQ(ConfigLoader::to_string(after).find("pass@"), std::string::npos);
 }
 
 TEST_F(ConfigTest, ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart) {
@@ -1848,4 +1864,30 @@ TEST_F(ConfigTest, ReloadValidatesWithTheCommandLineOverridesApplied) {
     const auto cli = [](ServiceConfig& c) { c.session_timeout = -5; };
     EXPECT_FALSE(ConfigLoader::reload(config, test_file.string(), config_mutex, nullptr, cli));
     EXPECT_EQ(config.session_timeout, ServiceConfig{}.session_timeout);
+}
+
+// TD-569: trainer_service's stall limit for a pass, from the file and the environment, 0 to 10080.
+TEST_F(ConfigTest, TrainerPassStallMinutes) {
+    EXPECT_EQ(ServiceConfig{}.trainer_pass_stall_minutes, 30);
+
+    createConfigFile({{"TRAINER_PASS_STALL_MINUTES", "45"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).trainer_pass_stall_minutes, 45);
+    setEnv("TRAINER_PASS_STALL_MINUTES", "0");
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).trainer_pass_stall_minutes, 0);
+
+    ServiceConfig config;
+    std::vector<std::string> errors;
+    for (const int ok : {0, 1, 10080}) {
+        config.trainer_pass_stall_minutes = ok;
+        errors.clear();
+        EXPECT_TRUE(ConfigLoader::validate(config, errors)) << ok;
+    }
+    for (const int bad : {-1, 10081}) {
+        config.trainer_pass_stall_minutes = bad;
+        errors.clear();
+        EXPECT_FALSE(ConfigLoader::validate(config, errors)) << bad;
+        EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const std::string& e) {
+            return e.find("trainer_pass_stall_minutes") != std::string::npos;
+        }));
+    }
 }

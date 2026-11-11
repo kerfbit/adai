@@ -475,6 +475,29 @@ TEST_F(TrainerServiceProxyTest, RequestToUnreachableChildPortReturns503) {
     thr.join();
 }
 
+// TD-571: the service's own fields come with a 503 too, so a pass whose admin API isn't up (GPU
+// initialisation, a hang) still shows seconds_since_pass_progress and the pass counters.
+TEST_F(TrainerServiceProxyTest, StatusOfAnUnreachablePassStillCarriesTheServiceFields) {
+    control->total_passes_launched = 4;
+    control->seconds_since_pass_progress = 42;
+    auto proxy = make_proxy();
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
+    proxy->set_child_port(child_port);  // nothing listens there
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Get("/admin/status");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 503);
+    const auto j = nlohmann::json::parse(res->body);
+    EXPECT_NE(j.value("error", std::string()).find("starting or exiting"), std::string::npos);
+    EXPECT_EQ(j.value("total_passes_launched", -1), 4);
+    EXPECT_EQ(j.value("seconds_since_pass_progress", -1), 42);
+
+    proxy->stop();
+    thr.join();
+}
+
 TEST_F(TrainerServiceProxyTest, SetChildPortBackToZeroReturnsToIdleFallback) {
     // A freshly-constructed TrainerControlState also reports phase "idle" by default (it's
     // literally never done anything), so distinguish "proxied to the live child" from "the
@@ -690,6 +713,8 @@ TEST_F(TrainerServiceProxyTest, StatusIncludesSupervisorObservabilityFields) {
     control->total_passes_launched = 5;
     control->total_passes_did_work = 3;
     control->total_passes_crashed = 1;
+    control->total_passes_stalled = 2;          // TD-569
+    control->seconds_since_pass_progress = 17;  // TD-569
     control->last_exit_code = 1;
     control->service_started_unix =
         std::chrono::duration_cast<std::chrono::seconds>(
@@ -707,6 +732,8 @@ TEST_F(TrainerServiceProxyTest, StatusIncludesSupervisorObservabilityFields) {
     EXPECT_NE(res->body.find("\"total_passes_launched\":5"), std::string::npos);
     EXPECT_NE(res->body.find("\"total_passes_did_work\":3"), std::string::npos);
     EXPECT_NE(res->body.find("\"total_passes_crashed\":1"), std::string::npos);
+    EXPECT_NE(res->body.find("\"total_passes_stalled\":2"), std::string::npos);
+    EXPECT_NE(res->body.find("\"seconds_since_pass_progress\":17"), std::string::npos);
     EXPECT_NE(res->body.find("\"last_exit_code\":1"), std::string::npos);
     // Every pre-existing key must still be present, at its original meaning — additive only.
     EXPECT_NE(res->body.find("\"phase\":\"idle\""), std::string::npos);

@@ -96,6 +96,8 @@ add_library(adai_core STATIC
     BrowserWriteGuard.cpp
     # TD-519: shared PUT /admin/config parser for TrainerAdminAPI and TrainerServiceProxy.
     TrainerAdminConfig.cpp
+    # TD-569: training-pass progress counter and heartbeat file for trainer_service's stall check.
+    PassHeartbeat.cpp
     # TD-179/TD-180: HippocampalMemory needs only Matrix, but DecoderBlock.cpp (adai_transformer)
     # now needs to call into it — putting it in adai_lejepa (which itself depends on
     # adai_transformer for LeJEPAEncoder) would create a circular library dependency
@@ -571,12 +573,14 @@ if(HTTPLIB_INCLUDE_DIR)
     add_executable(trainer_service
         TrainerServiceMain.cpp
         ChildProcess.cpp
+        PassSupervision.cpp  # TD-569
         TrainerServiceProxy.cpp
         Config.cpp
         IncrementalTrainerArgs.cpp
     )
     target_link_libraries(trainer_service adai_core spdlog::spdlog pthread)
-    target_include_directories(trainer_service PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    # nlohmann/json (vendored): the proxy's error bodies (TD-571).
+    target_include_directories(trainer_service PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
     set_target_properties(trainer_service PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )

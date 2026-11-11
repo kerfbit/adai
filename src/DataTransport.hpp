@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-11
 
 /**
  * DataTransport — trainer-side FTP download client.
@@ -28,6 +28,7 @@
 #include <thread>
 #include <vector>
 #include "Logger.hpp"
+#include "PassHeartbeat.hpp"
 #include "RegistryTransport.hpp"  // FileToken, AcquireResponse
 
 #ifdef BUILD_FTP_TRANSPORT
@@ -154,6 +155,7 @@ struct WriteCtx {
 static std::size_t curl_write(void* ptr, std::size_t size, std::size_t nmemb, void* userdata) {
     auto* ctx = static_cast<WriteCtx*>(userdata);
     const std::size_t total = size * nmemb;
+    adai::note_pass_progress();  // TD-569: a long download is progress
     ctx->file->write(static_cast<const char*>(ptr), static_cast<std::streamsize>(total));
     if (ctx->file->good()) {
         ctx->bytes_written += total;

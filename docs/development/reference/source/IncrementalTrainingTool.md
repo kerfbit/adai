@@ -1,46 +1,67 @@
 # `IncrementalTrainingTool` — Source File Reference
 
-- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,508 lines): the `main()` of `incremental_trainer`; `@adai-version: 0.20.1`, `@adai-reviewed: 2026-10-19`
-- **Built into:** the `incremental_trainer` executable (with `IncrementalTrainer.cpp`, `ChatbotTrainer.cpp`, `Config.cpp`, `TrainingMetricsService.cpp`, `IncrementalTrainerArgs.cpp`; the admin API when `BUILD_TRAINER_ADMIN`)
-- **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class every command drives), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
-- **Tests:** none for this file itself (the parser and `IncrementalTrainer` have their own)
-- **Last traced against the code:** 2026-10-19
+- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,784 lines): the `main()` of `incremental_trainer`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.36.0`, `@adai-reviewed: 2026-11-11`
+- **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp` and `IncrementalTrainerArgs.cpp` and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
+- **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
+- **Tests:** none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
+- **Last traced against the code:** 2026-11-11
 
-> Code-traced reference. Behaviour marked **verified** was confirmed by running the built
-> `build/debug/bin/incremental_trainer` and `dataset_manager`, or by driving `IncrementalTrainer`
-> from a scratch program.
+> Code-traced reference. Behaviour marked **verified** was confirmed by running the built `build/debug/bin/incremental_trainer` (and
+> `dataset_manager`, `vocab_builder`) against a scratch session directory.
 
 ---
 
 ## 1. What this file is
 
-The **`incremental_trainer` command-line program**:
-
 ```text
-incremental_trainer [--config F] [--model N] [--gpu-strategy S] [--foreground] [--admin-port P]
-                    [--objective=chatbot|lejepa] [--dataset-kind K]  <command> [args]
-  init [vocab] [model]   build the trainer once (prints the architecture)
-  train [epochs]         acquire pending files → train (chatbot, or LeJEPA world model with --objective=lejepa)
-  retrain [epochs]       fresh weights; train on every trained file + newly acquired pending files
-  reset [--yes] [--keep-data]   wipe sessions/checkpoints (confirmation prompt)
-  resume                 resume_last_session(); the command trainer_service runs every pass
-  status / history       print the summary/history and the registry
+incremental_trainer [--config F] [--model N] [--gpu-strategy S] [--foreground] [--admin-port P] [--seed N]
+                    [--objective=chatbot|lejepa] [--dataset-kind K] [--log-file F] [--heartbeat-file F]  <command> [args]
+  init [vocab] [model]           build the trainer once and print the architecture
+  train [epochs]                 acquire pending files and train (the LeJEPA world model with --objective=lejepa)
+  retrain [epochs]               fresh weights; train on every trained unit plus newly acquired pending files
+  reset [--yes] [--keep-data]    wipe sessions and checkpoints (asks unless --yes)
+  resume                         one pass over what is pending; what trainer_service runs as each pass
+  status / history               print the session history and the registry (read-only)
 ```
 
-Startup:
-1. Parse flags and load `config.trainer.conf`.
-2. Derive `DATASET_KIND` from the objective (TD-204).
-3. Apply `--gpu-strategy`.
-4. Initialize the GPU now, unless the command forks (`train`/`retrain`/`resume`, where the child
-   initializes it).
-5. With MNS configured, resolve the model name (`--model` > `MODEL_NAME` > an **interactive pick on
-   stdin**), then take `model_path`, `run_group`, the architecture and the world-model link from MNS,
-   falling back to local config.
+**Start-up, every command:**
 
-`train`/`retrain`/`resume` go through `run_training_pipeline()`: `fork()` + `setsid()` with stdio to
-`/dev/null` (Windows: re-launch detached), the parent prints a banner and exits, and the child
-initializes the logger, installs SIGTERM/SIGINT handlers, initializes the GPU and runs the work.
-`--foreground` (used by `trainer_service`/systemd) skips the fork.
+1. Parse the flags ([IncrementalTrainerArgs.md](IncrementalTrainerArgs.md)); an error prints the usage and exits 1. With `--heartbeat-file`, start
+   a `PassHeartbeatWriter` at once (TD-569), so a hang even in GPU initialization shows as no progress.
+2. Load `config.trainer.conf` (`--config` > `./config.trainer.conf` > `/etc/adai/…` > the legacy `config.conf`s) and run `validate_or_exit()`
+   (TD-288). `--seed`/`SEED` seeds initialization (TD-368).
+3. Set `DATASET_KIND` from the objective, or `--dataset-kind` (TD-202/TD-204), and apply `--gpu-strategy`.
+4. Initialize the GPU now, unless the command is `train`/`retrain`/`resume`, which initialize it in the worker after any fork, once
+   the pass's `PassAdminApi` exists (TD-571).
+5. With `NAME_SERVICE_URL` set: resolve the model (`--model` > `MODEL_NAME` > an interactive pick, refused without a terminal, TD-416); take
+   its artifact path and `run_group` from MNS; take the 6 architecture fields from MNS; and, when a world model is linked, its artifact path,
+   architecture, injection and `HIPPOCAMPAL_*` settings and SIGReg sketch count (TD-196). Each lookup that fails is logged with its
+   reason and falls back to local config (TD-571). These lines go through `Logger::deferred()`: on the console at once, and into the
+   pass's log file when the worker opens it.
+6. `chatbot_run_id`: without `RUN_ID`, `train`/`retrain`/`resume` (chatbot) take a run id kept in `SESSION_DIR/chatbot_run_id` (TD-404), so a
+   restarted pass reclaims its files; an MNS run id still comes first in the passes.
+
+**`run_training_pipeline()`** runs `train`/`retrain`/`resume`'s work. Without `--foreground` it detaches (`fork()` + `setsid()`, stdio to
+`/dev/null`; Windows: re-launch with `DETACHED_PROCESS`), and the parent prints a banner and exits 0. The worker initializes the logger with
+`LOG_LEVEL` and `--log-file`/`LOG_FILE_PATH` (a detached run with neither logs to `~/.local/state/adai/log/incremental_trainer.log`, TD-431),
+ignores `SIGHUP` (TD-283), installs the SIGTERM/SIGINT handler and runs the work. Each pass's work builds its `PassAdminApi` first, then
+initializes the GPU, then builds the trainer (TD-571), so the control state and admin API exist through GPU initialization.
+
+**Signals** (TD-416): the handler only stores atomics. The first SIGTERM/SIGINT asks the registered pass (its `TrainerControlState`, through
+`PassAdminApi`) to drain as `/admin/pause` does: stop at the next sample or batch, checkpoint, release its claimed files, exit 1. With no
+pass registered yet, or on a second signal, it `_exit(1)`s.
+
+**`PassAdminApi`** (TD-403/TD-416): every pass builds one. It always provides a `TrainerControlState` (seeded from `AUTO_SAVE_*` and
+`MAX_SESSIONS_TO_KEEP`) for the signal handler; with `--admin-port` (only `trainer_service` passes it), it also runs the per-pass
+`TrainerAdminAPI` on `127.0.0.1:<port>`, waiting up to 2 s for it to listen.
+
+**`resolve_pass_files()`** (TD-411), shared by every pass: when the registry advertises an FTP host, download the claimed files with
+`DataTransport::fetch_all()` into `DOWNLOAD_DIR` (or `<SESSION_DIR>/downloads`, with a warning); otherwise use the registry's own paths. Each
+local file keeps its TD-205 segment range. A failed download fails the pass, which releases its files. The downloads and their checksum
+sidecars are removed after the pass.
+
+`main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414).
 
 ---
 
@@ -48,183 +69,71 @@ initializes the logger, installs SIGTERM/SIGINT handlers, initializes the GPU an
 
 | Command | What it does |
 |---|---|
-| `train` | Pre-fork pending check (`count_acquirable()` on this model's kind pool, TD-413), then (child) `IncrementalTrainer(vocab, model, cfg)`, `begin_run(false)`, `startup_sweep()`, `acquire_pending(run_id)`, `resolve_pass_files()` (FTP `fetch_all()` whenever the registry advertises an FTP host, into `DOWNLOAD_DIR` or `<SESSION_DIR>/downloads`, TD-411), `train_on_files()` with segment ranges, then `mark_trained()` with the per-file pair counts (TD-334) or `release_pending()` of the exact units (TD-333), and remove the downloads and their checksum sidecars |
-| `train --objective=lejepa` | `run_lejepa_training_pass()`: probes the vocab size, builds a `LeJEPAEncoder`, resumes from `<SESSION_DIR>/world_model`, uses a fresh Adam optimizer, `derive_run_id()` (never MNS), acquires and downloads like `train` (through `resolve_pass_files()` since October 19, 2026; it used to download only when `DOWNLOAD_DIR` was set), feeds both sides of every pair as unpaired texts to `train_step()`, auto-saves on the `AUTO_SAVE_*` cadence, pushes metrics to a **stable** key `lejepa-<model>`, then marks trained (with pair counts) or releases |
-| `retrain` | Pre-fork count, then `reset_model_for_config()` (fresh weights, history cleared), `begin_run(true)`, and trains on **all `trained_files()` + newly acquired pending files** (`retrain_on_files()`); marks only the new pending ones trained |
-| `resume` | `IncrementalTrainer` + optional per-pass `TrainerAdminAPI` on `127.0.0.1:<admin-port>` (TD-172), `begin_run(false)`, `startup_sweep()`, `resume_last_session(resolve_pass_files)`. Exits **0** trained, **3** nothing pending, **1** failed (TD-523; it used to exit 1 for both idle and failed) |
-| `reset` | Prints what it will do, asks `Continue? [y/N]` unless `--yes`, then `reset_all(keep_data)`: on a local registry it works on this binary's kind pool (TD-545); `--keep-data` keeps the queue and re-queues the trained entries, server-side against `registry_server` (TD-540) |
-| `status`, `history` | Construct an `IncrementalTrainer` (loading the best checkpoint) just to print history and the registry |
-| `init` | Constructs an `IncrementalTrainer` and prints the config; it **overrides** auto-save to 30 min / 1,000 samples (as `retrain` also does), ignoring the config file |
+| `init` | Builds an `IncrementalTrainer(vocab, model, cfg)` (paths from the arguments, else config) and prints the session directory and architecture. Extra arguments are ignored |
+| `train [epochs]` (chatbot) | Epochs via `parse_epochs_arg()`. Pre-fork: `count_acquirable()` on this model's pool (TD-413); none → exit 1. Worker: `PassAdminApi`, GPU initialization, the trainer (TD-571), `begin_run(false)` (MNS run id, else the local one), `startup_sweep()` (TD-512), `acquire_pending()`, `resolve_pass_files()`, `train_on_files()`, then `mark_trained()` with the per-file pair counts (TD-334) or `release_pending()` of the exact units (TD-333) |
+| `retrain [epochs]` | Pre-fork count of trained files plus acquirable ones. Worker: `PassAdminApi`, GPU initialization, the trainer, `reset_model_for_config()`, `begin_run(true)` (a new MNS run), the sweep, `trained_units()` (TD-546) plus newly acquired pending files, `retrain_on_files()`; marks only the pending units trained (their counts are the trailing ones) or releases them. Trained units are read by their registry path, never downloaded (TD-411's open item) |
+| `reset [--yes] [--keep-data]` | An unknown argument is an error, exit 1 (TD-571). Prints what it will do, asks unless `--yes`, then `reset_all(keep_data)` on this binary's pool (TD-545); `--keep-data` re-queues the trained entries, server-side against `registry_server` (TD-540) |
+| `resume` (chatbot) | Worker: `PassAdminApi` (with the per-pass admin API under `trainer_service`), GPU initialization, the trainer (TD-571), `begin_run(false)`, the sweep, `resume_last_session(resolve_pass_files)`. Exits **0** trained, **3** nothing pending, **1** failed (TD-523) |
+| `train`/`resume --objective=lejepa` | Needs `WORLD_MODEL_ENABLED`. `run_lejepa_training_pass()` (below); `train` runs `epochs`, `resume` `NUM_EPOCHS`, with the same exit codes |
+| `status`, `history` | Read `session_history.txt` with `IncrementalTrainer::read_session_history()` without building a trainer (TD-416), and print it with the registry |
+
+**`run_lejepa_training_pass()`:**
+
+1. Load the vocabulary (`TOKENIZER_MODE`, TD-416) to size a `LeJEPAEncoder`. A missing vocabulary is an exception, exit 1: this pass
+   doesn't build one.
+2. Resume from the checkpoint `resolve_checkpoint_dir()` finds (the pre-TD-548 `<SESSION_DIR>/world_model` too); a failed load exits 1
+   before claiming anything.
+3. Make a fresh Adam optimizer. The run id is `persistent_run_id(RUN_ID, world_model_dir)` (TD-415).
+4. Sweep and acquire. An unreachable registry exits 1; an empty pool exits 3.
+5. Download, and load each unit's segment rows (TD-415). Both sides of every pair become unpaired texts; no texts → release, exit 1.
+6. Push metrics to the stable key `lejepa-<model>`, retrying a 409 twice.
+7. Walk the texts in batches of `WORLD_MODEL_SIGREG_BATCH_SIZE` through `train_batch()` (TD-503). Progress is noted per batch (TD-569), and
+   a throwing batch is skipped.
+   - **Checkpoints:** `AUTO_SAVE_*` (live from the admin API) and `/admin/checkpoint` both write one; a failed periodic save is logged and
+     skipped.
+   - **Pause:** `/admin/pause` or a SIGTERM checkpoints, releases the files and exits 1.
+8. At the end, the final `world_model.save()`, then `mark_trained()` with the pair counts; a failed save is logged and the files are
+   released, exit 1 (TD-571, §3); with no step trained, release and exit 1.
 
 ---
 
-## 3. Verified problems
+## 3. Problems
 
-### Fixed: `resume` never downloaded over FTP (TD-411, October 18, 2026)
+### Fixed: the LeJEPA pass recorded its files as trained before its final save (TD-571, November 11, 2026; was verified)
 
-`trainer_service` runs `resume` every pass. `resume_last_session()` used the registry's own paths
-(`resp.registry_paths()`), assuming a local registry. With a remote `registry_server` handing out FTP
-tokens, those are the **registry host's** paths, so the always-on service couldn't read its files.
-Now `train`, `retrain`, `resume` and the LeJEPA pass all use `resolve_pass_files()`, which downloads
-whenever the registry advertises an FTP host. That follows the owner's rule: remote services first,
-local paths only as a fallback. **Still open:** `retrain` reads its already-trained files by registry
-path (`TODO: See TD-411`), so a retrain against a remote FTP registry can't read them.
+`run_lejepa_training_pass()` called `mark_trained()` and only then `world_model.save()`, outside any `try`, so a failed save reached `main()`
+(exit 1) with the files recorded as trained and the pass's training unwritten. With `WORLD_MODEL_ARTIFACT_PATH` under a read-only directory
+the log said "Pass complete — 40 steps", the world-model pool recorded the file as trained, and no checkpoint existed. **Now** it saves first;
+a failed save is logged ("Could not save the world-model checkpoint…; releasing the pass's files") and the files go back to the pool. The same
+run with the fixed binary left no trained record and the claim cleared.
 
-### Fixed: a pass that loaded nothing "succeeded" (TD-412, October 18, 2026)
+### Fixed in the same review (TD-571)
 
-`train_on_files()` on a nonexistent path used to log `Total samples loaded: 0`, "train" for the
-requested epochs and return `true`, and the caller marked the file trained. Combined with the FTP gap,
-every file the always-on service claimed would have been marked trained untrained. Now a pass that
-loads (or tokenizes) zero samples fails, and its files are released.
-
-### Fixed: standalone `train` couldn't see the kind sub-pool it trains from (TD-413, October 19, 2026)
-
-The pre-fork check (and `retrain`'s count) read `SESSION_DIR/pending_files.txt`. But this binary
-always sets `DATASET_KIND` (TD-204), so `LocalTransport` keeps the pool in
-`SESSION_DIR/<kind>/pending_files.txt` (TD-202). After `dataset_manager --kind chatbot add d.jsonl`,
-`train 1` printed "No pending data". Both counts now go through `DatasetRegistry::count_acquirable()`
-in either mode, and that sequence trains the file.
-
-### The first-ever `train`, and `status`/`history`, abort without a vocabulary
-
-Every command constructs `IncrementalTrainer(vocab, model, cfg)`, the **three-argument** constructor,
-which calls `build_model()` → `load_vocab()` unconditionally. The first-run vocabulary bootstrap
-(`pending_vocab_build_`) only exists in the *config-file* constructor, which `main()` never uses.
-Verified on a fresh `SESSION_DIR` with data queued and no `vocab.txt`: `train 1` aborted with
-`terminate called … VocabularyFileError: Could not open vocabulary file: vocab.txt` (exit 134), and so
-did `status` and `history`. In practice a vocabulary must be built separately (`vocab_builder`) before
-the first run, which the usage text doesn't say. That fits the "missing `VOCAB_PATH`" crash recorded
-during ai-machine's first deployment.
-
-### Non-numeric epoch counts abort
-
-`train abc` / `retrain abc`: `std::stoi(args[1])` throws outside any `try`, giving
-`terminate called … what(): stoi`, exit 134 (verified; same class as TD-401).
+- **`reset` ignored a mistyped flag** and deleted the data registry ([IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) §3); it now exits
+  1 with `Unknown reset argument`.
+- **The per-pass admin API started late**, after GPU initialization and, for the chatbot passes, the trainer's construction; until then
+  `trainer_service`'s `/admin/status` answered a bare 503 and a SIGTERM ended the process at once. It now starts first, and the proxy adds
+  its own fields to a 503 as well ([TrainerServiceProxy.md](TrainerServiceProxy.md)).
+- **A failed MNS model lookup was silent** (`catch (...)`); it is now logged with its reason. The `[MNS]` start-up lines went to stdout before
+  the logger existed; they now go through `Logger::deferred()`, which also writes them to the pass's log file.
 
 ---
 
-## 4. Other issues (by inspection)
-
-- **LeJEPA ignores segment ranges.** `run_lejepa_training_pass()` calls `load_conversation_pairs(path,
-  pairs)` without the TD-205 range (the chatbot path passes `file_ranges()`), so a file queued as N
-  segments is loaded **in full** N times when its segments are claimed together, and each segment's
-  "share" is the whole file. (Since TD-337 the file is at least downloaded only once.)
-- **`retrain` reads trained data per unit** (TD-546, fixed November 8, 2026): `DatasetRegistry::trained_units()` gives whole files and
-  trained segments, so a partly trained file's pending segments, acquired separately, aren't read twice.
-- **LeJEPA claims can't be reclaimed after a crash.** Its run id is always `derive_run_id()` (hostname
-  prefix + PID tail, TD-404), and claimed files are only reclaimable by the same run id. After a crash,
-  kill, or SIGTERM mid-pass, the files stay claimed by a run id no future process will have, until
-  someone releases them by hand.
-- **SIGTERM/SIGINT handler** logs through spdlog and calls `std::exit(0)` from the signal handler
-  (neither is async-signal-safe; the same pattern as TD-249). It runs static destructors while the
-  training thread is still running, doesn't checkpoint or release claimed files, and exits **0**.
-- **`init`/`retrain` hard-code auto-save** (30 min / 1,000 samples) over `AUTO_SAVE_*`.
-- **LeJEPA's tokenizer** is always ASCII (`TOKENIZER_MODE` isn't threaded through).
-- **Wasted work.** `status`/`history` construct a full `IncrementalTrainer`, which builds the model,
-  loads the best checkpoint and runs `cleanup_dead_sessions()`, a deleting cleanup (TD-406/TD-407),
-  just to print history. A read-only command can therefore delete files.
-- **The interactive MNS model pick** reads stdin; under systemd it gets EOF and the command exits with
-  "No model selected", which is the intended failure but undocumented.
-
----
-
-## 5. Known gaps and gotchas (summary)
-
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+## 4. Known gaps and gotchas (summary)
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `resume` (every `trainer_service` pass) never downloads over FTP; it uses registry-host paths (§3) | The always-on service can't train from a remote FTP registry | **Fixed October 18, 2026** (shared `resolve_pass_files()`; the LeJEPA pass joined it October 19); `retrain`'s already-trained files still use registry paths | [TD-411](../../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) |
-| A pass with zero loaded samples returns success, so its files are marked trained (§3) | Missing or unreadable files, and every remote-FTP `resume` pass, are recorded as trained with no training | **Fixed October 18, 2026** (zero loaded or tokenized samples fail the pass) | [TD-412](../../guides/TECHNICAL_DEBT.md#td-412-a-training-pass-that-loads-zero-samples-marks-its-files-trained) |
-| Local-registry `train`/`retrain` pre-check reads the root `pending_files.txt`, not `SESSION_DIR/<kind>/` (§3) | Standalone training refused to start ("No pending data") although the pool had data | **Fixed October 19, 2026** (`count_acquirable()`) | [TD-413](../../guides/TECHNICAL_DEBT.md#td-413-standalone-trainretrain-pre-check-reads-the-wrong-pending-pool) |
-| First-run vocab bootstrap unreachable from the CLI; `train`/`status`/`history` abort without a vocab (§3) | A fresh install crashes until a vocab is built by hand; undocumented | **Verified** | [TD-414](../../guides/TECHNICAL_DEBT.md#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli) |
-| `train`/`retrain` epoch argument parsed with an uncaught `std::stoi` (§3) | A typo aborts the process | **Verified** | [TD-416](../../guides/TECHNICAL_DEBT.md#td-416-incremental_trainer-command-hygiene) |
-| LeJEPA ignores segment ranges; LeJEPA claims are stuck after a crash or SIGTERM (§4) | Segmented files trained N× in full; claimed files stuck until released by hand | By inspection | [TD-415](../../guides/TECHNICAL_DEBT.md#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash) |
-| Signal handler calls `std::exit(0)` (no release/checkpoint, exit 0); `init`/`retrain` override `AUTO_SAVE_*`; LeJEPA tokenizer ASCII-only; read-only commands run destructive cleanup (§4) | Unclean stops; ignored config; unexpected deletions from `status` | By inspection | [TD-416](../../guides/TECHNICAL_DEBT.md#td-416-incremental_trainer-command-hygiene) |
-| `retrain` retrains a partly trained segmented file whole plus its pending segments (§4) | Some pairs trained twice in one retrain | By inspection | [TD-546](../../guides/TECHNICAL_DEBT.md#td-546-retrain-trains-a-partly-trained-segmented-file-twice) |
-| No SIGHUP handler, PID-based run ids | Already tracked | — | TD-283, TD-404 (bare-path release/mark, TD-333, and zero sample counts, TD-334, fixed October 19, 2026) |
+| The LeJEPA pass marked its files trained before its final save; `reset` ignored unknown tokens; the per-pass admin API started late; a silent MNS lookup failure; start-up lines on stdout (§3) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| `retrain` reads trained units by registry path | A retrain against a remote FTP registry can't read its trained files | By inspection | [TD-411](../../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (open item) |
+| The LeJEPA pass has no device-lost check | A lost GPU retries every remaining batch | By inspection | TD-566 ("not covered") |
+| `resume` without FTP, zero-sample success, the wrong pending pool, the vocabulary bootstrap, LeJEPA segments and claims, signals, auto-save overrides, read-only `status`, log files | — | **Fixed** | TD-411, TD-412, TD-413, TD-414, TD-415, TD-416, TD-431 |
 
-## Addendum (October 19, 2026): pre-check through the registry (TD-413)
+## 5. History
 
-`train`'s pre-fork pending check and `retrain`'s file count now use `DatasetRegistry` in both local and remote mode, so they read the kind sub-pool the pass acquires from. They count with `DatasetRegistry::count_acquirable()`: unassigned entries plus those assigned to `MODEL_NAME`. Checked with the real binaries: a file queued with `dataset_manager --kind chatbot add` is now trained by `incremental_trainer train` instead of being reported as "No pending data".
-
----
-
-## Addendum (October 21, 2026): batched LeJEPA pass (TD-503)
-
-The `--objective=lejepa` pass walks its texts in chunks of `WORLD_MODEL_SIGREG_BATCH_SIZE` and calls `LeJEPAEncoder::train_batch()`.
-It still pushes per-sample predictor-loss metrics and checks auto-save per trained text, and counts the batch SIGReg loss and
-diagnostics once per trained text in the epoch averages. Unusable texts are skipped with a warning per batch. A batch that throws is
-skipped whole, which also covers TD-429's escaping `TokenizerEncodingError` for this path.
-
----
-
-## Addendum (October 21, 2026): world-model checkpoint directory (TD-548)
-
-`--objective=lejepa` saves to `WORLD_MODEL_ARTIFACT_PATH` when set (it used to ignore it), else `<SESSION_DIR>/world_model_checkpoint`.
-It resumes from whatever `LeJEPAEncoder::resolve_checkpoint_dir()` finds, including a pre-TD-548 `<SESSION_DIR>/world_model`
-checkpoint. A standalone `dataset_manager --kind world_model` queue no longer makes the pass fail. The metrics session label is still
-`world_model`.
-
-## Addendum (November 1, 2026): `trainer_service` forwards `--objective` and `--dataset-kind` (TD-403)
-
-Every pass `trainer_service` launches now gets `--objective=<objective>` and `--dataset-kind <kind>` (built by
-`trainer_service_child_argv()`; the kind is `resolve_dataset_kind()`'s: an explicit `--dataset-kind`, else `world_model`
-for `lejepa`, else `chatbot`). Both used to be parsed and dropped. `incremental_trainer resume` now runs the LeJEPA
-world-model pass for `--objective=lejepa` (it ran chatbot training whatever the objective), for `NUM_EPOCHS` epochs, and
-that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
-The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
-and a pause takes effect between passes.
-
-## Addendum (November 1, 2026): LeJEPA segments and a persistent run id (TD-415)
-
-`run_lejepa_training_pass()` loads each claimed unit with its TD-205 segment range (it loaded the whole file for every
-segment), and takes its run id from `persistent_run_id(RUN_ID, world_model_dir)`: `RUN_ID` when set, else the id in
-`<world_model_dir>/lejepa_run_id`, created once as `lejepa-<derive_run_id()>-<8 random hex digits>`. Registries hand a
-claim back to the run id that made it, so a pass restarted after a crash, kill or SIGTERM reclaims the last pass's
-files; with the old PID-based id they stayed claimed.
-
-## Addendum (November 1, 2026): the LeJEPA pass hosts the per-pass admin API (TD-403)
-
-The admin API a `trainer_service` child hosts for one pass is now a `PassAdminApi` helper used by both resume passes.
-During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch, samples and losses;
-`POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
-`POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
-paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
-
-## Addendum (November 2, 2026): command hygiene (TD-416)
-
-- `signal_handler()` only stores atomics. Every `train`/`retrain`/`resume` pass builds a `PassAdminApi` (listener only
-  with `--admin-port`) whose control state the handler can reach: the first SIGTERM/SIGINT drains the pass as
-  `/admin/pause` does (checkpoint, release claimed files, exit 1, "stopped by SIGTERM" in the log); with no pass, or on
-  a second signal, the process exits 1 at once. It used to call `std::exit(0)` from the handler.
-- The epoch count is parsed by `parse_epochs_arg()` (`train abc` aborted). `init`/`retrain` keep the configured
-  `AUTO_SAVE_*`. The LeJEPA pass uses `TOKENIZER_MODE`. `status`/`history` read `session_history.txt` through
-  `IncrementalTrainer::read_session_history()` without building a trainer, so they need no vocabulary and delete nothing.
-  The interactive MNS model pick refuses to run without a terminal on stdin.
-
-## Addendum (November 2, 2026): first-run vocabulary and exception exits (TD-414)
-
-With no vocabulary file, every `IncrementalTrainer` constructor (`defer_until_vocab_exists()`) now waits to build the
-model, and the first training pass builds the vocabulary from its data (`bootstrap_vocab()`, sized by
-`VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
-train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
-`incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.
-
-## Addendum (November 2, 2026): unique fallback run ids (TD-404)
-
-`derive_run_id("")` is now `<full hostname>_<pid>_<8 random hex digits>` (it was the first 8 hostname characters and
-`pid % 10000`, which two hosts sharing a prefix could both derive). `persistent_run_id(configured, dir, name)` keeps an
-id in `<dir>/<name>_run_id`: `lejepa` in the world-model directory for the LeJEPA pass, and, when no `RUN_ID` is set,
-`chatbot` in `SESSION_DIR` for `train`/`retrain`/`resume`, which `incremental_trainer` copies into `RUN_ID`. An
-MNS-allocated run id still comes first. A restarted pass therefore reclaims its own claimed files.
-
-## Addendum (November 2, 2026): per-process log files and `LOG_LEVEL` (TD-431)
-
-Owner's choice: with `LOG_FILE_PATH` set, `trainer_service` logs there and gives each pass `--log-file` with `.pass`
-before the extension (`trainer.log` → `trainer.pass.log`), so no file is rotated by two processes. Empty means the
-console (the journal under systemd); a detached `incremental_trainer` run, whose stdout/stderr go to `/dev/null`, logs
-to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). Neither binary uses
-`chatbot_server.log` any more. Both apply `LOG_LEVEL` via `Logger::init(Logger::parse_level(...))`, and the replay of
-start-up messages logged before `init()` skips those below the level.
+- **October 18–19, 2026:** FTP for every pass (TD-411), zero-sample passes fail (TD-412), the kind pool's pre-check (TD-413).
+- **October 21, 2026:** batched LeJEPA pass (TD-503); the world-model checkpoint directory (TD-548).
+- **November 1–2, 2026:** objective and kind under `trainer_service` and the LeJEPA pass's admin API (TD-403), LeJEPA segments and run id
+  (TD-415), command hygiene and signals (TD-416), the first-run vocabulary and exception exits (TD-414), run ids (TD-404), log files (TD-431).
+- **November 9, 2026:** `--seed` (TD-368).
+- **November 11, 2026:** `--heartbeat-file` and progress per LeJEPA batch (TD-569). This document was re-traced against the code, replacing its
+  October sections and folding in its addenda; the findings were fixed the same day (TD-571).

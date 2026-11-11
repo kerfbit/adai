@@ -2,8 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 2.0.1
+// @adai-reviewed: 2026-11-11
 
 #include <algorithm>
 #include <cctype>
@@ -154,8 +154,8 @@ class BPETokenizer {
    public:
     /**
      * @brief Construct a BPETokenizer.
-     * @param mode  ASCII (default) for byte-level tokenization; UNICODE for
-     *              UTF-8 code-point-level tokenization.
+     * @param mode  UNICODE (the default, TD-564) for UTF-8 code-point-level tokenization; ASCII for
+     *              byte-level tokenization. A loaded vocabulary sets its own mode.
      */
     // TD-564: Unicode (one unit per UTF-8 code point) by default; a loaded vocabulary sets its own.
     explicit BPETokenizer(TokenizerMode mode = TokenizerMode::UNICODE);

@@ -1071,6 +1071,30 @@ TEST_F(MetricsTrackerWiringTest, BestWeightsCopyIsPrivateAndRemovedAfterTraining
     std::filesystem::remove_all(base);
 }
 
+// TD-571: the epoch that triggers early stopping trained and validated in full, so it reaches the
+// epoch callback (IncrementalTrainer's session history, MNS progress and admin epoch) like any
+// other. The early-stop break used to come first, so that epoch was missing from all three.
+TEST_F(MetricsTrackerWiringTest, TheEpochThatTriggersEarlyStoppingReachesTheEpochCallback) {
+    TrainingConfig config = tiny_config();
+    config.enable_early_stopping = true;
+    config.restore_best_weights = false;
+    config.patience = 1;
+    config.min_delta = 1e9f;  // only the first epoch counts as an improvement
+    ChatbotTrainer trainer(config);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                         100, vocab_path_.string()));
+    trainer.add_training_pair("hello world", "how are you");
+    trainer.add_training_pair("I am fine", "thank you");
+    trainer.add_validation_pair("how are you", "I am fine");
+    std::vector<int> epochs_seen;
+    trainer.set_epoch_callback(
+        [&](int epoch, int, float, float, float) { epochs_seen.push_back(epoch); });
+    ASSERT_TRUE(trainer.train(5));
+    EXPECT_TRUE(trainer.was_early_stopped());
+    EXPECT_EQ(trainer.get_epochs_run(), 2);
+    EXPECT_EQ(epochs_seen, (std::vector<int>{0, 1})) << "the stopping epoch is reported too";
+}
+
 // TD-276: validate() computes token accuracy and sends it with the validation metrics (it always
 // sent -1, so both dashboards hid it).
 TEST_F(MetricsTrackerWiringTest, ValidationReportsTokenAccuracy) {

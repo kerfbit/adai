@@ -1,6 +1,6 @@
 // @adai-status: beta
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-11
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -15,6 +15,9 @@
 //      to whichever child is currently alive, on the private port assigned via --admin-port.
 //   4. Forward a graceful-stop request (SIGTERM/SIGINT) to whatever child is currently running,
 //      escalating to a force kill if it doesn't exit in time (see ChildProcess::stop_and_wait()).
+//   5. TD-569: stop a pass that has made no progress for TRAINER_PASS_STALL_MINUTES (its heartbeat
+//   file,
+//      PassHeartbeat.hpp, stopped changing), the same way, and back off as for a failed pass.
 //
 // TrainerControlState/TrainerAdminAPI are used completely unchanged — by the *child* process,
 // exactly as `serve` already used them — see TrainerServiceProxy.hpp's own doc comment for why
@@ -37,9 +40,10 @@
 #include <vector>
 #include "ChildProcess.hpp"
 #include "Config.hpp"
-#include "SignalSetup.hpp"
 #include "IncrementalTrainerArgs.hpp"
 #include "Logger.hpp"
+#include "PassSupervision.hpp"
+#include "SignalSetup.hpp"
 #include "TrainerServiceControlState.hpp"
 #include "TrainerServiceProxy.hpp"
 
@@ -144,8 +148,22 @@ int main(int argc, char* argv[]) {
     const std::optional<int> child_admin_port =
         svc_config.trainer_admin_enabled ? std::optional<int>(svc_config.trainer_child_admin_port) : std::nullopt;
     const std::string pass_log = log_path.empty() ? std::string() : adai::pass_log_path(log_path);
-    const std::vector<std::string> child_argv =
-        adai::trainer_service_child_argv(trainer_path, cli, child_admin_port, pass_log);
+    // TD-569: each pass reports its progress here; without a stall limit no file is used.
+    const std::string heartbeat_path =
+        svc_config.trainer_pass_stall_minutes > 0
+            ? (fs::path(svc_config.session_dir) / "trainer_service_pass.heartbeat").string()
+            : std::string();
+    const std::vector<std::string> child_argv = adai::trainer_service_child_argv(
+        trainer_path, cli, child_admin_port, pass_log, heartbeat_path);
+    if (heartbeat_path.empty()) {
+        adai::Logger::warn(
+            "trainer_service: TRAINER_PASS_STALL_MINUTES=0 — a pass that stops making progress "
+            "is never stopped");
+    } else {
+        adai::Logger::info(
+            "trainer_service: a pass with no progress for {} minute(s) is stopped (heartbeat {})",
+            svc_config.trainer_pass_stall_minutes, heartbeat_path);
+    }
     adai::Logger::info("trainer_service: objective {}, dataset pool '{}', passes log to {}", cli.objective,
                        adai::resolve_dataset_kind(cli.objective, cli.dataset_kind),
                        pass_log.empty() ? std::string("the console") : pass_log);
@@ -215,20 +233,15 @@ int main(int argc, char* argv[]) {
         control->current_child_pid = child.pid();
         if (child_admin_port) proxy.set_child_port(*child_admin_port);
 
-        int exit_code = 1;
-        bool exited = false;
-        while (!exited) {
-            if (control->stop_requested.load()) {
-                // Guaranteed to return (force-kills after kGracefulStopTimeoutMs if the child
-                // doesn't exit on its own) — no more re-sending request_stop() in a tight loop
-                // with no give-up point.
-                child.stop_and_wait(kGracefulStopTimeoutMs, &exit_code);
-                exited = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            exited = child.poll_exit(&exit_code);
-        }
+        // Ends when the pass exits, on a stop request, or (TD-569) when the pass stops making
+        // progress; the last two stop the child with stop_and_wait(), which kills it after
+        // kGracefulStopTimeoutMs.
+        adai::PassWaitOptions wait_options;
+        wait_options.heartbeat_path = heartbeat_path;
+        wait_options.stall_limit = std::chrono::minutes(svc_config.trainer_pass_stall_minutes);
+        wait_options.graceful_stop_timeout_ms = kGracefulStopTimeoutMs;
+        const adai::PassWaitResult pass = adai::wait_for_pass(child, *control, wait_options);
+        const int exit_code = pass.exit_code;
         control->current_child_pid = 0;
         control->last_exit_unix = unix_seconds();
         control->last_exit_code = exit_code;
@@ -236,6 +249,23 @@ int main(int argc, char* argv[]) {
 
         if (control->stop_requested.load()) {
             break;
+        }
+
+        // TD-569: a stalled pass is a failure whatever its exit code (SIGTERM drains it, a hung one
+        // is killed); it isn't counted as crashed or failed as well.
+        if (pass.stalled) {
+            control->total_passes_stalled.fetch_add(1);
+            control->last_failure_unix = unix_seconds();
+            const int failures = control->consecutive_failures.fetch_add(1) + 1;
+            const int wait = adai::failure_backoff_seconds(failures, kPollIntervalSeconds,
+                                                           kMaxFailureBackoffSeconds);
+            adai::Logger::error(
+                "trainer_service: stopped a training pass that made no progress for {}s (exit code "
+                "{}, {} failure(s) "
+                "in a row); next attempt in {}s",
+                pass.seconds_without_progress, exit_code, failures, wait);
+            control->interruptible_sleep(wait);
+            continue;
         }
 
         // TD-523: `resume` exits 0 (trained), 3 (nothing pending) or 1 (failed). A failure used to

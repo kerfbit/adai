@@ -1,20 +1,21 @@
 // @adai-status: beta
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-11
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
-#include "BrowserWriteGuard.hpp"
-#include "HttpListenSocket.hpp"
 #include <charconv>
-#include <map>
 #include <chrono>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <vector>
+#include "BrowserWriteGuard.hpp"
 #include "DaemonConfigStore.hpp"
-#include "TrainerAdminConfig.hpp"
+#include "HttpListenSocket.hpp"
 #include "Logger.hpp"
+#include "TrainerAdminConfig.hpp"
+#include "nlohmann/json.hpp"
 
 // ============================================================================
 // ServerImpl (hides httplib from the header — same pimpl pattern as
@@ -33,32 +34,11 @@ class adai::TrainerServiceProxy::ServerImpl {
 
 namespace {
 
-std::string json_escape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                out += c;
-                break;
-        }
-    }
-    return out;
+// TD-571: {"error": message} through nlohmann/json, so any character in the message (an exception's
+// text, a database path) stays valid JSON; a hand-written escape covered five characters.
+std::string error_json(const std::string& message) {
+    return nlohmann::json{{"error", message}}.dump(-1, ' ', false,
+                                                   nlohmann::json::error_handler_t::replace);
 }
 
 // A proxied request whose connection itself failed (child mid-start or mid-exit) gets this,
@@ -132,9 +112,10 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
     svr.Get("/admin/status", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] =
             child_port_.load() != 0 ? proxy("GET", "/admin/status", "") : std::pair{200, idle_status_json()};
-        if (status == 200) {
-            body = with_supervisor_fields(body);
-        }
+        // TD-571: on every answer, a 503/504 included (it used to be a 200 only), so the service's
+        // own figures, seconds_since_pass_progress above all, show while a pass's admin API isn't
+        // answering.
+        body = with_supervisor_fields(body);
         res.status = status;
         res.set_content(body, "application/json");
     });
@@ -316,6 +297,8 @@ std::string adai::TrainerServiceProxy::with_supervisor_fields(const std::string&
     const auto started = control_->service_started_unix.load();
     const long long uptime_seconds = started > 0 ? static_cast<long long>(now) - started : 0;
 
+    // TD-569: total_passes_stalled and seconds_since_pass_progress (the running pass's seconds
+    // without progress) come after last_failure_unix.
     std::ostringstream extra;
     extra << body.substr(0, body.size() - 1)
           << ",\"supervisor_paused\":" << (control_->paused.load() ? "true" : "false")
@@ -325,6 +308,8 @@ std::string adai::TrainerServiceProxy::with_supervisor_fields(const std::string&
           << ",\"total_passes_failed\":" << control_->total_passes_failed.load()
           << ",\"consecutive_failures\":" << control_->consecutive_failures.load()
           << ",\"last_failure_unix\":" << control_->last_failure_unix.load()
+          << ",\"total_passes_stalled\":" << control_->total_passes_stalled.load()
+          << ",\"seconds_since_pass_progress\":" << control_->seconds_since_pass_progress.load()
           << ",\"last_exit_code\":" << control_->last_exit_code.load()
           << ",\"service_uptime_seconds\":" << uptime_seconds << "}";
     return extra.str();
@@ -371,7 +356,7 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_put_config_idle(
     // service accept and reject exactly the same bodies; nothing is written for a rejected one.
     const auto parsed = parse_trainer_admin_config(body);
     if (!parsed.error.empty()) {
-        return {400, "{\"error\":\"" + json_escape(parsed.error) + "\"}"};
+        return {400, error_json(parsed.error)};
     }
     const auto& u = parsed.update;
     // TD-305: every key in one transaction, so a failure stores none of them (one set() per key
@@ -386,8 +371,8 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_put_config_idle(
         DaemonConfigStore store(child_admin_dir_ + "/daemon_config.db");
         store.set_many(values);
     } catch (const std::exception& e) {
-        return {500, std::string("{\"error\":\"could not save the admin config while idle (") +
-                        json_escape(e.what()) + "); nothing was changed\"}"};
+        return {500, error_json(std::string("could not save the admin config while idle (") +
+                                e.what() + "); nothing was changed")};
     }
 
     return handle_get_config_idle();

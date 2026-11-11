@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-11-11
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
 // request from an in-process TrainerControlState it owns directly), this class is a thin reverse
@@ -94,11 +94,11 @@ class TrainerServiceProxy {
     std::pair<int, std::string> handle_put_config_idle(const std::string& body);
     std::string idle_status_json() const;
     /// Appends TrainerServiceControlState's own observability fields as additional top-level
-    /// JSON keys onto an existing well-formed status object (additive only — every existing key
-    /// stays exactly where it was, so clients parsing the pre-TD-173 shape are unaffected). `body`
-    /// must end in '}' (both idle_status_json() and a live child's real /admin/status response
-    /// always do); returns `body` unchanged otherwise rather than risk mangling an unexpected
-    /// shape (e.g. a proxied error response).
+    /// JSON keys onto an existing well-formed JSON object (additive only — every existing key
+    /// stays exactly where it was, so clients parsing the pre-TD-173 shape are unaffected). TD-571:
+    /// applied to every /admin/status answer, the idle body, a pass's status and the 503/504 error
+    /// bodies alike. `body` must end in '}'; returns it unchanged otherwise rather than risk
+    /// mangling an unexpected shape.
     std::string with_supervisor_fields(const std::string& body) const;
 
     std::string host_;

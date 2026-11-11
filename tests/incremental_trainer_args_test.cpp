@@ -318,10 +318,12 @@ TEST(ParseResetCommandArgs, RecognizesBothFlagsInAnyOrder) {
     EXPECT_TRUE(r2.keep_data);
 }
 
-TEST(ParseResetCommandArgs, UnrecognizedTokensAreIgnored) {
-    auto r = parse_reset_command_args({"--bogus", "--yes"});
-    EXPECT_TRUE(r.yes);
-    EXPECT_FALSE(r.keep_data);
+// TD-571: they used to be ignored, so `reset --yes --keep-dat` deleted the data registry.
+TEST(ParseResetCommandArgs, UnrecognizedTokensAreAnError) {
+    auto r = parse_reset_command_args({"--yes", "--keep-dat"});
+    EXPECT_NE(r.error.find("--keep-dat"), std::string::npos) << r.error;
+    EXPECT_TRUE(parse_reset_command_args({"--yes", "--keep-data"}).error.empty());
+    EXPECT_FALSE(parse_reset_command_args({"extra"}).error.empty());
 }
 
 // TD-523: trainer_service's reading of a pass's exit code. Exit 1 used to mean both "nothing
@@ -515,6 +517,54 @@ TEST(ParseIncrementalTrainerGlobalArgs, LogFileFlag) {
     auto service_argv = make_argv(service);
     const auto s = parse_trainer_service_args(static_cast<int>(service_argv.size()), service_argv.data());
     EXPECT_TRUE(s.global.error) << "trainer_service takes LOG_FILE_PATH, not --log-file";
+}
+
+// TD-569: trainer_service gives each pass a heartbeat file for its stall check.
+TEST(TrainerServiceChildArgv, PassesTheHeartbeatFile) {
+    adai::IncrementalTrainerGlobalArgs cli;
+    const auto argv = trainer_service_child_argv("it", cli, std::nullopt, "",
+                                                 "/s/trainer_service_pass.heartbeat");
+    const auto flag = std::find(argv.begin(), argv.end(), "--heartbeat-file");
+    ASSERT_NE(flag, argv.end());
+    ASSERT_NE(flag + 1, argv.end());
+    EXPECT_EQ(*(flag + 1), "/s/trainer_service_pass.heartbeat");
+    EXPECT_LT(flag, std::find(argv.begin(), argv.end(), "resume"))
+        << "a global flag, before the command";
+    const auto without = trainer_service_child_argv("it", cli, std::nullopt, "/l.log");
+    EXPECT_EQ(std::find(without.begin(), without.end(), "--heartbeat-file"), without.end());
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, HeartbeatFileFlag) {
+    std::vector<std::string> raw = {"incremental_trainer", "--heartbeat-file", "/tmp/hb",
+                                    "--foreground", "resume"};
+    auto argv = make_argv(raw);
+    const auto r =
+        parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.heartbeat_file.value_or(""), "/tmp/hb");
+    ASSERT_EQ(r.args.size(), 1u);
+    EXPECT_EQ(r.args[0], "resume");
+
+    std::vector<std::string> background = {"incremental_trainer", "--heartbeat-file", "/tmp/hb",
+                                           "resume"};
+    auto background_argv = make_argv(background);
+    const auto b = parse_incremental_trainer_global_args(static_cast<int>(background_argv.size()),
+                                                         background_argv.data());
+    EXPECT_TRUE(b.error) << "a background run forks after the heartbeat writer starts";
+
+    std::vector<std::string> missing = {"incremental_trainer", "--foreground", "resume",
+                                        "--heartbeat-file"};
+    auto missing_argv = make_argv(missing);
+    const auto m = parse_incremental_trainer_global_args(static_cast<int>(missing_argv.size()),
+                                                         missing_argv.data());
+    EXPECT_TRUE(m.error);
+    EXPECT_NE(m.error_message.find("Missing value for --heartbeat-file"), std::string::npos);
+
+    std::vector<std::string> service = {"trainer_service", "--heartbeat-file", "/tmp/hb"};
+    auto service_argv = make_argv(service);
+    const auto s =
+        parse_trainer_service_args(static_cast<int>(service_argv.size()), service_argv.data());
+    EXPECT_TRUE(s.global.error) << "trainer_service sets it on its passes";
 }
 
 TEST(DefaultBackgroundLogPath, UsesTheXdgStateDirectory) {

@@ -169,8 +169,10 @@ Level Zero v2 adapter. On the v1 adapter (`SYCL_UR_USE_LEVEL_ZERO_V2=0`) a pass 
   reset rate as Ubuntu's 70.44.1.
 - **Handled:** since TD-566 a pass that loses the device stops within a second without copying weights back, and the device
   works again in the next process, which `trainer_service` starts.
-- **Not handled yet:** a pass that hangs (TD-569). `trainer_service` has no stall limit, so stop it with
-  `systemctl restart adai-trainer`.
+- **Handled since TD-569 (2026-11-11):** a pass that hangs. Each pass reports its progress, and `trainer_service` stops a
+  pass that has made none for `TRAINER_PASS_STALL_MINUTES` (default 30). It logs "made no progress", counts the pass in
+  `/admin/status`'s `total_passes_stalled`, and starts a fresh pass after the failure backoff. A hung service no longer needs
+  `systemctl restart adai-trainer`; deploy binaries from 2026-11-11 or later for this.
 
 ## Access Constraint
 
