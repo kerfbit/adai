@@ -810,7 +810,7 @@ the `stable`-tagged `BatchedInferenceEngine` is a single-worker request queue th
 request sequentially. Despite its comments and the `--batched-inference` flag's name, it never
 batches the model, and can't until TD-171. TD-212 covers accepted requests that can still fail or be
 abandoned (one throwing request fails its whole group; shutdown drains only one group; `submit()`
-races shutdown). TD-213 covers misleading, unexposed stats. TD-214 covers batched mode ignoring
+races shutdown; fixed in code November 10, 2026). TD-213 covers misleading, unexposed stats. TD-214 covers batched mode ignoring
 `strategy`/`beam_width` and sharing one fixed-seed RNG across requests. Each item is tagged in code
 with `TODO: See TD-NNN`.
 
@@ -1810,7 +1810,7 @@ of this tier closing.
 
 **Tier 11 — Newly filed (October 8, 2026): `BatchedInferenceEngine` honesty and robustness.**
 [TD-212](#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) (4-6h)
-is the only one that's a plain bug fix with no decision attached, so it can go first.
+is the only one that's a plain bug fix with no decision attached, so it can go first (code fix landed November 10, 2026).
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
 had its owner decision on October 8, 2026: keep the class and deliver real batching as a v2
 ([real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md), built on
@@ -4389,7 +4389,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving | October 8, 2026 | 4-6 hours |
+| MEDIUM | Open — code fix landed November 10, 2026 | Inference / Serving | October 8, 2026 | 4-6 hours |
 
 Description:
 Found alongside TD-211. Three paths let an accepted request end badly through no fault of its own:
@@ -4414,19 +4414,31 @@ concurrent load.
 
 Action Items:
 
-- [ ] Wrap each request's `generate_text()` call in its own `try/catch` and fail only that
+- [x] Wrap each request's `generate_text()` call in its own `try/catch` and fail only that
   request's promise.
-- [ ] Make shutdown drain the queue completely (loop `collect_batch_no_wait()` until empty), or
+- [x] Make shutdown drain the queue completely (loop `collect_batch_no_wait()` until empty), or
   explicitly fail leftovers with a clear "engine shut down" exception instead of `broken_promise`.
-- [ ] Re-check `running_` under `queue_mutex_` in `submit()` so no request can be enqueued after
+- [x] Re-check `running_` under `queue_mutex_` in `submit()` so no request can be enqueued after
   the final drain.
-- [ ] Add regression tests for all three (none exist today).
+- [x] Add regression tests for all three (none exist today).
+
+**Fix (November 10, 2026):**
+- `process_batch()` gives each request its own `try`. A throw from one request's `model_fn` or tokenizer fails only that request with its own
+  exception; the requests before and after it are answered. The token-count update keeps its own guard, before `set_value()` (TD-162).
+- `shutdown()` clears `running_` while holding `queue_mutex_`, and the worker then calls `collect_batch_no_wait()` until the queue is empty, so
+  every accepted request is answered before `shutdown()` returns.
+- `submit()` checks `running_` under `queue_mutex_`, so a request is either refused (`Cannot submit request: engine is shutdown`) or queued before
+  the final drain.
+
+Verified: three new tests, all failing on the old header. A throwing request queued between two others behind a held worker failed both
+neighbours before; now only itself. Five requests queued behind a held worker at shutdown (`max_batch_size` 2) left three with
+`std::future_error` before; now all five are answered. Four threads submitting while the engine shuts down, 50 rounds, left unanswered futures
+in the first round before; now every future returned is answered. The engine's 57 tests pass repeatedly.
 
 Location in code: `src/BatchedInferenceEngine.hpp` (`submit()`, `shutdown()`,
-`batch_processing_loop()`, `collect_batch_no_wait()`, `process_batch()`); tagged
-`TODO: See TD-212`.
+`batch_processing_loop()`, `process_batch()`).
 
-Files to Modify:
+Files Modified:
 
 - `src/BatchedInferenceEngine.hpp`
 - `tests/batchedinferenceengine_test.cpp`

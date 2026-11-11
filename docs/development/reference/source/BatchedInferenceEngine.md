@@ -543,8 +543,8 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `max_tokens_per_batch` uses a fixed 100-tokens-per-request estimate (§7.5) | Never fires with defaults | Placeholder per source comment | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
 | `avg_latency_ms` is wall-time ÷ requests, and is `+∞` with zero requests (§4) | Misleading metric | `submit_time` is recorded but never used | [TD-213](../../guides/TECHNICAL_DEBT.md#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) |
 | `requests_timeout` / `requests_batch_full` count groups, not requests (§4) | Misleading names | | [TD-213](../../guides/TECHNICAL_DEBT.md#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) |
-| One throwing request fails its whole group, including already-generated results (§7.4) | Collateral failures | Per-request `try/catch` would contain it | [TD-212](../../guides/TECHNICAL_DEBT.md#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) |
-| Shutdown drains only one final group; submit can race shutdown (§8.3) | `broken_promise` on leftover futures | Not hit by `chatbot_api_server`'s process-lifetime engine | [TD-212](../../guides/TECHNICAL_DEBT.md#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) |
+| ~~One throwing request fails its whole group, including already-generated results (§7.4)~~ Fixed November 10, 2026 | Collateral failures | Each request has its own `try` | [TD-212](../../guides/TECHNICAL_DEBT.md#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) |
+| ~~Shutdown drains only one final group; submit can race shutdown (§8.3)~~ Fixed November 10, 2026 | `broken_promise` on leftover futures | Full drain; `running_` checked under the queue lock | [TD-212](../../guides/TECHNICAL_DEBT.md#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) |
 | Idle worker wakes every `timeout_ms` (§7.2) | Negligible CPU | Single deadline per collection call | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
 | Shared fixed-seed RNG across requests (§6.1) | A request's sampled output depends on earlier requests | Deterministic only for an identical request sequence | [TD-214](../../guides/TECHNICAL_DEBT.md#td-214-batched-inference-mode-generates-differently-from-the-inline-path) |
 | `strategy` / `beam_width` not honored in batched mode (§2) | Always sampling (or greedy at temperature 0) | Documented on `ChatbotAPI::enable_batched_inference()` | [TD-214](../../guides/TECHNICAL_DEBT.md#td-214-batched-inference-mode-generates-differently-from-the-inline-path) |
@@ -554,3 +554,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 ## Addendum (October 28, 2026): engine modes retired
 
 `PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.
+
+## Addendum (November 10, 2026): TD-212 fixed
+
+An accepted request now always gets its own outcome; §7.4 and §8.3 above describe the code before this.
+- **Per-request errors.** `process_batch()` runs each request in its own `try`: a throw from one request's `model_fn` or tokenizer is set on that
+  request's promise only, and the others in the group are answered. The `"Model failed to generate result"` fallback is gone with the shared
+  results vector.
+- **Shutdown.** `shutdown()` clears `running_` under `queue_mutex_` and notifies the worker, which calls `collect_batch_no_wait()` (at most
+  `max_batch_size` at a time) until the queue is empty. Every queued request is answered before `shutdown()` returns; a model that never returns
+  still blocks shutdown, as before.
+- **`submit()`.** `running_` is checked under `queue_mutex_`, so a request is either refused with `std::runtime_error` or queued before the final
+  drain. No future ends in `std::future_error` (broken promise).

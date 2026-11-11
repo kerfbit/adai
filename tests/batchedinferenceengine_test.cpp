@@ -754,3 +754,155 @@ TEST_F(EngineFunctionalTest, ThroughputNonNegativeAfterRequests) {
     EXPECT_GE(stats.throughput_tokens_per_sec, 0.0);
     engine.shutdown();
 }
+
+// ============================================================================
+// TD-212: an accepted request always gets its own outcome
+// ============================================================================
+
+/**
+ * A model_fn that holds the engine's worker inside process_batch() until released, so a test can
+ * queue requests behind it in a known order. Generates EOS once released.
+ */
+struct WorkerGate {
+    std::promise<void> release;
+    std::shared_future<void> released = release.get_future().share();
+    std::atomic<bool> entered{false};
+
+    TextGenerator::ModelForwardFn model_fn() {
+        return [this](const std::vector<int>& tokens) -> Matrix {
+            entered.store(true, std::memory_order_release);
+            released.wait();
+            return eos_model_fn(tokens);
+        };
+    }
+
+    void wait_until_entered() {
+        while (!entered.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+};
+
+static Matrix throwing_model_fn(const std::vector<int>& /*tokens*/) {
+    throw std::runtime_error("this request's model failed");
+}
+
+TEST_F(EngineFunctionalTest, OneThrowingRequestFailsOnlyThatRequest) {
+    // TD-212: every request in a group used to run inside one try, so one throwing model_fn failed
+    // the requests before it (already generated) and after it (never run). The three requests are
+    // queued behind a held worker, so they are collected into one group.
+    auto tok = make_tokenizer();
+    BatchedInferenceEngine engine(eos_model_fn, tok, fast_config());
+    TextGenerator::GenerationConfig gen_config;
+
+    WorkerGate gate;
+    auto primer = engine.submit("primer", &gen_config, gate.model_fn());
+    gate.wait_until_entered();
+
+    auto before = engine.submit("before");
+    auto failing = engine.submit("failing", &gen_config, throwing_model_fn);
+    auto after = engine.submit("after");
+    gate.release.set_value();
+
+    for (auto* f : {&primer, &before, &failing, &after}) {
+        ASSERT_EQ(f->wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    }
+    EXPECT_NO_THROW(primer.get());
+    EXPECT_NO_THROW(before.get());
+    EXPECT_NO_THROW(after.get());
+    try {
+        failing.get();
+        ADD_FAILURE() << "the failing request returned a result";
+    } catch (const std::runtime_error& e) {
+        EXPECT_STREQ(e.what(), "this request's model failed");
+    }
+    EXPECT_EQ(engine.get_stats().total_requests, 4u);
+    engine.shutdown();
+}
+
+TEST_F(EngineFunctionalTest, ShutdownProcessesEveryQueuedRequest) {
+    // TD-212: shutdown used to process one more group (at most max_batch_size requests); the rest
+    // were destroyed with the engine and their callers got std::future_error (broken promise).
+    BatchedInferenceConfig cfg = fast_config();
+    cfg.max_batch_size = 2;
+    auto tok = make_tokenizer();
+    auto engine = std::make_unique<BatchedInferenceEngine>(eos_model_fn, tok, cfg);
+    TextGenerator::GenerationConfig gen_config;
+
+    WorkerGate gate;
+    auto primer = engine->submit("primer", &gen_config, gate.model_fn());
+    gate.wait_until_entered();
+
+    std::vector<std::future<std::string>> queued;
+    for (int i = 0; i < 5; ++i) {
+        queued.push_back(engine->submit("queued " + std::to_string(i)));
+    }
+
+    // Shut down while the worker is still held, so all five are still queued when it stops.
+    std::thread stopper([&] { engine->shutdown(); });
+    while (engine->is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    gate.release.set_value();
+    stopper.join();
+    engine.reset();
+
+    ASSERT_EQ(primer.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_NO_THROW(primer.get());
+    for (auto& f : queued) {
+        ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+        EXPECT_NO_THROW(f.get());
+    }
+}
+
+TEST_F(EngineFunctionalTest, SubmitRacingShutdownIsRefusedOrAnswered) {
+    // TD-212: submit() checked running_ before taking the queue lock, so a request could be queued
+    // after the worker's last drain and never answered. Every submit() must now either throw or
+    // return a future that completes.
+    auto tok = make_tokenizer();
+    BatchedInferenceConfig cfg = fast_config();
+    cfg.timeout_ms = 1;
+    constexpr int kSubmitters = 4;
+    size_t answered = 0;
+
+    for (int round = 0; round < 50; ++round) {
+        auto engine = std::make_unique<BatchedInferenceEngine>(eos_model_fn, tok, cfg);
+        std::vector<std::vector<std::future<std::string>>> futures(kSubmitters);
+        std::atomic<int> started{0};
+        std::vector<std::thread> submitters;
+        for (int t = 0; t < kSubmitters; ++t) {
+            submitters.emplace_back([&, t] {
+                started.fetch_add(1);
+                for (;;) {
+                    try {
+                        futures[t].push_back(engine->submit("x"));
+                    } catch (const std::runtime_error&) {
+                        if (!engine->is_running()) {
+                            return;  // refused: the engine has stopped
+                        }
+                        std::this_thread::yield();  // queue full; try again
+                    }
+                }
+            });
+        }
+        while (started.load() < kSubmitters) {
+            std::this_thread::yield();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        engine->shutdown();
+        for (auto& s : submitters) {
+            s.join();
+        }
+        engine.reset();
+
+        for (auto& per_thread : futures) {
+            for (auto& f : per_thread) {
+                ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready)
+                    << "round " << round;
+                EXPECT_NO_THROW(f.get()) << "round " << round;
+                ++answered;
+            }
+        }
+    }
+    EXPECT_GT(answered, 0u);
+}

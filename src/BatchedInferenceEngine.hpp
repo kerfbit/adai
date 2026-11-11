@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-10-11
+// @adai-version: 2.0.1
+// @adai-reviewed: 2026-11-10
 
 /**
  * @file BatchedInferenceEngine.hpp
@@ -242,13 +242,6 @@ class BatchedInferenceEngine {
     std::future<std::string> submit(const std::string& prompt,
                                     const TextGenerator::GenerationConfig* gen_config = nullptr,
                                     TextGenerator::ModelForwardFn model_fn = nullptr) {
-        // TODO: See TD-212 in TECHNICAL_DEBT.md - running_ is checked before queue_mutex_ is taken,
-        // so a request enqueued after the worker's final drain is never processed
-        // (broken_promise).
-        if (!running_) {
-            throw std::runtime_error("Cannot submit request: engine is shutdown");
-        }
-
         InferenceRequest request;
         request.prompt = prompt;
         request.submit_time = std::chrono::steady_clock::now();
@@ -259,6 +252,12 @@ class BatchedInferenceEngine {
 
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
+
+            // TD-212: checked under queue_mutex_, which shutdown() also holds to clear running_, so
+            // a request is either refused here or queued before the worker's final drain.
+            if (!running_) {
+                throw std::runtime_error("Cannot submit request: engine is shutdown");
+            }
 
             // Check queue capacity
             if (request_queue_.size() >= config_.max_queue_size) {
@@ -334,17 +333,18 @@ class BatchedInferenceEngine {
     /**
      * @brief Gracefully shutdown the engine
      *
-     * Stops accepting new requests and waits for pending requests to complete.
-     *
-     * TODO: See TD-212 in TECHNICAL_DEBT.md - only one final batch (<= max_batch_size) is drained;
-     * any further queued requests are destroyed with the engine (broken_promise).
+     * Stops accepting new requests and waits until every request already accepted has been
+     * answered (TD-212).
      */
     void shutdown() {
-        if (!running_.exchange(false)) {
-            return;  // Already shutdown
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            if (!running_.exchange(false)) {
+                return;  // Already shutdown
+            }
         }
 
-        queue_cv_.notify_one();
+        queue_cv_.notify_all();
 
         if (processor_thread_.joinable()) {
             processor_thread_.join();
@@ -364,11 +364,11 @@ class BatchedInferenceEngine {
             }
         }
 
-        // Process remaining requests before shutdown
-        // TODO: See TD-212 in TECHNICAL_DEBT.md - drains a single batch, not the whole queue.
-        auto final_batch = collect_batch_no_wait();
-        if (!final_batch.empty()) {
-            process_batch(final_batch);
+        // TD-212: answer every request still queued. submit() refuses new ones once running_ is
+        // false, so the queue only shrinks here.
+        for (auto batch = collect_batch_no_wait(); !batch.empty();
+             batch = collect_batch_no_wait()) {
+            process_batch(batch);
         }
     }
 
@@ -420,7 +420,7 @@ class BatchedInferenceEngine {
     }
 
     /**
-     * @brief Collect all pending requests without waiting (for shutdown)
+     * @brief Collect up to max_batch_size pending requests without waiting (for shutdown)
      */
     std::vector<InferenceRequest> collect_batch_no_wait() {
         std::vector<InferenceRequest> batch;
@@ -472,91 +472,68 @@ class BatchedInferenceEngine {
             stats_.total_requests += batch.size();
         }
 
-        try {
-            // Generate responses using the model.
-            //
-            // TD-092 (fixed): this used to hand the whole prompt list to
-            // generator_->generate_batch(), which internally just loops calling
-            // generate_text() with generator_'s own fixed config — every
-            // InferenceRequest::gen_config captured in submit() (the "per-request
-            // generation config" the class's own doc comments advertise) was
-            // read into the request and then never looked at again. Two requests
-            // submitted with different strategy/temperature/max_length always
-            // generated identically, silently using whichever config the engine
-            // happened to be constructed with. TextGenerator has no per-call
-            // config parameter, only a settable member (set_config()), so the
-            // fix sets it immediately before each request's own generate_text()
-            // call — same sequential-generation shape generate_batch() had,
-            // now actually honoring what each caller asked for.
-            // TD-038: same fix, same reasoning as TD-092's config passthrough right above — a
-            // request's own model_fn (when supplied; see InferenceRequest::model_fn) must be
-            // used for that request specifically, not the engine's constructor-time default
-            // for every request regardless of what encoder input it actually carries.
-            //
-            // TODO: See TD-211 in TECHNICAL_DEBT.md - this loop is the whole "batch": requests are
-            // generated one at a time, never in a combined forward pass.
-            // TODO: See TD-212 in TECHNICAL_DEBT.md - a throw from any one request lands in the
-            // outer catch below and fails every request in the batch, including ones already
-            // generated; each generate_text() call needs its own try/catch.
-            std::vector<std::string> results;
-            results.reserve(batch.size());
-            for (const auto& req : batch) {
+        // Generate responses using the model.
+        //
+        // TD-092 (fixed): this used to hand the whole prompt list to
+        // generator_->generate_batch(), which internally just loops calling
+        // generate_text() with generator_'s own fixed config — every
+        // InferenceRequest::gen_config captured in submit() (the "per-request
+        // generation config" the class's own doc comments advertise) was
+        // read into the request and then never looked at again. Two requests
+        // submitted with different strategy/temperature/max_length always
+        // generated identically, silently using whichever config the engine
+        // happened to be constructed with. TextGenerator has no per-call
+        // config parameter, only a settable member (set_config()), so the
+        // fix sets it immediately before each request's own generate_text()
+        // call — same sequential-generation shape generate_batch() had,
+        // now actually honoring what each caller asked for.
+        // TD-038: same fix, same reasoning as TD-092's config passthrough right above — a
+        // request's own model_fn (when supplied; see InferenceRequest::model_fn) must be
+        // used for that request specifically, not the engine's constructor-time default
+        // for every request regardless of what encoder input it actually carries.
+        //
+        // TD-212: each request has its own try, so a throw from one request's model_fn or
+        // tokenizer fails only that request. All requests used to share one try, whose catch failed
+        // every request in the batch, including those already generated.
+        //
+        // TODO: See TD-211 in TECHNICAL_DEBT.md - this loop is the whole "batch": requests are
+        // generated one at a time, never in a combined forward pass.
+        for (auto& req : batch) {
+            std::string result;
+            try {
                 generator_->set_config(req.gen_config);
                 const auto& fn = req.model_fn ? req.model_fn : model_fn_;
-                results.push_back(generator_->generate_text(fn, *tokenizer_, req.prompt));
+                result = generator_->generate_text(fn, *tokenizer_, req.prompt);
+            } catch (...) {
+                req.result.set_exception(std::current_exception());
+                continue;
             }
-            generator_->set_config(default_gen_config_);
 
-            // Distribute results to promises
+            // Update token count (approximate) — best-effort; must never fail the request.
             //
-            // (fixed): the stats-only token-count update below used to call tokenizer_->encode()
-            // unguarded, right after set_value(). generate_text() legitimately returns an empty
-            // string whenever sampling produces only special tokens (e.g. EOS as the very first
-            // token) — a real, valid outcome, not an error — but encode() throws on empty input
-            // ("Input text is empty"). That exception escaped this loop entirely and landed in
-            // the catch block below, which sets an exception on *every* request in the batch —
-            // including ones after index i that hadn't been distributed yet, even though
-            // generate_text() had already produced a perfectly good (if empty) result for each of
-            // them. One request's empty response would spuriously fail every other concurrently
-            // batched request. Stats tracking must never be able to affect promise fulfillment
-            // for this or any other request, so it's now isolated in its own try/catch.
+            // (fixed): this used to call tokenizer_->encode() unguarded. generate_text()
+            // legitimately returns an empty string whenever sampling produces only special
+            // tokens (e.g. EOS as the very first token), but encode() throws on empty input, and
+            // that exception failed every other request in the batch. Stats tracking must never
+            // affect promise fulfillment, so it's isolated in its own try/catch.
             //
-            // TD-162: that try/catch block is also run *before* set_value() now, not after — a
-            // client's f.wait_for()/f.get() can observe the promise as ready the instant
-            // set_value() returns and immediately check get_stats() from another thread, so a
-            // stats update issued after set_value() isn't guaranteed to be visible yet when that
-            // happens (the same confirmed race as IntegratedInferenceEngine's total_requests).
-            for (size_t i = 0; i < batch.size(); ++i) {
-                if (i < results.size()) {
-                    // Update token count (approximate) — best-effort; must never fail the batch.
-                    try {
-                        if (!results[i].empty()) {
-                            auto tokens = tokenizer_->encode(results[i]);
-                            std::lock_guard<std::mutex> lock(stats_mutex_);
-                            stats_.total_tokens_processed += tokens.size();
-                        }
-                    } catch (const std::exception&) {
-                        // Approximate stat only; a tokenization quirk on the generated text must
-                        // not turn an already-successful result into a failed request.
-                    }
-
-                    batch[i].result.set_value(results[i]);
-                } else {
-                    batch[i].result.set_exception(std::make_exception_ptr(
-                        std::runtime_error("Model failed to generate result")));
+            // TD-162: the update runs *before* set_value(): a client's f.get() can return the
+            // instant set_value() does and read get_stats() from another thread, so an update
+            // issued after set_value() isn't guaranteed to be visible yet.
+            try {
+                if (!result.empty()) {
+                    auto tokens = tokenizer_->encode(result);
+                    std::lock_guard<std::mutex> lock(stats_mutex_);
+                    stats_.total_tokens_processed += tokens.size();
                 }
+            } catch (...) {
+                // Approximate stat only; a tokenization quirk on the generated text must not turn
+                // an already-successful result into a failed request.
             }
 
-        } catch (const std::exception& e) {
-            // On error, set exception for all requests in batch
-            for (auto& req : batch) {
-                try {
-                    req.result.set_exception(std::current_exception());
-                } catch (...) {
-                    // Promise may have already been fulfilled
-                }
-            }
+            req.result.set_value(std::move(result));
         }
+        generator_->set_config(default_gen_config_);
     }
 
     // Model and tokenizer
