@@ -122,7 +122,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `chatbot_api_server` ignores `GPU_STRATEGY` (always low priority) although its config ships `full` (§4) | The documented serving GPU mode doesn't take effect | By inspection (definite) | [TD-381](../../guides/TECHNICAL_DEBT.md#td-381-chatbot_api_server-ignores-gpu_strategy) |
+| ~~`chatbot_api_server` ignores `GPU_STRATEGY` (always low priority) although its config ships `full` (§4)~~ | The documented serving GPU mode doesn't take effect | **Fixed November 10, 2026** (found by inspection) | [TD-381](../../guides/TECHNICAL_DEBT.md#td-381-chatbot_api_server-ignores-gpu_strategy) |
 | No locking: `allocated_bytes_` and the cuBLAS handle are shared by every thread, and `Matrix::operator*` uses the GPU from any thread, including the "CPU-only" async quality thread (§2, §4) | Lost budget updates; unsupported concurrent cuBLAS handle use during training | **Fixed October 17, 2026** (found by inspection) | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) |
 | `set_device()` doesn't rebind the stream or cuBLAS handle and doesn't reset the budget, contrary to its doc; no caller (§2) | A latent trap for multi-GPU use | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | `cleanup()` zeroes the budget while `GPUMemory` buffers still exist; `initialize()` ignores new arguments once initialized and leaks the stream on partial failure; `probe_diagnostic()` hides the error; unchecked `count × sizeof(T)` (§2–3) | Wrong accounting after re-init; confusing diagnostics | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
@@ -152,3 +152,9 @@ The budget counter behaves as before. Compile-checked only; `gpuutils_test.cpp`'
 `GPUManager::device_usable()` reports whether the device still runs work: one small allocation outside the pool and the budget, a
 fill, a copy back and a wait. It returns false before `initialize()` and after a lost or reset device (and always in the no-GPU
 stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost device from a bad sample.
+
+## Addendum (November 10, 2026): `chatbot_api_server` passes `GPU_STRATEGY` (TD-381)
+
+`chatbot_api_server` now calls `gpu_try_initialize()` with `GPU_STRATEGY` mapped as in `incremental_trainer`: `background` →
+low priority, `full` → high. Its startup log now names the strategy. On the oneAPI CPU device the old server created a
+low-priority queue under both strategies; the fixed server's queue is high priority under `full`, read from `SYCL_UR_TRACE=2`.

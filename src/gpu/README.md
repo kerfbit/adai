@@ -20,7 +20,7 @@ Code-traced references (behaviour, callers and known issues) live in
 
 The GPU is enabled at process startup by `Matrix::gpu_try_initialize()`, called by
 `incremental_trainer` and `chatbot_api_server` when `GPU_ENABLED=true`, using `GPU_DEVICE_ID`,
-`GPU_MEMORY_FRACTION` and (trainer only, TD-381) `GPU_STRATEGY`. Once initialized:
+`GPU_MEMORY_FRACTION` and `GPU_STRATEGY` (passed by the server too since TD-381). Once initialized:
 
 - `Matrix::operator*` sends any product whose inner dimensions are both at least 32 to the GPU
   (`multiply_gpu()`), from any thread unless that thread holds `adai::gpu::ScopedCpuOnly` (TD-382).

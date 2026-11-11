@@ -83,7 +83,7 @@ ordering") is about this queue.
 ## 4. Who calls what
 
 The same callers as the CUDA manager ([GPUUtils.md](GPUUtils.md) §4). `incremental_trainer` passes
-`GPU_STRATEGY` (→ `priority_low`/`priority_high`); `chatbot_api_server` doesn't (TD-381). Every
+`GPU_STRATEGY` (→ `priority_low`/`priority_high`), and so does `chatbot_api_server` since November 10, 2026 (TD-381). Every
 SYCL kernel wrapper and `GPUMatrix` operation calls `get_queue()`.
 
 ---

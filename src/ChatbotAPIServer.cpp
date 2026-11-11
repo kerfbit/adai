@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.10.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 2.10.1
+// @adai-reviewed: 2026-11-10
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -365,10 +365,14 @@ int main(int argc, char* argv[]) {
                 "[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
                 config.gpu_device_id, config.gpu_memory_fraction * 100.0f);
 #ifdef ADAI_ENABLE_GPU
-            // TODO: See TD-381 in TECHNICAL_DEBT.md - GPU_STRATEGY is never passed, so the server always uses the
-            // low-priority stream even though config.chatbot.conf ships GPU_STRATEGY=full
-            if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
-                adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
+            // TD-381: GPU_STRATEGY used to be left out here, so the server always got the
+            // low-priority queue; mapped the same way as incremental_trainer.
+            const bool low_priority = (config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
+            if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction,
+                                           low_priority)) {
+                const char* mode = low_priority ? "background (low-priority stream)"
+                                                : "full (high-priority stream)";
+                adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
             } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
                 adai::Logger::warn(

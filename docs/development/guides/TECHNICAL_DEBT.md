@@ -229,7 +229,7 @@ Also October 12, 2026: filed [TD-381](#td-381-chatbot_api_server-ignores-gpu_str
 [GPUUtils.md](../reference/source/GPUUtils.md) (CUDA `GPUManager`/`GPUMemory`; no CUDA device was
 available, so all three are by inspection). Two are MEDIUM: `chatbot_api_server` never passes
 `GPU_STRATEGY` to GPU initialization, so it always uses the low-priority stream although
-`config.chatbot.conf` ships `full` (TD-381); and `GPUManager` has no locking while
+`config.chatbot.conf` ships `full` (TD-381; fixed in code November 10, 2026); and `GPUManager` has no locking while
 `Matrix::operator*` dispatches to the shared GPU stream from any thread, including `ChatbotTrainer`'s
 supposedly CPU-only async quality thread during training (TD-382). One is LOW: `set_device()`,
 `cleanup()`, `initialize()` and `probe_diagnostic()` lifecycle gaps (TD-383).
@@ -2002,7 +2002,7 @@ config keys) as one FTPS-hardening pass. Then [TD-375](#td-375-ftpdataserver-has
 reading anything into BLEU trends; it's small and self-contained. Do [TD-379](#td-379-bleu1bleu2-are-computed-but-never-stored) alongside it (same
 reporting path). [TD-380](#td-380-generation-quality-scores-arent-comparable-or-well-sampled) is documentation plus a sample-size default.
 
-**Tier 42 — Newly filed (October 12, 2026): `GPUUtils` (CUDA).** [TD-381](#td-381-chatbot_api_server-ignores-gpu_strategy) is a few lines; do it
+**Tier 42 — Newly filed (October 12, 2026): `GPUUtils` (CUDA).** [TD-381](#td-381-chatbot_api_server-ignores-gpu_strategy) (code fix landed November 10, 2026) is a few lines; do it
 whenever `chatbot_api_server`'s GPU startup is touched. Do [TD-382](#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) before relying on the async
 BLEU/ROUGE path on a GPU host (or with TD-378 and the TD-358 retraining runs, since both use that
 thread). [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) is cleanup. Revisit all three when the SYCL `GPUUtils_SYCL.hpp` is traced, since
@@ -11320,7 +11320,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 10, 2026 | GPU / GPUManager | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `GPUUtils.hpp`, by inspection (definite). `incremental_trainer` maps
@@ -11333,11 +11333,20 @@ always yields to other GPU tenants (including a trainer on the same card).
 
 Action Items:
 
-- [ ] Pass `config.gpu_strategy == GPUStrategy::BACKGROUND` as the third argument, and log the mode as `incremental_trainer` does.
+- [x] Pass `config.gpu_strategy == GPUStrategy::BACKGROUND` as the third argument, and log the mode as `incremental_trainer` does.
 
-Location in code: `src/ChatbotAPIServer.cpp` (GPU initialization); tagged `TODO: See TD-381`.
+**Fix (November 10, 2026):** `chatbot_api_server` passes the strategy the same way as
+`incremental_trainer` and logs it (`[GPU] GPU ready — strategy: full (high-priority stream)`).
+Verified with the real binary from the `sycl-cpudev` build on the oneAPI CPU device
+(`ADAI_SYCL_ALLOW_CPU_DEVICE=1`), reading the queue flags from `SYCL_UR_TRACE=2`. The old binary
+created its queue with `UR_QUEUE_FLAG_PRIORITY_LOW` under both `GPU_STRATEGY=full` and `background`.
+The fixed one uses `PRIORITY_HIGH` for `full` and `PRIORITY_LOW` for `background`. The code is
+shared by both backends; CUDA wasn't run (no device). There's no unit test, because the call sits in
+the server's `main` under `ADAI_ENABLE_GPU`, which the CPU test builds don't compile.
 
-Files to Modify:
+Location in code: `src/ChatbotAPIServer.cpp` (GPU initialization).
+
+Files Modified:
 
 - `src/ChatbotAPIServer.cpp`
 
