@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-10
 
 #include <sstream>
 #include <string>
@@ -247,6 +247,13 @@ inline std::string build_register_model_body(const std::string& name, const std:
     }
     body << "}";
     return body.str();
+}
+
+// TD-454: builds PUT /models/{name}/state's JSON body for the "training" transition. MNS allocates
+// the run ID (run-NN), so the body carries none; new_run=true starts the next run instead of
+// continuing the current one (the first run ever is run-01 either way).
+inline std::string build_set_training_body(bool new_run) {
+    return new_run ? R"({"state":"training","new_run":true})" : R"({"state":"training"})";
 }
 
 // TD-037: builds PUT /models/{name}/state's JSON body for the "candidate" transition — extracted

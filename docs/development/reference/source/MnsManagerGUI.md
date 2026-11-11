@@ -77,7 +77,16 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Set Training sends a client `run_id` the server ignores and never sends `new_run`; Set Candidate with the typed ID gets 409; the guide documents this flow (§2) | The GUI's lifecycle actions can't take a model from training to candidate as documented, and can't start a new run | **Verified** (real server) | [TD-454](../../guides/TECHNICAL_DEBT.md#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) |
+| ~~Set Training sends a client `run_id` the server ignores and never sends `new_run`; Set Candidate with the typed ID gets 409; the guide documents this flow (§2)~~ | The GUI's lifecycle actions can't take a model from training to candidate as documented, and can't start a new run | **Fixed November 10, 2026** (verified against a real server) | [TD-454](../../guides/TECHNICAL_DEBT.md#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) |
 | Success/failure judged by the substring `"error"`, not the HTTP status (§2) | Misreported results | By inspection | [TD-455](../../guides/TECHNICAL_DEBT.md#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) |
 | UI-thread HTTP; arbitrary Register defaults with minimum layer counts of 1; unpopulated role filter; no URL encoding; hygiene (§2) | Freezes; easy wrong registrations | By inspection | [TD-455](../../guides/TECHNICAL_DEBT.md#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) |
 | Register body lacks TD-196 fields; `https://` gap | Already tracked | — | TD-452, TD-451 |
+
+## Addendum (November 10, 2026): server-allocated run IDs (TD-454)
+
+The Actions panel's Set Training row now has a **Start a new run** checkbox and no run ID. It sends
+`mns_gui::build_set_training_body(new_run)`, `{"state":"training"}` or `{"state":"training","new_run":true}`, and
+shows the `run-NN` MNS allocated. The **Run ID** field moved to the Set Candidate row. It is filled from the
+selected record's `run_id` and from Set Training's reply, which is the ID leaving `training` requires.
+`MnsManagerGUILiveTest.GuiTrainingWorkflow_UsesTheAllocatedRunId` runs these bodies against a real `mns_server`.
+`MnsManagerGUI.hpp` is now 0.8.0, `MnsManagerGUI.cpp` 0.9.0.

@@ -2,10 +2,10 @@
 #define MNS_MANAGER_GUI_HPP
 
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-10
 
-
+#include <QCheckBox>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -98,7 +98,8 @@ class MnsManagerGUI : public QMainWindow {
     QTextEdit* detailView_;
 
     // Action panel
-    QLineEdit* actionRunId_;
+    QCheckBox* actionNewRun_;  // TD-454: Set Training's new_run
+    QLineEdit* actionRunId_;   // Set Candidate's run ID: the record's, or the one Set Training got
     QLineEdit* actionArtifactPath_;
     QLineEdit* actionPromoteRole_;
     QLineEdit* actionPromoteModel_;

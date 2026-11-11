@@ -226,17 +226,21 @@ The lower-right area under the detail view. All actions operate on the **current
 
 | Field | Description |
 |-------|-------------|
-| Run ID | Unique training run identifier (required) |
+| Start a new run | Ticked: begin the model's next run. Unticked: continue its current run |
 
-Transitions the selected model to `training` state. Valid from `initializing` or `candidate`.
+Transitions the selected model to `training` state. Valid from `initializing`, `candidate` or `training`. MNS allocates
+the run ID (`run-01` for a model's first run, then `run-02`, …); the status bar shows it and it fills Set Candidate's
+**Run ID** field. The checkbox clears after a successful Set Training.
 
 #### Set Candidate
 
 | Field | Description |
 |-------|-------------|
+| Run ID | The active run (`run-NN`). Filled in when you select a model or click Set Training; required when the model is in `training` |
 | Artifact | Absolute path to weight file (optional but recommended) |
 
-Transitions the selected model to `candidate` state. Uses the Run ID from the field above if present. Valid from `training` or `initializing`. A `retired` model needs `mns_cli set-candidate --revive`.
+Transitions the selected model to `candidate` state. A model in `training` needs its active run's ID; any other run ID is
+refused with `409` ("this trainer's run has been superseded"). Valid from `training` or `initializing`. A `retired` model needs `mns_cli set-candidate --revive`.
 
 #### Promote
 
@@ -279,8 +283,8 @@ You can switch servers at any time by editing the URL and clicking Connect again
 ### 5.3 Walk a model through its lifecycle
 
 1. In the **Models** tab, click the model row to select it.
-2. In the **Actions** panel, enter a **Run ID** (e.g. `run-42`).
-3. Click **Set Training**. The detail panel updates to show `state: training`.
+2. In the **Actions** panel, tick **Start a new run** if this is a retrain rather than a continuation.
+3. Click **Set Training**. The detail panel updates to show `state: training` and the run MNS allocated (e.g. `run-01`), which also fills **Run ID**.
 4. After training completes, enter the checkpoint path in **Artifact** (e.g. `/opt/adai/training_sessions/session_3_best.bin`).
 5. Click **Set Candidate**. The detail panel updates to show `state: candidate` with the artifact attached.
 
@@ -356,7 +360,7 @@ The GUI and `mns_cli` are interchangeable interfaces to the same MNS server API.
 | Models tab (list) | `mns_cli list [--state S] [--role R]` |
 | Click model row | `mns_cli get <name>` |
 | Register tab | `mns_cli register <name> <role> [opts]` |
-| Set Training button | `mns_cli set-training <name> [--new-run]` (MNS allocates the run ID; TD-454) |
+| Set Training button (Start a new run → `--new-run`) | `mns_cli set-training <name> [--new-run]` (MNS allocates the run ID; TD-454) |
 | Set Candidate button | `mns_cli set-candidate <name> <run-id> --artifact-path PATH` |
 | Promote button | `mns_cli promote <role> <model-name>` |
 | Retire button | `mns_cli set-candidate <name> <run-id>` then set state to retired via API |

@@ -507,6 +507,51 @@ TEST_F(MnsManagerGUILiveTest, FullLifecycle_RegisterTrainPromote) {
 }
 
 // ---------------------------------------------------------------------------
+// TD-454: the GUI's own Set Training / Set Candidate bodies, in the GUI's order
+// ---------------------------------------------------------------------------
+
+TEST_F(MnsManagerGUILiveTest, GuiTrainingWorkflow_UsesTheAllocatedRunId) {
+    auto c = make_live_client();
+    const auto name = unique_model("guiflow");
+    auto r1 = c.Post("/models", register_body(name), "application/json");
+    ASSERT_TRUE(r1);
+    ASSERT_EQ(201, r1->status);
+
+    // Set Training (no new run): the first run is run-01.
+    auto r2 = c.Put("/models/" + name + "/state", mns_gui::build_set_training_body(false),
+                    "application/json");
+    ASSERT_TRUE(r2);
+    ASSERT_EQ(200, r2->status);
+    EXPECT_EQ("run-01", json_value(r2->body, "run_id"));
+
+    // Selecting the model pre-fills Set Candidate's run ID from the record.
+    auto sel = c.Get("/models/" + name);
+    ASSERT_TRUE(sel);
+    const std::string run_id = json_value(sel->body, "run_id");
+    EXPECT_EQ("run-01", run_id);
+    auto r3 =
+        c.Put("/models/" + name + "/state",
+              mns_gui::build_set_candidate_body(run_id, "/tmp/gui-flow.bin"), "application/json");
+    ASSERT_TRUE(r3);
+    EXPECT_EQ(200, r3->status) << r3->body;
+    EXPECT_EQ("candidate", json_value(r3->body, "state"));
+
+    // Set Training with "Start a new run" checked: the next run is run-02.
+    auto r4 = c.Put("/models/" + name + "/state", mns_gui::build_set_training_body(true),
+                    "application/json");
+    ASSERT_TRUE(r4);
+    ASSERT_EQ(200, r4->status);
+    EXPECT_EQ("run-02", json_value(r4->body, "run_id"));
+
+    // Unchecked, a later Set Training continues run-02.
+    auto r5 = c.Put("/models/" + name + "/state", mns_gui::build_set_training_body(false),
+                    "application/json");
+    ASSERT_TRUE(r5);
+    ASSERT_EQ(200, r5->status);
+    EXPECT_EQ("run-02", json_value(r5->body, "run_id"));
+}
+
+// ---------------------------------------------------------------------------
 // Retire and delete parsed with GUI helpers
 // ---------------------------------------------------------------------------
 

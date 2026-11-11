@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-037, TD-454 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.0
+// @adai-status: beta        (capped by TD-037 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-11-10
 
 #include "MnsManagerGUI.hpp"
@@ -11,6 +11,7 @@
 
 using mns_gui::build_register_model_body;
 using mns_gui::build_set_candidate_body;
+using mns_gui::build_set_training_body;
 using mns_gui::json_array_objects;
 using mns_gui::json_escape;
 using mns_gui::json_pretty;
@@ -287,25 +288,30 @@ QWidget* MnsManagerGUI::createDetailPanel() {
     QGroupBox* actGroup = new QGroupBox("Actions");
     QVBoxLayout* actLay = new QVBoxLayout(actGroup);
 
-    // Set Training
+    // Set Training. TD-454: MNS allocates the run ID (run-NN); the checkbox asks for the next run
+    // instead of continuing the current one.
     QHBoxLayout* trainRow = new QHBoxLayout();
-    actionRunId_ = new QLineEdit();
-    actionRunId_->setPlaceholderText("run-id");
+    actionNewRun_ = new QCheckBox("Start a new run");
     QPushButton* trainBtn = new QPushButton("Set Training");
     trainBtn->setObjectName("actionBtn");
     connect(trainBtn, &QPushButton::clicked, this, &MnsManagerGUI::onSetTraining);
-    trainRow->addWidget(new QLabel("Run ID:"));
-    trainRow->addWidget(actionRunId_);
+    trainRow->addWidget(actionNewRun_);
+    trainRow->addStretch();
     trainRow->addWidget(trainBtn);
     actLay->addLayout(trainRow);
 
-    // Set Candidate
+    // Set Candidate. Leaving training needs the active run's ID, so it's filled in from the
+    // selected record and from Set Training's reply.
     QHBoxLayout* candRow = new QHBoxLayout();
+    actionRunId_ = new QLineEdit();
+    actionRunId_->setPlaceholderText("run-NN");
     actionArtifactPath_ = new QLineEdit();
     actionArtifactPath_->setPlaceholderText("/path/to/weights.bin");
     QPushButton* candBtn = new QPushButton("Set Candidate");
     candBtn->setObjectName("actionBtn");
     connect(candBtn, &QPushButton::clicked, this, &MnsManagerGUI::onSetCandidate);
+    candRow->addWidget(new QLabel("Run ID:"));
+    candRow->addWidget(actionRunId_);
     candRow->addWidget(new QLabel("Artifact:"));
     candRow->addWidget(actionArtifactPath_);
     candRow->addWidget(candBtn);
@@ -395,8 +401,10 @@ void MnsManagerGUI::onModelSelected(int row, int /*col*/) {
 
     // Fetch full record
     auto body = httpGet("/models/" + selectedModel_.toStdString());
-    if (!body.empty())
+    if (!body.empty()) {
         showModelDetail(body);
+        actionRunId_->setText(QString::fromStdString(json_value(body, "run_id")));
+    }
 }
 
 void MnsManagerGUI::onRoleSelected(int row, int /*col*/) {
@@ -446,14 +454,7 @@ void MnsManagerGUI::onSetTraining() {
         QMessageBox::warning(this, "No Model Selected", "Select a model from the list first.");
         return;
     }
-    std::string run_id = actionRunId_->text().toStdString();
-    if (run_id.empty()) {
-        QMessageBox::warning(this, "Missing Run ID", "Enter a run ID.");
-        return;
-    }
-
-    // TODO: See TD-454 in TECHNICAL_DEBT.md - the server ignores this run_id (allocates run-NN) and new_run is never sent
-    std::string body = "{\"state\":\"training\",\"run_id\":\"" + json_escape(run_id) + "\"}";
+    std::string body = build_set_training_body(actionNewRun_->isChecked());
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);
     if (resp.empty()) {
         setStatusMessage("Connection failed", true);
@@ -462,7 +463,10 @@ void MnsManagerGUI::onSetTraining() {
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "State Transition Failed", QString::fromStdString(resp));
     } else {
-        setStatusMessage(selectedModel_ + " -> training");
+        const std::string run_id = json_value(resp, "run_id");
+        actionRunId_->setText(QString::fromStdString(run_id));
+        actionNewRun_->setChecked(false);
+        setStatusMessage(selectedModel_ + " -> training (" + QString::fromStdString(run_id) + ")");
         showModelDetail(resp);
         onRefreshModels();
     }
@@ -476,7 +480,6 @@ void MnsManagerGUI::onSetCandidate() {
     std::string run_id = actionRunId_->text().toStdString();
     std::string art_path = actionArtifactPath_->text().toStdString();
 
-    // TODO: See TD-454 in TECHNICAL_DEBT.md - the typed run ID isn't the server-allocated one, so this gets 409 "superseded"
     std::string body = build_set_candidate_body(run_id, art_path);
 
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);

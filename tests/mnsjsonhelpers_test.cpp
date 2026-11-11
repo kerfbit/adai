@@ -213,6 +213,23 @@ TEST(BuildRegisterModelBodyTest, ProducesValidJsonParsableByJsonValue) {
 }
 
 // ---------------------------------------------------------------------------
+// build_set_training_body (TD-454)
+// ---------------------------------------------------------------------------
+
+TEST(BuildSetTrainingBodyTest, ContinuesTheCurrentRunWithoutARunId) {
+    std::string body = build_set_training_body(false);
+    EXPECT_EQ(body, R"({"state":"training"})");
+    EXPECT_EQ(body.find("\"run_id\""), std::string::npos);  // MNS allocates it
+}
+
+TEST(BuildSetTrainingBodyTest, AsksForANewRun) {
+    std::string body = build_set_training_body(true);
+    EXPECT_EQ(json_value(body, "state"), "training");
+    EXPECT_EQ(json_value(body, "new_run"), "true");
+    EXPECT_EQ(body.find("\"run_id\""), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
 // build_set_candidate_body
 // ---------------------------------------------------------------------------
 

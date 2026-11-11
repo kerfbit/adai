@@ -463,7 +463,7 @@ Also October 14, 2026: filed [TD-454](#td-454-mns-manager-guis-training--candida
 [MnsManagerGUI.md](../reference/source/MnsManagerGUI.md). One is MEDIUM and verified against a real `mns_server` with the
 GUI's exact request bodies: Set Training sends a typed `run_id` the server ignores (it allocates `run-01`) and never sends
 `new_run`, so Set Candidate with the typed ID gets `409 … superseded` and the GUI can't start a new run; the GUI guide
-documents this failing flow (TD-454). One is LOW: success is judged by the substring `"error"` rather than the HTTP status,
+documents this failing flow (TD-454; fixed in code November 10, 2026). One is LOW: success is judged by the substring `"error"` rather than the HTTP status,
 all HTTP runs on the UI thread, and the Register tab's defaults (128/4/512, layer minimum 1) match neither config (TD-455).
 
 Also October 14, 2026: filed [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) (MEDIUM, verified with the real `mns_server`) from the code-traced
@@ -2129,7 +2129,7 @@ registration (make `register` require explicit architecture or read the trainer'
 metrics code onto the vendored `nlohmann/json` fixes the escaping parts of TD-443, TD-449 and [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) in one
 place; do it with TD-226. TD-452's GUI register fields are separate and only matter if the GUI is used.
 
-**Tier 69 — Newly filed (October 14, 2026): `MnsManagerGUI`.** [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) is a small fix (drop the run-ID
+**Tier 69 — Newly filed (October 14, 2026): `MnsManagerGUI`.** [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) (code fix landed November 10, 2026) is a small fix (drop the run-ID
 requirement, add a "new run" checkbox, use the run ID from the record for Set Candidate) plus a guide correction; do it
 with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) is cleanup.
 
@@ -14446,7 +14446,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Manager GUI | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 10, 2026 | MNS / Manager GUI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MnsManagerGUI` and verified by sending the GUI's exact request bodies to a real `mns_server`.
@@ -14467,15 +14467,26 @@ walkthrough (enter `run-42`, Set Training, Set Candidate) follows exactly this p
 
 Action Items:
 
-- [ ] Set Training: drop the run-ID requirement, add a "start a new run" checkbox (`new_run`), and show the allocated `run_id` from the reply.
-- [ ] Set Candidate: default the run ID to the selected record's `run_id`.
-- [ ] Correct the GUI guide's field table, walkthrough and `mns_cli` equivalence table.
+- [x] Set Training: drop the run-ID requirement, add a "start a new run" checkbox (`new_run`), and show the allocated `run_id` from the reply.
+- [x] Set Candidate: default the run ID to the selected record's `run_id`.
+- [x] Correct the GUI guide's field table, walkthrough and `mns_cli` equivalence table.
 
-Location in code: `src/MnsManagerGUI.cpp` (`onSetTraining()`, `onSetCandidate()`); tagged `TODO: See TD-454`.
+**Fix (November 10, 2026):** Set Training sends `mns_gui::build_set_training_body(new_run)` (`MnsJsonHelpers.hpp`):
+no run ID, plus `"new_run":true` when the new **Start a new run** checkbox is ticked. The status line shows the
+allocated `run-NN`, which also fills Set Candidate's **Run ID** field (moved to the Set Candidate row). Selecting a
+model fills that field from the record's `run_id`. Verified against a real `mns_server` with the GUI's own bodies
+in its order (`MnsManagerGUILiveTest.GuiTrainingWorkflow_UsesTheAllocatedRunId`): training → `run-01`, candidate
+with the record's run ID → 200, training with a new run → `run-02`, and without → still `run-02`. With the old body
+the new-run step stayed at `run-01`, and the two new `BuildSetTrainingBodyTest` tests failed. The widget wiring itself
+has no automated test (TD-037); the GUI builds and its startup smoke test passes.
 
-Files to Modify:
+Location in code: `src/MnsManagerGUI.cpp` (`setupDetailPanel()`'s action rows, `onSetTraining()`, `onModelSelected()`),
+`src/MnsJsonHelpers.hpp` (`build_set_training_body()`).
 
-- `src/MnsManagerGUI.cpp`
+Files Modified:
+
+- `src/MnsManagerGUI.{hpp,cpp}`, `src/MnsJsonHelpers.hpp`
+- `tests/mnsjsonhelpers_test.cpp`, `tests/mns_manager_gui_test.cpp`
 - `docs/operations/guides/mns-manager-gui-guide.md`
 
 ---
