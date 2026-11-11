@@ -2,7 +2,7 @@
 
 - **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp) (181 lines), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp) (608), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp) (137), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp) (57), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp) (106), [`src/ChatbotGuiLaunchEnv.{hpp,cpp}`](../../../../src/ChatbotGuiLaunchEnv.hpp) (51 + 88)
 - **Built into:** `chatbot_gui_binary` (main, the class, [`ChatbotClient`](ChatbotClient.md), `ConversationFormat.cpp`, `GenerationSettings.cpp`; links only Qt Widgets and threads, no model library) and `chatbot_gui` (the launcher wrapper, with `ChatbotGuiLaunchEnv.cpp`). Only when `BUILD_GUI=ON` (the default) and Qt is found; CMake prefers **Qt6**, falling back to Qt5
-- **Status tags:** `ChatbotGUI.hpp` `beta` 0.8.0, `ChatbotGUI.cpp` `beta` 0.10.2, `ChatbotGuiLogic.hpp` `beta` 0.3.0, `ChatbotGuiLaunchEnv.{hpp,cpp}` `beta` 0.1.0; `ChatbotGUI_main.cpp` `stable` 2.0.0, `ChatbotGUI_wrapper.cpp` `stable` 1.1.0
+- **Status tags:** `ChatbotGUI.{hpp,cpp}` and `ChatbotGuiLogic.hpp` `stable` 1.0.0 (promoted November 10, 2026), `ChatbotGuiLaunchEnv.{hpp,cpp}` `beta` 0.1.0; `ChatbotGUI_main.cpp` `stable` 2.0.0, `ChatbotGUI_wrapper.cpp` `stable` 1.1.0
 - **Tests:** [`tests/chatbot_gui_widget_test.cpp`](../../../../tests/chatbot_gui_widget_test.cpp) → `chatbotGuiWidgetTests` (Qt Test, 22 tests, the real window against an in-process server); [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (11); `chatbotguilaunchenvTests` (7); smoke tests `SmokeTests_chatbot_gui_binary_main` and `SmokeTests_chatbot_gui_wrapper` (`tests/smoke/`)
 - **User docs:** [chatbot-gui-guide.md](../../../operations/guides/chatbot-gui-guide.md), [GUI_QUICK_REFERENCE.md](../../../operations/guides/quick-reference/GUI_QUICK_REFERENCE.md), [CHATBOT_GUI_TROUBLESHOOTING.md](../../../operations/guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md), [CPP_WRAPPER_SOLUTION.md](../../../operations/guides/troubleshooting/CPP_WRAPPER_SOLUTION.md) (historical)
 - **Last traced against the code:** 2026-11-10
@@ -175,3 +175,6 @@ Fixed, for reference:
   escapes the sender. Before, a reply of `line one\nline two` showed as `line one line two`, the welcome message as one
   line, and a loaded role such as `<b>tool</b>` was rendered as bold markup. This document was re-traced against the
   code at the same time, replacing its pre-TD-260 sections and addenda.
+- **November 10, 2026:** `ChatbotGUI.{hpp,cpp}` and `ChatbotGuiLogic.hpp` promoted to `stable` 1.0.0 after a review
+  against the file-status standard: widget and logic tests, no open correctness gap (TD-263's Stop control is a
+  missing feature the server API can't support), user and reference docs current, shipped as `chatbot_gui`.

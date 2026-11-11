@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 82 | 36 | 0 | 0 | 0 | 118 |
 | scripts | 9 | 27 | 8 | 0 | 0 | 0 | 44 |
-| src | 87 | 105 | 4 | 0 | 0 | 0 | 196 |
+| src | 90 | 102 | 4 | 0 | 0 | 0 | 196 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
 
-**98/361 files (27%) are tagged `stable`.**
+**101/361 files (28%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -191,11 +191,8 @@ None — every in-scope file carries a tag.
 | `src/ChatbotApiServerArgs.hpp` | beta | 0.11.0 | 2026-11-10 | — |
 | `src/ChatbotClient.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ChatbotClient.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/ChatbotGUI.cpp` | beta | 0.10.1 | 2026-11-10 | — |
-| `src/ChatbotGUI.hpp` | beta | 0.8.0 | 2026-11-10 | — |
 | `src/ChatbotGuiLaunchEnv.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ChatbotGuiLaunchEnv.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/ChatbotGuiLogic.hpp` | beta | 0.3.0 | 2026-11-10 | — |
 | `src/ChatbotTrainer.cpp` | beta | 0.22.0 | 2026-11-10 | TD-039 |
 | `src/ChatbotTrainer.hpp` | beta | 0.17.0 | 2026-11-10 | TD-039 |
 | `src/ChildProcess.cpp` | beta | 0.8.0 | 2026-11-10 | — |

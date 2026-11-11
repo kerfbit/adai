@@ -1,8 +1,8 @@
 #ifndef CHATBOT_GUI_HPP
 #define CHATBOT_GUI_HPP
 
-// @adai-status: beta        (widget tests: chatbotGuiWidgetTests)
-// @adai-version: 0.8.0
+// @adai-status: stable        (widget tests: chatbotGuiWidgetTests)
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-10
 
 #include <QComboBox>

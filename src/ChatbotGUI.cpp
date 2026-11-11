@@ -1,5 +1,5 @@
-// @adai-status: beta        (widget tests: chatbotGuiWidgetTests)
-// @adai-version: 0.10.2
+// @adai-status: stable        (widget tests: chatbotGuiWidgetTests)
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-10
 
 #include "ChatbotGUI.hpp"

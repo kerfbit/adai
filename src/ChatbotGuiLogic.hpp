@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (tests: chatbotguilogicTests, and through the widget in chatbotGuiWidgetTests)
-// @adai-version: 0.3.0
+// @adai-status: stable        (tests: chatbotguilogicTests, and through the widget in chatbotGuiWidgetTests)
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-10
 
 #include <string>
