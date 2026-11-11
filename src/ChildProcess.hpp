@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-02
+// @adai-reviewed: 2026-11-10
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
 // trainer_service's own main() so the launch/poll/terminate logic is unit-testable against a real

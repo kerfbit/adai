@@ -1,7 +1,7 @@
 #ifndef GPU_UTILS_SYCL_HPP
 #define GPU_UTILS_SYCL_HPP
 
-// @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
+// @adai-status: beta        (capped by TD-383, TD-392 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.10.0
 // @adai-reviewed: 2026-11-10
 

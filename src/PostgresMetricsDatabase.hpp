@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
+// @adai-status: beta        (capped by TD-477, TD-480; opt-in, not built by default — see TECHNICAL_DEBT.md)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-04
+// @adai-reviewed: 2026-11-10
 
 #ifdef ADAI_ENABLE_POSTGRES
 

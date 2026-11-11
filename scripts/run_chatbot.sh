@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/run_chatbot_test.sh)
+# @adai-status: beta        (tests: tests/scripts/run_chatbot_test.sh)
 # @adai-version: 0.7.2
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 
 # Configuration

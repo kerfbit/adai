@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/install_cloudflared_test.sh)
+# @adai-status: beta        (tests: tests/scripts/install_cloudflared_test.sh)
 # @adai-version: 0.1.1
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 # Cloudflare Tunnel connector - Installation Script
 #

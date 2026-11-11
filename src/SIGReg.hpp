@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta        (capped by TD-504 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.2.1
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 // TD-175 (LJ-1a): Sketched Isotropic Gaussian Regularization (SIGReg), from the LeJEPA paper
 // (arXiv:2511.08544) — see docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 3

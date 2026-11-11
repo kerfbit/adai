@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.4.0
-// @adai-reviewed: 2026-11-03
+// @adai-reviewed: 2026-11-10
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
 // request from an in-process TrainerControlState it owns directly), this class is a thin reverse

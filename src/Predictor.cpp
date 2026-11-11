@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-20
+// @adai-reviewed: 2026-11-10
 
 #include "Predictor.hpp"
 #include <cstdint>

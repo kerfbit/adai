@@ -1,9 +1,9 @@
 #ifndef GPU_OPTIMIZER_KERNELS_HPP
 #define GPU_OPTIMIZER_KERNELS_HPP
 
-// @adai-status: experimental
+// @adai-status: beta        (device tests pass on the oneAPI CPU device and ai-machine's Arc)
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-reviewed: 2026-11-10
 
 // TD-468: parameters of the device-resident optimizer update, shared by the CUDA (MatrixGPU.cu)
 // and SYCL (sycl/MatrixGPU_SYCL.cpp) kernels so both backends apply exactly the update rules of

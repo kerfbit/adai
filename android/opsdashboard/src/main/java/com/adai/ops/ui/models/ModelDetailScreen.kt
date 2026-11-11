@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-199 review fix — passes chatbotName into LinkWorldModelDialog so its confirm preview shows the real endpoint)
+// @adai-status: beta        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.4.2
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 
 import androidx.compose.foundation.clickable

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added; TD-180 get_last_attention_weights added)
+// @adai-status: beta        (capped by TD-050, TD-299, TD-300, TD-301 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.15.0
-// @adai-reviewed: 2026-10-20
+// @adai-reviewed: 2026-11-10
 
 
 #include <memory>

@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
-// @adai-status: beta        (TD-196 — kind/connection fields + register/link-world-model DTOs added)
+// @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.5.1
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 
 import kotlinx.serialization.Serializable

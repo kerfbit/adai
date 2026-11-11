@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-157, TD-158 resolved)
+# @adai-status: beta        (tests: tests/scripts/install_chatbot_api_test.sh)
 # @adai-version: 0.8.4
-# @adai-reviewed: 2026-09-12
+# @adai-reviewed: 2026-11-10
 
 # ADAI Chatbot API - systemd Service Installation Script
 #

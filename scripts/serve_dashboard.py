@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved; also fixed a TIME_WAIT restart crash found re-verifying its test suite)
+# @adai-status: beta        (tests: tests/scripts/test_serve_dashboard.py; binds all interfaces by design)
 # @adai-version: 0.6.4
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 """
 Simple HTTP server to serve the dashboard

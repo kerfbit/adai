@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-161; TD-476 send_all(), EINTR retry and tests)
+// @adai-status: beta        (capped by TD-476; Windows build never run — see TECHNICAL_DEBT.md)
 // @adai-version: 0.3.0
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 /**
  * @file PortableSocket.hpp

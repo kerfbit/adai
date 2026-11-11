@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta        (device tests pass on the oneAPI CPU device and ai-machine's Arc)
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-reviewed: 2026-11-10
 
 #ifdef ADAI_ENABLE_GPU
 

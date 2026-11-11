@@ -1,9 +1,9 @@
 #ifndef GPU_PARAM_REF_HPP
 #define GPU_PARAM_REF_HPP
 
-// @adai-status: experimental
+// @adai-status: beta        (device tests pass on the oneAPI CPU device and ai-machine's Arc)
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-reviewed: 2026-11-10
 
 // TD-468: one trainable parameter's device buffers, reported by each layer's
 // gpu_collect_parameters() so the device-resident optimizer (GPUOptimizer) can update the GPU

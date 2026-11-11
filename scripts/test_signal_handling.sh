@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_signal_handling_test.sh)
+# @adai-status: beta        (tests: tests/scripts/test_signal_handling_test.sh)
 # @adai-version: 0.7.3
-# @adai-reviewed: 2026-10-25
+# @adai-reviewed: 2026-11-10
 
 # Test script for signal handling verification
 

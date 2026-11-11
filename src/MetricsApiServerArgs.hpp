@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-03
+// @adai-reviewed: 2026-11-10
 
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable

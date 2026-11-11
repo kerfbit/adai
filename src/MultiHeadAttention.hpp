@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
+// @adai-status: beta        (capped by TD-050, TD-301, TD-467 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-19
+// @adai-reviewed: 2026-11-10
 
 
 #include <functional>

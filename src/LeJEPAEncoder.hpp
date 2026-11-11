@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta        (capped by TD-429, TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
 // @adai-version: 0.11.2
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include <memory>
 #include <random>

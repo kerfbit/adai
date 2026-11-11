@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onRegisterModel/onSetCandidate's body logic extracted to MnsJsonHelpers.hpp, see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-037, TD-454 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-13
+// @adai-reviewed: 2026-11-10
 
 #include "MnsManagerGUI.hpp"
 #include <httplib.h>

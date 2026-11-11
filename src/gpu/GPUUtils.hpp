@@ -1,7 +1,7 @@
 #ifndef GPU_UTILS_HPP
 #define GPU_UTILS_HPP
 
-// @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
+// @adai-status: beta        (capped by TD-383; CUDA paths never run on a device — see TECHNICAL_DEBT.md)
 // @adai-version: 0.12.0
 // @adai-reviewed: 2026-11-10
 

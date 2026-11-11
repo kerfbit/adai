@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_mns_server_test.sh)
+# @adai-status: beta        (tests: tests/scripts/install_mns_server_test.sh)
 # @adai-version: 0.8.4
-# @adai-reviewed: 2026-09-12
+# @adai-reviewed: 2026-11-10
 
 # ADAI Model Name Service - Installation Script
 #

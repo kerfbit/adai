@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-26
+// @adai-reviewed: 2026-11-10
 #pragma once
 
 #include <cstddef>

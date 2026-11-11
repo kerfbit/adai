@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-02
+// @adai-reviewed: 2026-11-10
 
 #include "ChildProcess.hpp"
 #include <cerrno>

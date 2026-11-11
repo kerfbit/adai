@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved — example client, real smoke test added, see tests/scripts/test_batch_api_client.py)
+# @adai-status: beta        (tests: tests/scripts/test_batch_api_client.py)
 # @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 """
 Batch Processing API Client Example

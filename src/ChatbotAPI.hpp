@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-033 (benchmark), TD-213, TD-214 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.26.0
-// @adai-reviewed: 2026-11-04
+// @adai-reviewed: 2026-11-10
 
 #include <atomic>
 #include <chrono>

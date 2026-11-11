@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.14.0
-// @adai-reviewed: 2026-11-01
+// @adai-reviewed: 2026-11-10
 
 #include "ChatbotApiServerArgs.hpp"
 #include <set>

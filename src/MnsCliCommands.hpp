@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-01
+// @adai-reviewed: 2026-11-10
 
 // TD-035: mns_cli's per-command argument parsing and JSON-body construction, pulled out of
 // MnsCliTool.cpp so it's testable without a real mns_server to talk to — see

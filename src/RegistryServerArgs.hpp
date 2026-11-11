@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-03
+// @adai-reviewed: 2026-11-10
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
 // config-precedence resolution, pulled out of RegistryServer.cpp so that piece is testable

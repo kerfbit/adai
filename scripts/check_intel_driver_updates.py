@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved — see ONEAPI_SYCL_DRIVER_SEGFAULT.md; real test suite added)
+# @adai-status: beta        (tests: tests/scripts/test_check_intel_driver_updates.py)
 # @adai-version: 0.6.1
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 """
 Intel Driver/Compiler Update Monitor

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.4.0
-// @adai-reviewed: 2026-10-18
+// @adai-reviewed: 2026-11-10
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher

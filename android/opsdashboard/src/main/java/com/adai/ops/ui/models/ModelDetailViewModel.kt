@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-196 — kind-aware design view: link/detach world model added)
+// @adai-status: beta        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-19
+// @adai-reviewed: 2026-11-10
 
 
 import androidx.lifecycle.ViewModel

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-01
+// @adai-reviewed: 2026-11-10
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a

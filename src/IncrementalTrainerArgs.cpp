@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>

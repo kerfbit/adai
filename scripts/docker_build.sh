@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/docker_build_test.sh)
+# @adai-status: beta        (tests: tests/scripts/docker_build_test.sh)
 # @adai-version: 0.8.4
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 # Docker build script for ADAI Chatbot API Server
 

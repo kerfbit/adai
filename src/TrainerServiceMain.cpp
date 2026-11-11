@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-02
+// @adai-reviewed: 2026-11-10
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and

@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.5.1
-// @adai-reviewed: 2026-11-03
+// @adai-reviewed: 2026-11-10
 
 #include "MetricsApiServerArgs.hpp"
 #include <algorithm>

@@ -1,6 +1,6 @@
-// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
+// @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
 // @adai-version: 0.34.0
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include <array>
 #include <atomic>

@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (TD-199 review fix — RegisterChatbotDialog takes dedicated encoder/decoder candidate lists, not the list screen's own kind-filtered models)
+// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.1.1
-// @adai-reviewed: 2026-09-19
+// @adai-reviewed: 2026-11-10
 
 
 import androidx.compose.foundation.layout.Arrangement

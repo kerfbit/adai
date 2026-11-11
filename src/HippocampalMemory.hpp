@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta        (capped by TD-397, TD-398 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-01
+// @adai-reviewed: 2026-11-10
 
 #include <cstdint>
 #include <deque>

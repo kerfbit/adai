@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-02
+// @adai-reviewed: 2026-11-10
 
 #include "TrainerAdminConfig.hpp"
 #include <charconv>

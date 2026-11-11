@@ -1,8 +1,8 @@
 package com.adai.ops.testutil
 
-// @adai-status: beta        (TD-196 — kind filter + registerModel/linkWorldModel added)
+// @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-19
+// @adai-reviewed: 2026-11-10
 
 
 import com.adai.ops.network.MnsApiService

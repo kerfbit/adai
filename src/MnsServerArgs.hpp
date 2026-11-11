@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-01
+// @adai-reviewed: 2026-11-10
 
 // TD-035: argv parsing and config-precedence resolution for mns_server's main(), pulled out of
 // ModelNameServiceServer.cpp so it's testable without spinning up a real ModelNameService

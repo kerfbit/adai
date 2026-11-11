@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-27
+// @adai-reviewed: 2026-11-10
 
 #include "SecureRandom.hpp"
 

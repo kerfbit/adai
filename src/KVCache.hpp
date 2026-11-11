@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-050 investigated — root-caused clean, no correctness bug found; see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-26
+// @adai-status: stable        (TD-421/TD-422 fixed, tests: kvcacheTests)
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-11-10
 
 
 #include <stdexcept>

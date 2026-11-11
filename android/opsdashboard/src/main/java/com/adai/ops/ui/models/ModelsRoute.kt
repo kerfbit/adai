@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (TD-196 — onOpenModel cross-navigation threaded into the detail pane)
+// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-19
+// @adai-reviewed: 2026-11-10
 
 
 import androidx.activity.compose.BackHandler

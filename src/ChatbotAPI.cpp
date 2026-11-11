@@ -1,6 +1,6 @@
-// @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-033 (benchmark), TD-213, TD-214, TD-473 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.32.1
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
+// @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
 // @adai-version: 0.21.0
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 
 #include <chrono>

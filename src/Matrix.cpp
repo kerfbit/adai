@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-033, TD-435 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.10.2
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include "Matrix.hpp"
 #include <algorithm>

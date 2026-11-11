@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-28
+// @adai-reviewed: 2026-11-10
 
 /**
  * SignalSetup — SIGHUP handling for binaries that don't reload their configuration (TD-283).

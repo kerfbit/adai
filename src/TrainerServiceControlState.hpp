@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.3.1
-// @adai-reviewed: 2026-11-03
+// @adai-reviewed: 2026-11-10
 
 // TD-173: trainer_service's own process-lifetime control state — the piece missing from TD-172's
 // initial implementation. TrainerControlState (TrainerControlState.hpp) is deliberately

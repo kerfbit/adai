@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
+// @adai-status: beta        (capped by TD-050; GPU KV cache awaits on-device validation — see TECHNICAL_DEBT.md)
 // @adai-version: 0.32.0
-// @adai-reviewed: 2026-11-08
+// @adai-reviewed: 2026-11-10
 
 #include <cstdint>
 #include <functional>

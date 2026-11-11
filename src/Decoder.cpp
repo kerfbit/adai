@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
+// @adai-status: beta        (capped by TD-050, TD-303, TD-348 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.19.1
-// @adai-reviewed: 2026-11-08
+// @adai-reviewed: 2026-11-10
 
 #include "Decoder.hpp"
 #include "BinaryIO.hpp"

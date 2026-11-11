@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-04
+// @adai-reviewed: 2026-11-10
 
 #include <functional>
 #include <optional>

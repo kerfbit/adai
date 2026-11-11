@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/verify_gui_parallel_test.sh)
+# @adai-status: beta        (tests: tests/scripts/verify_gui_parallel_test.sh)
 # @adai-version: 0.7.0
-# @adai-reviewed: 2026-11-04
+# @adai-reviewed: 2026-11-10
 
 # Chatbot GUI build verification script.
 # TD-260: chatbot_gui is a client of chatbot_api_server, so it no longer links the model libraries or

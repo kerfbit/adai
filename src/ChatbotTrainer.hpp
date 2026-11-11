@@ -1,6 +1,6 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
+// @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
 // @adai-version: 0.17.0
 // @adai-reviewed: 2026-11-10
 

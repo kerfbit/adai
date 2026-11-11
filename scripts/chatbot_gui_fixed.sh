@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-044 resolved — workaround for a specific Qt threading bug, see THREAD_ERROR_FIX.md; real test suite added)
+# @adai-status: beta        (tests: tests/scripts/chatbot_gui_fixed_test.sh)
 # @adai-version: 0.8.0
-# @adai-reviewed: 2026-11-04
+# @adai-reviewed: 2026-11-10
 
 
 # Wrapper script to run chatbot_gui with correct library paths

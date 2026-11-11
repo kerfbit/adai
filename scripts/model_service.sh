@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/model_service_test.sh)
+# @adai-status: beta        (tests: tests/scripts/model_service_test.sh)
 # @adai-version: 0.8.3
-# @adai-reviewed: 2026-09-11
+# @adai-reviewed: 2026-11-10
 
 # =============================================================================
 # ADAI Model Service Manager

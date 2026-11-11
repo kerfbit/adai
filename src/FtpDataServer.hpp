@@ -1,6 +1,6 @@
-// @adai-status: beta        (TD-040 fully resolved — see below)
+// @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.13.1
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.

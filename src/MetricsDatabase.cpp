@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta        (capped by TD-477, TD-480 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-04
+// @adai-reviewed: 2026-11-10
 
 // TD-441: the IMetricsDatabase factory and the shared row-cap planner, moved out of
 // SQLiteMetricsDatabase.cpp (the factory picks a backend, so it doesn't belong to one).

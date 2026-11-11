@@ -1,6 +1,6 @@
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.1.1
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 #include "Dropout.hpp"
 #include <stdexcept>

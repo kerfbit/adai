@@ -1,6 +1,6 @@
-// @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
+// @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.32.0
-// @adai-reviewed: 2026-11-07
+// @adai-reviewed: 2026-11-10
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG

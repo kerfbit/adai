@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-199 review fix — loadChatbotLinkCandidates() added, no longer reuses the list's own kind-filtered state.models)
+// @adai-status: beta        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.3.1
-// @adai-reviewed: 2026-09-19
+// @adai-reviewed: 2026-11-10
 
 
 import androidx.lifecycle.ViewModel

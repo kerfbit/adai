@@ -1,9 +1,9 @@
 #ifndef MATRIX_GPU_SYCL_HPP
 #define MATRIX_GPU_SYCL_HPP
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-08
+// @adai-reviewed: 2026-11-10
 
 #include "../GPUOptimizerKernels.hpp"
 #include "GPUUtils_SYCL.hpp"

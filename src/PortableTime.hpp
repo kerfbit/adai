@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-160 — new, no test coverage yet beyond the callers it replaces)
+// @adai-status: beta        (capped by TD-477 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-12
+// @adai-reviewed: 2026-11-10
 
 /**
  * @file PortableTime.hpp

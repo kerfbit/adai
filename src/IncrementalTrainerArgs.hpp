@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: experimental
+// @adai-status: beta
 // @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-09
+// @adai-reviewed: 2026-11-10
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
