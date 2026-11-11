@@ -1,5 +1,5 @@
 // @adai-status: beta        (widget tests: chatbotGuiWidgetTests)
-// @adai-version: 0.10.1
+// @adai-version: 0.10.2
 // @adai-reviewed: 2026-11-10
 
 #include "ChatbotGUI.hpp"
@@ -320,15 +320,18 @@ void ChatbotGUI::addMessage(const QString& sender, const QString& message, bool 
         bgColor = "#FFF3E0";
     }
 
-    // TODO: See TD-567 in TECHNICAL_DEBT.md - line breaks in `message` are lost: HTML shows a multi-line message on one line
+    // TD-567: pre-wrap keeps the message's line breaks and runs of spaces, which HTML would
+    // otherwise collapse into one line. The sender is escaped too: a loaded conversation can name
+    // any role.
     QString html =
         QString(
             "<div style='margin: 10px; padding: 10px; background-color: %1; border-radius: 8px;'>"
             "<span style='font-weight: bold; color: %2;'>%3</span> "
             "<span style='color: #666; font-size: 10px;'>%4</span><br>"
-            "<span style='color: #333; margin-top: 5px; display: block;'>%5</span>"
+            "<span style='color: #333; margin-top: 5px; display: block; white-space: "
+            "pre-wrap;'>%5</span>"
             "</div>")
-            .arg(bgColor, color, sender, timestamp, message.toHtmlEscaped());
+            .arg(bgColor, color, sender.toHtmlEscaped(), timestamp, message.toHtmlEscaped());
 
     chatDisplay->append(html);
 

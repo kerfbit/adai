@@ -1,276 +1,177 @@
 # `ChatbotGUI` — Source File Reference
 
-- **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp), [`src/ChatbotGuiLaunchEnv.{hpp,cpp}`](../../../../src/ChatbotGuiLaunchEnv.hpp) (TD-264)
-- **Built into:** `chatbot_gui_binary` (main + class + `Config.cpp`; links `adai_models`, `adai_nlp`, `adai_attention`, `adai_core`, Qt6 or Qt5 Widgets) and `chatbot_gui` (the launcher wrapper). Only when `BUILD_GUI=ON` (the default) and Qt is found; CMake prefers **Qt6**, falling back to Qt5
-- **Status tags:** class `beta` 0.8.0/0.10.1 (widget tests since TD-037 closed, November 10, 2026); `ChatbotGuiLogic.hpp` `beta` 0.1.0; main and wrapper `stable` 1.0.0
-- **Tests:** [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (2 tests; strategy mapping only), and the widget itself in [`tests/chatbot_gui_widget_test.cpp`](../../../../tests/chatbot_gui_widget_test.cpp) → `chatbotGuiWidgetTests` (Qt Test, 18 tests; TD-037)
-- **User docs:** [chatbot-gui-guide.md](../../../operations/guides/chatbot-gui-guide.md), [GUI_QUICK_REFERENCE.md](../../../operations/guides/quick-reference/GUI_QUICK_REFERENCE.md), [CHATBOT_GUI_TROUBLESHOOTING.md](../../../operations/guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md), [CPP_WRAPPER_SOLUTION.md](../../../operations/guides/troubleshooting/CPP_WRAPPER_SOLUTION.md)
-- **Last traced against the code:** 2026-10-09
+- **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp) (181 lines), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp) (608), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp) (137), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp) (57), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp) (106), [`src/ChatbotGuiLaunchEnv.{hpp,cpp}`](../../../../src/ChatbotGuiLaunchEnv.hpp) (51 + 88)
+- **Built into:** `chatbot_gui_binary` (main, the class, [`ChatbotClient`](ChatbotClient.md), `ConversationFormat.cpp`, `GenerationSettings.cpp`; links only Qt Widgets and threads, no model library) and `chatbot_gui` (the launcher wrapper, with `ChatbotGuiLaunchEnv.cpp`). Only when `BUILD_GUI=ON` (the default) and Qt is found; CMake prefers **Qt6**, falling back to Qt5
+- **Status tags:** `ChatbotGUI.hpp` `beta` 0.8.0, `ChatbotGUI.cpp` `beta` 0.10.2, `ChatbotGuiLogic.hpp` `beta` 0.3.0, `ChatbotGuiLaunchEnv.{hpp,cpp}` `beta` 0.1.0; `ChatbotGUI_main.cpp` `stable` 2.0.0, `ChatbotGUI_wrapper.cpp` `stable` 1.1.0
+- **Tests:** [`tests/chatbot_gui_widget_test.cpp`](../../../../tests/chatbot_gui_widget_test.cpp) → `chatbotGuiWidgetTests` (Qt Test, 22 tests, the real window against an in-process server); [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (11); `chatbotguilaunchenvTests` (7); smoke tests `SmokeTests_chatbot_gui_binary_main` and `SmokeTests_chatbot_gui_wrapper` (`tests/smoke/`)
+- **User docs:** [chatbot-gui-guide.md](../../../operations/guides/chatbot-gui-guide.md), [GUI_QUICK_REFERENCE.md](../../../operations/guides/quick-reference/GUI_QUICK_REFERENCE.md), [CHATBOT_GUI_TROUBLESHOOTING.md](../../../operations/guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md), [CPP_WRAPPER_SOLUTION.md](../../../operations/guides/troubleshooting/CPP_WRAPPER_SOLUTION.md) (historical)
+- **Last traced against the code:** 2026-11-10
 
-> Code-traced reference. Findings come from reading the GUI and the `EncoderDecoderModel`,
-> `ConversationContext` and `IncrementalTrainer` code it depends on. The GUI itself wasn't run
-> (no display in this environment), so each finding below cites the code that proves it.
+> Code-traced reference. Behaviour marked **tested** is covered by `chatbotGuiWidgetTests`, which drives the real
+> window offscreen; the server-facing behaviour was also checked against a real `chatbot_api_server` (TD-260, TD-266).
 
 ---
 
 ## 1. What this file is
 
-`chatbot_gui` is a **standalone** Qt desktop chat app. Unlike the `chatbot` CLI (an HTTP client,
-see [ChatbotCLI.md](ChatbotCLI.md)), it loads the vocabulary and model **in-process** and generates
-locally, with no server involved. It has a chat pane with an input field and
-Clear/Save/Load buttons, and a settings panel (strategy, temperature, top-p, top-k, max length,
+`chatbot_gui` is a Qt desktop client of `chatbot_api_server`, like the `chatbot` CLI ([ChatbotCLI.md](ChatbotCLI.md)):
+the server holds the model, the tokenizer and the conversation, and the GUI sends messages to it over HTTP through
+[`ChatbotClient`](ChatbotClient.md), the session class the CLI uses too. The window has a chat pane with an input
+field and Clear Chat / Save / Load buttons, and a settings panel (strategy, temperature, top-p, top-k, max length,
 beam width).
 
 ```text
-chatbot_gui [vocab_file] [model_file]          (defaults: vocab.txt, chatbot_model.bin)
-   └─ wrapper: clean snap env, set LD_LIBRARY_PATH / Qt plugin path ─► exec chatbot_gui_binary
-        └─ QApplication ─► ChatbotGUI(vocab, model)
-              ├─ initializeChatbot(): tokenizer ─► config.chatbot.conf architecture ─► model ─► weights? ─► context
-              ├─ setupUI() + applyStylesheet()
-              └─ Send ─► generateResponse(): context ─► model->generate_response_with_strategy(...)
+chatbot_gui [server_url]                     (default http://localhost:8080)
+   └─ wrapper: remove snap entries from the environment ─► exec chatbot_gui_binary
+        └─ main: --help before QApplication ─► ChatbotGUI(server_url)
+              ├─ setupUI() + applyStylesheet() + welcome message
+              ├─ client.open(), then connect (GET /health) on the worker thread ─► connection notice
+              └─ Send / Clear / Save / Load ─► runRequest(): the HTTP call on the worker, the result on the GUI thread
 ```
 
 ### Why it matters
 
-It's the only way to chat with a model without running `chatbot_api_server`, which is useful for
-quickly trying a checkpoint on a desktop. Its value depends entirely on actually loading that
-checkpoint, which it currently can't do (§4).
+It's the desktop way to chat with the served model. Because it is a client, it always talks to the same trained
+model, architecture and settings as every other client; it used to load its own copy of the model and couldn't
+load a real checkpoint (TD-260).
 
 ---
 
 ## 2. `ChatbotGUI_wrapper.cpp` (the `chatbot_gui` executable)
 
-Works around snap-packaged library conflicts (see CPP_WRAPPER_SOLUTION.md):
+Works around snap-packaged library conflicts (see CPP_WRAPPER_SOLUTION.md for the original problem):
 
-1. finds its own directory via `/proc/self/exe` (TD-103 fix; argv[0] isn't reliable for PATH
-   launches);
-2. unsets `GTK_PATH`, `SNAP`, `SNAP_COMMON`, `SNAP_DATA`;
-3. sets `LD_LIBRARY_PATH` to `/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu`, appending the old
-   value only if it contains no `/snap/`;
-4. sets `QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins` and empties
-   `GTK_MODULES`;
-5. `execvp`s `<dir>/chatbot_gui_binary` with the same arguments.
+1. finds its own directory via `/proc/self/exe` (TD-103; `argv[0]` isn't reliable for `PATH` launches);
+2. applies `adai::gui_launch::launch_environment()` (`ChatbotGuiLaunchEnv.{hpp,cpp}`, no Qt dependency, TD-264):
+   - always unsets `GTK_PATH`, `SNAP`, `SNAP_COMMON`, `SNAP_DATA` and sets `GTK_MODULES` empty;
+   - removes only `/snap/` entries from `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH`, keeping the rest in order (a list
+     left empty is unset); adds no system directory; unsets `GIO_MODULE_DIR` only when it points into a snap;
+   - in a snap environment only, and only if the user hasn't set it outside a snap, sets
+     `QT_QPA_PLATFORM_PLUGIN_PATH` to `ADAI_QT_PLATFORM_PLUGIN_DIR`, the platform plugin directory of the Qt the GUI
+     is built with (from CMake's `Qt<5|6>::QOffscreenIntegrationPlugin` target, then `QXcbIntegrationPlugin`,
+     `QMinimalIntegrationPlugin`), if it still exists;
+3. `execvp`s `<dir>/chatbot_gui_binary` with the same arguments.
 
-Gotchas:
-
-- **The plugin path is always Qt5**, even though CMake builds against **Qt6 when it's available**.
-  A Qt6 build launched through the wrapper is pointed at Qt5 platform plugins.
-- **x86_64 Debian/Ubuntu paths are hardcoded**, so other architectures or distributions get wrong
-  paths.
-- Library order is forced: system paths come first, so a user's own `LD_LIBRARY_PATH` entries
-  can't override system libraries, and any `LD_LIBRARY_PATH` containing `/snap/` is dropped
-  entirely.
+`scripts/run_chatbot_gui.sh` and `scripts/chatbot_gui_fixed.sh` leave the environment to the wrapper.
 
 ---
 
 ## 3. `ChatbotGUI_main.cpp`
 
-Creates the `QApplication`, sets the app metadata, takes `argv[1]`/`argv[2]` as vocab/model paths,
-handles `--help`/`-h`, then shows the window and runs the event loop. The `QApplication` is created
-**before** the help check, so even `chatbot_gui --help` needs a working display connection.
+Handles `--help`/`-h` **before** creating the `QApplication`, so help works without a display. More than one argument
+(the old `[vocab_file] [model_file]` form) exits 1 with an explanation. Otherwise it takes `argv[1]` as the server
+URL (default `http://localhost:8080`), creates the `QApplication`, shows a `ChatbotGUI` and runs the event loop.
 
 ---
 
 ## 4. `ChatbotGUI` class
 
-### Construction and `initializeChatbot()`
+### Construction
 
-The constructor sets defaults (strategy `nucleus`, max length 100, temperature 1.0, top-p 0.9,
-top-k 50, beam width 5), calls `initializeChatbot()`, builds the UI, and posts a welcome
-message. `initializeChatbot()`:
+The constructor builds the UI (`setupUI()`, `applyStylesheet()`), shows a two-line welcome message, then calls
+`client.open()`. An invalid URL (one `httplib` rejects, such as `ftp://…`) is reported in the chat pane and leaves the
+controls disabled with Send reading "No server" (**tested**); the GUI must be restarted with a valid URL. Otherwise it
+connects on the worker thread (`GET /health`) and shows `chatbot_gui::connection_notice()`: connected, unreachable
+(with how to pass a URL), a server running an untrained model (`/health` 503, TD-246), or something else answering
+(**tested**). An unreachable server doesn't disable sending: messages go through once the server is up.
 
-1. loads the tokenizer from the vocab path;
-2. reads the architecture from **`config.chatbot.conf`** (discovered from the working directory,
-   then `/etc/adai`, then legacy paths), not from MNS and not from the checkpoint;
-3. constructs `EncoderDecoderModel` with that architecture and hands it the tokenizer
-   (`set_tokenizer()` takes ownership, so the `tokenizer` member is null afterwards, by design);
-4. **loads weights only if `std::ifstream(model_path).good()`**;
-5. creates a `ConversationContext(20 messages, 480 tokens)`.
+### One request at a time, off the GUI thread (TD-263)
 
-> **The GUI can't load a trained checkpoint.** `EncoderDecoderModel::save_model(path)` writes only
-> sidecar files, `path.config`, `.vocab`, `.encoder`, `.decoder` and `.lm_head`, and **never a file
-> at `path` itself**. Step 4 checks for a file at exactly `path`, which never exists for a real
-> checkpoint, so `load_model()` is never called and the GUI **silently** runs on random weights
-> (no message at all). `IncrementalTrainer` has a comment describing this exact trap ("checking
-> for that bare path here would reject every legitimately-saved checkpoint unconditionally") and
-> checks the sidecars instead. Passing a path that *does* exist, such as `model.config`, doesn't
-> help: `load_model()` then looks for `model.config.config` and throws (see the next note).
+`runRequest(busyText, work)` joins the previous worker (which has finished: its result already re-enabled the
+controls), calls `setBusy(true, busyText)`, and runs `work` on a `std::thread`. `work` makes the HTTP call and returns
+a function, which is posted back to the GUI thread with `QMetaObject::invokeMethod(…, Qt::QueuedConnection)`; it runs
+`setBusy(false)` and then shows the result. An exception in `work` becomes a System message.
 
-> **Architecture mismatch makes it unusable, with misleading messages.** The architecture comes
-> only from the local config file. The server and trainer take it from MNS (CLAUDE.md, "Model
-> architecture is MNS-authoritative"), so a checkpoint trained under an MNS architecture that
-> differs from the local file fails `load_model()`. Any exception in steps 1–5 shows a warning
-> saying "Using default/random initialization", returns `false` (so the constructor shows a
-> *second*, critical dialog), and leaves `context` null. Every message then answers
-> "[Error: Chatbot not initialized]". The warning's "random initialization" claim is wrong: the
-> GUI is unusable.
+`setBusy()` disables the input field, Send (whose text shows the busy text, e.g. "Generating..."), both Clear
+buttons, Save, Load and the whole settings panel (**tested**). So only the worker touches `client` while a request
+runs, and the settings never change under it.
 
-The 480-token context limit is hardcoded with a comment about a 512-token model, regardless of
-the configured `MAX_SEQ_LENGTH`.
+The destructor calls `client.cancel()` and joins the worker, so closing the window during a request returns at once
+instead of waiting for the server (**tested**: under 5 s while the server holds the request for 30 s). The posted
+result is dropped with the destroyed window.
 
-### UI construction
+### UI
 
-`setupUI()` builds a 70/30 splitter. `createChatArea()` holds the read-only `QTextEdit` and the
-Clear Chat / Save / Load buttons. `createInputArea()` has the line edit, a second Clear button (a
-local, after a past fix where it overwrote the `clearButton` member) and Send; Enter also sends.
-`createSettingsPanel()` has a strategy combo (`Nucleus (Top-p)`, `Top-k Sampling`, `Greedy`,
-`Beam Search`, `Sampling`), temperature 0.1–2.0, top-p 0.1–1.0, top-k 1–200, max length 10–500,
-and beam width 1–10. `applyStylesheet()` sets the look. `addMessage()` appends HTML-escaped,
-timestamped, colour-coded bubbles and scrolls down.
+`setupUI()` builds a 70/30 splitter: the chat area (read-only `QTextEdit`, Clear Chat / Save Conversation / Load
+Conversation), the input area (line edit, a second Clear, Send; Enter also sends) and the settings panel. Every
+control the tests use has an object name (`chatDisplay`, `inputField`, `sendButton`, `clearChatButton`,
+`clearInputButton`, `saveButton`, `loadButton`, `settingsPanel`, `strategyCombo`, `temperatureSpin`, `topPSpin`,
+`topKSpin`, `maxLengthSpin`, `beamWidthSpin`).
+
+Settings (TD-254, TD-260): the strategy combo starts with "Server default", then Nucleus, Top-k, Greedy, Beam Search
+and Sampling (the server's names `nucleus`, `top_k`, `greedy`, `beam`, `temperature`). Each spin box covers the
+server's range (`adai::GenerationLimits`) plus one step below it, shown as "server default". A setting is sent with the
+next message only when moved off "server default" (**tested**); the server decides when beam width applies.
+
+`addMessage(sender, message, isUser)` appends a timestamped, colour-coded HTML bubble (blue for the user, green for
+the bot, orange for System) and scrolls down. Both `sender` and `message` are HTML-escaped, and the message span has
+`white-space: pre-wrap`, so line breaks and runs of spaces show as sent (TD-567, **tested**); a loaded conversation's
+role names are shown as text, not markup (**tested**).
 
 ### Slots
 
 | Slot | Behaviour |
 |---|---|
-| `onSendMessage()` | Shows the user message, disables input, calls `generateResponse()` **on the GUI thread**, shows the reply, re-enables input |
-| `onClearConversation()` | Confirms, then clears the display and `context` |
-| `onSaveConversation()` / `onLoadConversation()` | File dialog, then `ConversationContext::save_to_file()` / `load_from_file()`. Both use `serialize()`/`deserialize()`, the **same format** as the CLI's `/save`/`/load` (server export/import), so files are interchangeable. Loading doesn't redisplay the loaded messages |
-| `onStrategyChanged(index)` | `chatbot_gui::generation_strategy_for_index()` (`ChatbotGuiLogic.hpp`): 0 nucleus, 1 top-k, 2 greedy, 3 beam, 4 sampling (out of range falls back to nucleus) |
-| `onTemperatureChanged`, `onTopPChanged`, `onTopKChanged`, `onMaxLengthChanged`, `onBeamWidthChanged` | Store the value |
-
-> **The UI freezes during generation.** `generateResponse()` runs synchronously in the click
-> handler. `processEvents()` is called once before it, so the "Generating..." label paints, but
-> then the event loop is blocked for the whole generation (seconds to minutes on CPU): the window
-> can't repaint, scroll or close, and the desktop may flag it as "not responding".
-
-### `generateResponse(user_input)`
-
-Appends the user message, formats the context with
-`ConversationContext::format_with_special_tokens()` (`<bos> [USER] … <sep> …`), calls
-`model->generate_response_with_strategy(context, max_length, strategy, temperature, top_k, top_p,
-beam_width)`, and appends the reply. Exceptions become `[Error: …]` replies.
-
-> **Every strategy runs beam search unless Beam Width is 1.** In
-> `EncoderDecoderModel::generate_response_with_strategy()`, the beam branch is taken when
-> `strategy == "beam" || num_beams > 1`. It returns before the greedy/sampling/top-k/nucleus
-> branches. The GUI always passes the Beam Width spin box (default **5**), so choosing Nucleus,
-> Top-k, Greedy or Sampling still gets beam search. A comment in that function says the explicit
-> strategies "are unaffected", but the code order contradicts it. The same root cause hits
-> `RLHFTrainer`, which omits `num_beams` and so gets the header default of **4**: its sampling
-> configuration is overridden by beam search too.
-
-> **The GUI and the server format multi-turn context differently.** The GUI uses
-> `format_with_special_tokens()` (`<bos> [USER] … <sep>` tags, which the tokenizer reads as plain
-> characters, not special tokens). `ChatbotAPI` sessions use `format_for_model()` (`User: …` /
-> `Assistant: …`). The same model gets differently shaped prompts depending on the client.
-
-GPU acceleration is never initialized: there's no `GPU_ENABLED` handling, so the GUI always runs
-on CPU.
+| `onSendMessage()` | Ignores blank input. Shows the message, clears the input, then sends it on the worker (`ChatbotClient::send_message()`, `POST /chat/session`). Shows the reply as "Bot", or the server's error as a System message (`Error: <status> - <error> (request id N)`, TD-255), after a note when the server had lost the session and the message started a new one (TD-232). The first reply's session id is kept for later messages (**tested**) |
+| `onClearConversation()` | Asks first (No changes nothing). Clears the server's session (`POST /clear-session`), then the pane (**tested**); a refusal is shown as a System message |
+| `onSaveConversation()` | Before any message: "Nothing to save yet", no dialog. Otherwise a file dialog, then on the worker `export_session()` and an atomic write of the server's copy (`chatbot_client::write_file_atomically()`, TD-258) (**tested**); a failure is shown in an error dialog |
+| `onLoadConversation()` | A file dialog; an unreadable or empty file is an error dialog. Otherwise, on the worker, `import_session()` and then `export_session()`, and the pane shows the server's copy of the conversation, which it continues from (TD-266), with the server's message count (**tested**) |
+| `onStrategyChanged()` and the five setting slots | `chatbot_gui::apply_strategy()`, `apply_int_setting()`, `apply_real_setting()`: record the value in the client's overrides, or reset it at "server default" |
 
 ---
 
 ## 5. `ChatbotGuiLogic.hpp`
 
-`chatbot_gui::generation_strategy_for_index(int)`: the combo-box-index-to-strategy mapping,
-extracted from the widget (TD-037's "logic extraction" step) so it can be tested without Qt.
-`chatbotguilogicTests` covers it. Its names (`top-k`, `sampling`) match what
-`generate_response_with_strategy()` accepts (`top-k` is normalized to `topk`).
+Qt-free helpers, tested by `chatbotguilogicTests` (TD-037's logic extraction):
+
+- `generation_strategy_for_index()`: the combo index to the server's strategy name ("" for "Server default" or an
+  index out of range).
+- `apply_strategy()`, `apply_int_setting()`, `apply_real_setting()`: a control's value into `GenerationOverrides`
+  (sent) or reset (not sent) at or below its "server default" value.
+- `connection_notice()`: the chat-pane text for a `ChatbotClient::Health`.
+- `session_lost_notice()`: the note shown when the server had forgotten the session.
+- `conversation_messages()`: exported conversation data (`adai::conversation_format`, `src/ConversationFormat.{hpp,cpp}`)
+  as chat-pane messages, in order: the system message as "System", then "user" as "You", "assistant" as "Bot",
+  "system" (a summary) as "System", any other role by its own name.
 
 ---
 
-## 6. Known gaps and gotchas (summary)
-
-Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+## 6. Known gaps and gotchas
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Weights load only if a file exists at the bare model path, which `save_model()` never writes (§4) | GUI never loads a trained checkpoint; silently random | `save_model()`'s file list; `IncrementalTrainer`'s own note | [TD-260](../../guides/TECHNICAL_DEBT.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint) |
-| `num_beams > 1` forces beam search for every strategy; GUI default 5; `RLHFTrainer` gets default 4 (§4) | Strategy choice ignored; RLHF sampling replaced by beam search | Code order in `generate_response_with_strategy()` | [TD-261](../../guides/TECHNICAL_DEBT.md#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) |
-| Architecture from local config only, not MNS; init failure leaves the GUI unusable with two contradictory dialogs (§4) | Mismatched checkpoints can't load; confusing errors | By inspection | [TD-262](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) |
-| Generation runs on the GUI thread (§4) | Window freezes for the whole generation | By inspection | [TD-263](../../guides/TECHNICAL_DEBT.md#td-263-chatbot_gui-freezes-while-generating) |
-| Wrapper forces Qt5 plugin path though CMake prefers Qt6; hardcoded x86_64 paths; overrides `LD_LIBRARY_PATH` order (§2) | Qt6 builds pointed at Qt5 plugins; non-x86_64 broken | By inspection | [TD-264](../../guides/TECHNICAL_DEBT.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
-| Different multi-turn prompt format from the server (§4) | Inconsistent model behaviour across clients | By inspection | [TD-265](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
-| Hardcoded 480-token context; load doesn't redisplay history; `--help` needs a display; no GPU (§3–4) | Minor | By inspection | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
-| `addMessage()` escapes text into HTML without converting line breaks, so multi-line messages are shown on one line | Replies with paragraphs, lists or code, loaded conversations and the welcome message display wrongly | **Verified** (widget test) | [TD-567](../../guides/TECHNICAL_DEBT.md#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) |
-| ~~Widget class untested~~ | — | **Fixed November 10, 2026**: Qt Test suite | [TD-037](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) |
+| No Stop control: a request runs until the server answers. `chatbot_api_server` can't stop a generation, so a Stop button would only stop waiting while the server still adds the turn | Long generations can only be waited out (or the window closed) | By design of the server API | [TD-263](../../guides/TECHNICAL_DEBT.md#td-263-chatbot_gui-freezes-while-generating)'s remaining item |
+| An invalid server URL at startup leaves the window unusable until restarted with a valid one | The URL can't be changed in the window | Tested | — (by design: the URL is the only argument) |
 
-## Addendum (October 25, 2026): Beam Width only for beam search (TD-261)
+Fixed, for reference:
 
-`generateResponse()` passes the Beam Width setting only when the strategy is `"beam"` (otherwise 1). With the model-side fix, Nucleus,
-Top-k, Greedy and Sampling now run as chosen; they used to be beam search at the default width of 5.
+| Item | Fixed | Tracked as |
+|---|---|---|
+| The GUI ran its own model and never loaded a trained checkpoint | November 4, 2026: a client of `chatbot_api_server` | [TD-260](../../guides/TECHNICAL_DEBT.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint) |
+| `num_beams > 1` forced beam search for every strategy | October 25, 2026 | [TD-261](../../guides/TECHNICAL_DEBT.md#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) |
+| Local-config architecture; unusable after an init failure | Moot after TD-260 | [TD-262](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) |
+| Generation froze the window | November 4, 2026: the worker thread | [TD-263](../../guides/TECHNICAL_DEBT.md#td-263-chatbot_gui-freezes-while-generating) |
+| The wrapper forced Qt5 x86_64 paths | November 4, 2026 | [TD-264](../../guides/TECHNICAL_DEBT.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
+| A prompt format different from the server's | Moot after TD-260 | [TD-265](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
+| `--help` needed a display; a loaded conversation wasn't shown | November 4, 2026 | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
+| The widget class was untested | November 10, 2026: Qt Test suite | [TD-037](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) |
+| Multi-line messages were shown on one line; role names were inserted as HTML | November 10, 2026 | [TD-567](../../guides/TECHNICAL_DEBT.md#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) |
 
-## Addendum (November 4, 2026): a client of `chatbot_api_server` (TD-260, TD-263)
+---
 
-Owner decision: the GUI no longer runs its own copy of the model. Most of §4 above (`initializeChatbot()`, the
-local architecture, checkpoint loading, `ConversationContext`) describes code that is gone; TD-260, TD-262 and
-TD-265 no longer apply (TD-262 and TD-265 closed as moot and moved to the resolved archive).
+## 7. History
 
-- `chatbot_gui [server_url]` (default `http://localhost:8080`) holds a [`ChatbotClient`](ChatbotClient.md), the HTTP
-  session the `chatbot` CLI uses too, and links only Qt, `ChatbotClient` and `GenerationSettings`. Two arguments
-  (the old `[vocab_file] [model_file]`) exit 1 with an explanation; `--help` is handled before `QApplication`.
-- The constructor calls `client.open()`, then connects on the worker thread. The chat pane gets
-  `chatbot_gui::connection_notice()`: connected, unreachable (with how to give a URL), an untrained model on the
-  server (`/health` 503, TD-246), or something else answering.
-- `runRequest(busyText, work)` runs `work` on a `std::thread` and posts the function it returns back to the GUI
-  thread with `QMetaObject::invokeMethod`. `setBusy()` disables the input, all four buttons and the settings panel
-  meanwhile, so only one request runs and the worker never reads settings mid-change (TD-263). The destructor calls
-  `client.cancel()` and joins the thread; Qt drops the result posted to the destroyed window.
-- Send shows the reply, or the server's error as a System message (TD-255), after a note when the server had lost the
-  session. Clear clears the server's session. Save exports and writes the file atomically. Load imports into the
-  server; since TD-266 (below) the loaded messages are shown.
-- Settings: the strategy list starts with "Server default", and each spin box starts one step below the server's
-  range (`adai::GenerationLimits`), shown as "server default". `chatbot_gui::apply_strategy()`,
-  `apply_int_setting()` and `apply_real_setting()` (`ChatbotGuiLogic.hpp`) record a value in the client's overrides,
-  or reset it at "server default", so only changed settings are sent (TD-254). Strategy names are the server's
-  (`top_k`, `temperature`), and beam width is sent whenever it's changed; the server decides when it applies.
-- `clearInputButton` (Clear beside Send) is now a member, so `setBusy()` can disable it.
-
-Checked by driving the real class headless against a real `chatbot_api_server`; see TD-260's entry.
-
-## Addendum (November 4, 2026): the wrapper removes only what a snap adds (TD-264)
-
-§2's steps 3–4 and its three gotchas no longer apply. The wrapper now calls
-`adai::gui_launch::launch_environment()` (`src/ChatbotGuiLaunchEnv.{hpp,cpp}`, no Qt dependency) and applies the
-changes it returns before `execvp`:
-
-- Always: unset `GTK_PATH`, `SNAP`, `SNAP_COMMON`, `SNAP_DATA`; set `GTK_MODULES` empty (as before).
-- `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH`: only entries containing `/snap/` are removed, the rest keep their order,
-  and a list left empty is unset. No system directory is added (the dynamic linker searches the system's own).
-  The old wrapper put `/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu` first and dropped a list with any snap
-  entry entirely. `GIO_MODULE_DIR` is unset only when it points into a snap.
-- `QT_QPA_PLATFORM_PLUGIN_PATH` is set only in a snap environment (`SNAP` set, or a library, GTK, GIO or Qt plugin
-  path in a snap), only when the user hasn't set it outside a snap, and only to `ADAI_QT_PLATFORM_PLUGIN_DIR`: the
-  directory of the Qt the GUI is built with, which `src/CMakeLists.txt` takes from the `Qt<5|6>::QOffscreenIntegrationPlugin`
-  target's location (then `QXcbIntegrationPlugin`, `QMinimalIntegrationPlugin`) and the wrapper uses only if it still
-  exists. A snap value is unset when there is no build directory to replace it with.
-- The old value, `/usr/lib/x86_64-linux-gnu/qt5/plugins`, never worked anyway: Qt loads platform plugins from that
-  variable's directory itself, not its `platforms/` subdirectory, so it found nothing there and fell back to its own
-  search (seen with `QT_DEBUG_PLUGINS=1`). With the fix Qt loads `libqoffscreen.so` from the build's `platforms/`.
-- `scripts/run_chatbot_gui.sh` and `scripts/chatbot_gui_fixed.sh` ran the wrapper after setting the same x86_64
-  Qt5 paths and replacing `LD_LIBRARY_PATH` themselves; they now leave the environment to the wrapper.
-
-Tests: `chatbotguilaunchenvTests` (7) and three end-to-end cases in `tests/smoke/chatbot_gui_wrapper_test.sh`, which
-start the wrapper with a snap-like environment and read the environment `chatbot_gui_binary` got from `/proc`. The old
-wrapper fails 6 of those checks. Qt6 was not available to build against here; its plugin target name is the same.
-
-## Addendum (November 4, 2026): a loaded conversation's messages are shown (TD-266)
-
-After `/chat/session/import` succeeds, the load request also calls `ChatbotClient::export_session()` on the worker
-thread, and the GUI shows what the server now holds rather than the file: the server may trim an imported conversation
-to its own limits (TD-291/TD-292), and that copy is what it continues from. `chatbot_gui::conversation_messages()`
-(`ChatbotGuiLogic.hpp`) turns the exported data into chat-pane messages in order: the system message first as
-"System", then "user" as "You", "assistant" as "Bot", "system" (a summary) as "System", any other role by its name.
-The closing note keeps the server's own `message_count`. If the export fails after a successful import, the note says
-the server continues the conversation but couldn't send its messages back.
-
-The line format is parsed by `adai::conversation_format` (`src/ConversationFormat.{hpp,cpp}`), moved out of
-`ConversationContext.cpp` so the GUI can use it without linking `adai_nlp`; `ConversationContext::serialize()`/
-`deserialize()` use the same code, unchanged in behaviour.
-
-Checked by driving the real class headless against a real `chatbot_api_server`: Load Conversation, answering the
-file dialog, then a message. The old code showed only "Conversation loaded … (4 messages)"; the new code shows the
-system message and all four messages, then continues in the same session.
-
-Not changed: `addMessage()` escapes text into HTML without converting line breaks, so a multi-line message (loaded or
-live) is shown on one line.
-
-## Addendum (November 10, 2026): widget tests (TD-037)
-
-`chatbotGuiWidgetTests` (`tests/chatbot_gui_widget_test.cpp`, Qt Test, offscreen) builds the real window against an
-in-process stand-in for `chatbot_api_server` and drives it: connection notices, sending by button and Enter, the
-controls disabled while a request runs, the generation settings sent only when changed, error and lost-session
-messages, Clear Chat's confirmation, Save and Load through the real file dialogs, and closing mid-request without
-waiting. The window's controls now have object names (`chatDisplay`, `inputField`, `sendButton`, `clearChatButton`,
-`clearInputButton`, `saveButton`, `loadButton`, `settingsPanel`, `strategyCombo` and the five setting spin boxes) for
-the tests to find them. `ChatbotGUI.cpp` is now 0.10.1.
+- **October 9, 2026:** first traced. The GUI was a standalone app that loaded a vocabulary and model in-process,
+  read the architecture from the local `config.chatbot.conf`, generated on the GUI thread, and built prompts in its
+  own format; filed TD-260–TD-266.
+- **October 25, 2026 (TD-261):** Beam Width was passed only for beam search, so the other strategies ran as chosen.
+- **November 4, 2026 (TD-260, TD-263, TD-264, TD-266):** owner decision, the GUI became a client of
+  `chatbot_api_server` through `ChatbotClient`; requests moved to a worker thread; the wrapper stopped forcing
+  x86_64 Qt5 paths and now removes only what a snap adds (the old plugin path pointed one level above `platforms/` and
+  never worked); `--help` moved before `QApplication`; a loaded conversation is shown as the server holds it. Checked by
+  driving the real class headless against a real `chatbot_api_server`.
+- **November 10, 2026 (TD-037):** `chatbotGuiWidgetTests` (Qt Test, offscreen) and object names on the controls.
+- **November 10, 2026 (TD-567):** `addMessage()` keeps line breaks and runs of spaces (`white-space: pre-wrap`) and
+  escapes the sender. Before, a reply of `line one\nline two` showed as `line one line two`, the welcome message as one
+  line, and a loaded role such as `<b>tool</b>` was rendered as bold markup. This document was re-traced against the
+  code at the same time, replacing its pre-TD-260 sections and addenda.

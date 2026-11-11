@@ -249,6 +249,64 @@ class ChatbotGuiWidgetTest : public QObject {
         QCOMPARE(QString::fromStdString(bodies[1].value("session_id", "")), QString("s1"));
     }
 
+    // TD-567: the chat pane keeps a message's line breaks and leading spaces.
+    void aMultiLineReplyKeepsItsLines() {
+        open_connected();
+        fake->server.on(
+            "POST", "/chat/session",
+            Reply{200, nlohmann::json{{"success", true},
+                                      {"response", "line one\nline two\n    indented  code"},
+                                      {"session_id", "s1"}}
+                           .dump()});
+        send("hi");
+        QTRY_VERIFY(chat().contains("line one"));
+        QVERIFY2(chat().contains("line one\nline two\n    indented  code"), qPrintable(chat()));
+    }
+
+    void theWelcomeMessageKeepsItsTwoLines() {
+        open_connected();
+        QVERIFY2(chat().contains("Welcome to ADAI Transformer Chatbot!\nType your message"),
+                 qPrintable(chat()));
+    }
+
+    void aLoadedMultiLineMessageKeepsItsLines() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("load.txt");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("MAX_MESSAGES:20\n---\nuser|1|x\n");
+        }
+        // The file format escapes a line break as "\n" (TD-071).
+        fake->set_export("MAX_MESSAGES:20\n---\nuser|2|first line\\nsecond line\n");
+        open_connected();
+        DialogAnswerer dialogs;
+        dialogs.answer_file(path);
+        QTest::mouseClick(child<QPushButton>(window.get(), "loadButton"), Qt::LeftButton);
+        QTRY_VERIFY(chat().contains("Conversation loaded from"));
+        QVERIFY2(chat().contains("first line\nsecond line"), qPrintable(chat()));
+    }
+
+    // TD-567: a loaded conversation's role names are shown as text, not markup.
+    void aLoadedRoleNameIsShownAsText() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("load.txt");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("MAX_MESSAGES:20\n---\nuser|1|x\n");
+        }
+        fake->set_export("MAX_MESSAGES:20\n---\n<b>tool</b>|1|ran\n");
+        open_connected();
+        DialogAnswerer dialogs;
+        dialogs.answer_file(path);
+        QTest::mouseClick(child<QPushButton>(window.get(), "loadButton"), Qt::LeftButton);
+        QTRY_VERIFY(chat().contains("Conversation loaded from"));
+        QVERIFY2(chat().contains("<b>tool</b>"), qPrintable(chat()));
+    }
+
     void blankInputSendsNothing() {
         open_connected();
         send("   ");

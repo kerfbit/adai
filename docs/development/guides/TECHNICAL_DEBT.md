@@ -20,7 +20,7 @@ session: it re-registers, gets 409 because the session is live, retries into ano
 
 **November 10, 2026:** Filed [TD-567](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) (LOW, verified) while reviewing `chatbot_gui` for `stable`: the chat pane
 shows every multi-line message on one line, because `addMessage()` puts the escaped text into HTML without turning line
-breaks into `<br>`. It blocks the GUI's promotion.
+breaks into `<br>`. It blocks the GUI's promotion. Fixed in code the same day.
 
 **November 10, 2026:** Filed and fixed [TD-566](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
 (MEDIUM) from the ai-machine GPU test run: after a driver engine reset the trainer tried every remaining sample and epoch, and
@@ -19194,7 +19194,7 @@ Location in code: `src/ChatbotTrainer.{hpp,cpp}`, `src/gpu/GPUUtils.hpp`, `src/g
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / GUI | November 10, 2026 | 1 hour |
+| LOW | Open — code fix landed November 10, 2026 | Client / GUI | November 10, 2026 | 1 hour |
 
 Description:
 Found while reviewing `ChatbotGUI` for promotion to `stable` (first noticed, not filed, in TD-266's fix). `addMessage()` puts
@@ -19206,19 +19206,27 @@ the server keeps the text as sent, and Save writes the server's copy.
 
 Action Items:
 
-- [ ] Show line breaks: after escaping, turn `\n` into `<br>` (or give the message a `white-space: pre-wrap` style, which
+- [x] Show line breaks: after escaping, turn `\n` into `<br>` (or give the message a `white-space: pre-wrap` style, which
   also keeps runs of spaces in code).
-- [ ] Add a `chatbotGuiWidgetTests` case for a multi-line reply and a loaded multi-line message.
-- [ ] Update [ChatbotGUI.md](../reference/source/ChatbotGUI.md) in the same change (CLAUDE.md, "Reference docs"): its
+- [x] Add a `chatbotGuiWidgetTests` case for a multi-line reply and a loaded multi-line message.
+- [x] Update [ChatbotGUI.md](../reference/source/ChatbotGUI.md) in the same change (CLAUDE.md, "Reference docs"): its
   header and §1–§6 still describe the pre-TD-260 class, which loaded the model itself, and its gaps table lists fixed
   items as open.
 
 This blocks promoting `ChatbotGUI.{hpp,cpp}` to `stable`; the rest of the review found it ready (widget tests, no other
 open gap, user docs current).
 
-Location in code: `src/ChatbotGUI.cpp` (`addMessage()`); tagged `TODO: See TD-567`.
+**Fix (November 10, 2026):** `addMessage()` gives the message span `white-space: pre-wrap`, chosen over `<br>` because it
+also keeps runs of spaces (indented code), and now escapes the sender too: a loaded conversation can name any role, and
+`<b>tool</b>` used to be rendered as bold markup. Four new `chatbotGuiWidgetTests` cases, each failing on the old code: a
+multi-line reply with an indented line, the two-line welcome message, a loaded multi-line message, and a loaded role name
+shown as text. The suite passes (22 tests) and passed five repeats. `ChatbotGUI.cpp` 0.10.2. [ChatbotGUI.md](../reference/source/ChatbotGUI.md)
+was re-traced against the current code: header, every section and the gaps table now describe the client GUI, and the
+former addenda are a short history.
 
-Files to Modify:
+Location in code: `src/ChatbotGUI.cpp` (`addMessage()`).
+
+Files Modified:
 
 - `src/ChatbotGUI.cpp`
 - `tests/chatbot_gui_widget_test.cpp`
