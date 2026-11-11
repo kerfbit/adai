@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.1.0
-# @adai-reviewed: 2026-11-09
+# @adai-version: 0.2.1
+# @adai-reviewed: 2026-11-10
 
 # Builds the SYCL GPU test binaries, the TD-171 benchmark and the trainer, and packs them with
 # scripts/sycl_gpu_tests/ into one tarball to run on the GPU host (ai-machine): see that
-# directory's README.md. Uses the host's oneAPI runtime rather than bundling one.
+# directory's README.md. Uses the host's oneAPI runtime rather than bundling one: the package's
+# prepare_host.sh upgrades it from Intel's apt repository to the release recorded in MANIFEST.txt.
 #
 #   scripts/package_sycl_gpu_tests.sh [--build-dir DIR] [--out DIR] [--no-build]
 #
@@ -98,6 +99,8 @@ find_binary() {
 
 # ── Stage ──────────────────────────────────────────────────────────────────────
 
+ONEAPI_RELEASE=$(icpx --version 2>/dev/null | head -1 | grep -o '([0-9]\{4\}\.[0-9]*\.[0-9]*' | tr -d '(')
+[[ -n "$ONEAPI_RELEASE" ]] || { echo "ERROR: can't read the oneAPI release from icpx --version" >&2; exit 1; }
 COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)
 DIRTY=""
 git -C "$PROJECT_ROOT" diff --quiet HEAD -- src tests benchmarks || DIRTY="-dirty"
@@ -110,16 +113,21 @@ mkdir -p "$STAGE/bin" "$STAGE/data"
 for target in "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"; do
     cp "$(find_binary "$target")" "$STAGE/bin/"
 done
-cp "$SCRIPT_DIR/sycl_gpu_tests/run_gpu_tests.sh" "$SCRIPT_DIR/sycl_gpu_tests/train_pass.sh" \
-    "$SCRIPT_DIR/sycl_gpu_tests/README.md" "$STAGE/"
+HOST_SCRIPTS=(run_gpu_tests.sh train_pass.sh prepare_host.sh restore_host.sh gpu_host_lib.sh guc_firmware.sh)
+for script in "${HOST_SCRIPTS[@]}"; do
+    cp "$SCRIPT_DIR/sycl_gpu_tests/$script" "$STAGE/"
+    chmod +x "$STAGE/$script"
+done
+cp "$SCRIPT_DIR/sycl_gpu_tests/README.md" "$STAGE/"
 cp "$SCRIPT_DIR/sycl_gpu_tests/pairs.jsonl" "$STAGE/data/"
-chmod +x "$STAGE/run_gpu_tests.sh" "$STAGE/train_pass.sh"
 
 {
     echo "$PACKAGE_NAME"
     echo "commit: $(git -C "$PROJECT_ROOT" rev-parse HEAD)${DIRTY}"
     echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(hostname -s 2>/dev/null || hostname)"
     echo "compiler: $(icpx --version 2>/dev/null | head -1)"
+    # The oneAPI release the host's runtime must match; prepare_host.sh and run_gpu_tests.sh read it.
+    echo "oneapi: $ONEAPI_RELEASE"
     echo "build dir: $BUILD_DIR ($(grep '^CMAKE_BUILD_TYPE' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2))"
     echo "oneAPI libraries the trainer links:"
     ldd "$STAGE/bin/incremental_trainer" | grep -E 'sycl|mkl|iomp|ur_|level_zero|OpenCL' | awk '{print "  " $1}'

@@ -19213,6 +19213,15 @@ tests. Tests: `ChatbotTrainerCacheTest.LostDeviceStopsTheEpochAtTheFirstFailedSa
 four pass in the debug build and on the oneAPI CPU device (`build/sycl-cpudev`), where the probe reports the working device as
 usable. A real device loss can't be produced on demand; the next ai-machine run will show it.
 
+On-device result (November 10, 2026): verified on ai-machine's Arc Pro B60 (package `adai-sycl-gpu-tests-4cae6a4f-dirty-20261110`,
+oneAPI runtime 2026.2.0, run 21:58 UTC). In a soak of 40 back-to-back 10-epoch passes, 5 of the 20 passes on the default Level
+Zero v2 adapter lost the device after a `GT0: Engine reset: engine_class=ccs`, at random points (epochs 1 to 9). Each pass stopped
+at its first failed sample, within 0.5 s, logged "Not copying the device weights back", and reported no loss-0 epoch; one of the
+five surfaced as `UR_RESULT_ERROR_OUT_OF_RESOURCES` instead of `DEVICE_LOST` and was caught by the same device check. After every
+loss the device ran work again in the next process. With `SYCL_UR_USE_LEVEL_ZERO_V2=0` (the v1 adapter) no pass lost the device,
+but 2 of 20 hung until killed at the 15-minute limit, one of them after an engine reset; a hang is worse for the always-on service
+than a fast failure, so the default v2 adapter stays.
+
 Not covered: the LeJEPA pass (`--objective=lejepa`) has its own training loop and doesn't use this check.
 
 Location in code: `src/ChatbotTrainer.{hpp,cpp}`, `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`.

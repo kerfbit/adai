@@ -1,18 +1,32 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.1.0
-# @adai-reviewed: 2026-11-09
+# @adai-version: 0.2.0
+# @adai-reviewed: 2026-11-10
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
 # archive to copy back. Built into a package by scripts/package_sycl_gpu_tests.sh; see README.md
-# beside this script. Changes nothing outside this directory: no services are stopped, no system
-# settings are touched, and every trainer run uses a private config with no MNS, registry or metrics.
+# beside this script. Run ./prepare_host.sh first. This script changes nothing outside this
+# directory: it stops no services, and every trainer run uses a private config with no MNS,
+# registry or metrics. It uses sudo only to read the kernel log and the GPU firmware version and to
+# see other users' GPU processes.
 #
-#   ./run_gpu_tests.sh [--quick] [--skip-tests] [--skip-benchmark] [--skip-training]
+#   ./run_gpu_tests.sh [--quick] [--skip-tests] [--skip-benchmark] [--skip-training] [--skip-soak]
+#                      [--soak-passes N] [--soak-epochs N] [--runtime-dir DIR]
+#                      [--allow-shared-gpu] [--allow-runtime-mismatch] [--no-sudo]
 #                      [--allow-cpu-device]
 #
-# --quick             only the GPU-specific test binaries, a 3-repeat benchmark, one seed pair
+# --quick             only the GPU-specific test binaries, a 3-repeat benchmark, one seed pair and
+#                     a 3-pass soak
+# --soak-passes N     training passes per Level Zero variant in the soak (default 20; 0 = no soak)
+# --soak-epochs N     epochs per soak pass (default 10)
+# --runtime-dir DIR   the oneAPI runtime every binary must load (default /opt/intel/oneapi/redist/lib,
+#                     where Intel's intel-oneapi-runtime-* packages install it)
+# --allow-shared-gpu  run even while other processes have the GPU open
+# --allow-runtime-mismatch
+#                     run even when the runtime is older than the build or libraries load from
+#                     several directories
+# --no-sudo           don't use sudo (no kernel log, no firmware version, own processes only)
 # --allow-cpu-device  also accept oneAPI's CPU device (ADAI_SYCL_ALLOW_CPU_DEVICE=1); for trying
 #                     the package on a machine without a GPU, never on ai-machine
 
@@ -20,36 +34,81 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$HERE/bin"
+# shellcheck source=gpu_host_lib.sh
+source "$HERE/gpu_host_lib.sh"
 QUICK=0
 RUN_TESTS=1
 RUN_BENCHMARK=1
 RUN_TRAINING=1
+SOAK_PASSES=20
+SOAK_EPOCHS=10
+SOAK_PASSES_SET=0
+RUNTIME_DIR=/opt/intel/oneapi/redist/lib
+ALLOW_SHARED=0
+ALLOW_MISMATCH=0
+USE_SUDO=1
 ALLOW_CPU=0
 
 usage() {
     sed -n '/^#   \.\/run_gpu_tests/,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '/^# --quick/,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+need_number() {
+    [[ "${2:-}" =~ ^[0-9]+$ ]] || {
+        echo "$1 needs a whole number" >&2
+        exit 2
+    }
 }
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --quick) QUICK=1 ;;
         --skip-tests) RUN_TESTS=0 ;;
         --skip-benchmark) RUN_BENCHMARK=0 ;;
         --skip-training) RUN_TRAINING=0 ;;
+        --skip-soak)
+            SOAK_PASSES=0
+            SOAK_PASSES_SET=1
+            ;;
+        --soak-passes)
+            need_number "$1" "${2:-}"
+            SOAK_PASSES="$2"
+            SOAK_PASSES_SET=1
+            shift
+            ;;
+        --soak-epochs)
+            need_number "$1" "${2:-}"
+            SOAK_EPOCHS="$2"
+            shift
+            ;;
+        --runtime-dir)
+            [[ $# -ge 2 ]] || {
+                echo "--runtime-dir needs a value" >&2
+                exit 2
+            }
+            RUNTIME_DIR="$2"
+            shift
+            ;;
+        --allow-shared-gpu) ALLOW_SHARED=1 ;;
+        --allow-runtime-mismatch) ALLOW_MISMATCH=1 ;;
+        --no-sudo) USE_SUDO=0 ;;
         --allow-cpu-device) ALLOW_CPU=1 ;;
         -h | --help)
             usage
             exit 0
             ;;
         *)
-            echo "Unknown argument: $arg" >&2
+            echo "Unknown argument: $1" >&2
             usage >&2
             exit 2
             ;;
     esac
+    shift
 done
+[[ $QUICK == 1 && $SOAK_PASSES_SET == 0 ]] && SOAK_PASSES=3
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_START=$(date +%s)
 HOST="$(hostname -s 2>/dev/null || hostname)"
 RESULTS_NAME="adai-gpu-results-${HOST}-${STAMP}"
 RESULTS="$HERE/results/$RESULTS_NAME"
@@ -60,15 +119,58 @@ log() {
     echo "$*" | tee -a "$SUMMARY"
 }
 
-# Only this script's own settings reach the binaries: drop any ADAI config keys inherited from
-# the shell (a deployed host may export MNS, registry or GPU settings).
+# Only this script's own settings reach the binaries: drop any ADAI config keys and oneAPI or
+# Level Zero overrides inherited from the shell (a deployed host may export MNS, registry or GPU
+# settings). The originals are recorded in environment.txt.
+INHERITED=$(env | grep -E '^(ONEAPI_DEVICE_SELECTOR|SYCL_|UR_|ZE_|LD_LIBRARY_PATH)=' || true)
 while IFS= read -r name; do
     unset "$name"
-done < <(env | cut -d= -f1 | grep -E '^(NAME_SERVICE|REGISTRY|METRICS|MODEL_|SEED$|GPU_|DATASET|RUN_|SESSION_DIR|VOCAB_PATH|LOG_|TRAINER_|WORLD_MODEL|HIPPOCAMPAL|NUM_|D_MODEL|D_FF|MAX_SEQ|BATCH|LEARNING|DROPOUT|EARLY_STOPPING|AUTO_SAVE|FTP|ADAI_)' || true)
+done < <(env | cut -d= -f1 | grep -E '^(NAME_SERVICE|REGISTRY|METRICS|MODEL_|SEED$|GPU_|DATASET|RUN_|SESSION_DIR|VOCAB_PATH|LOG_|TRAINER_|WORLD_MODEL|HIPPOCAMPAL|NUM_|D_MODEL|D_FF|MAX_SEQ|BATCH|LEARNING|DROPOUT|EARLY_STOPPING|AUTO_SAVE|FTP|ADAI_|ONEAPI_DEVICE_SELECTOR$|SYCL_|UR_|ZE_)' || true)
 if [[ "$ALLOW_CPU" == 1 ]]; then
     export ADAI_SYCL_ALLOW_CPU_DEVICE=1
 fi
 export GTEST_COLOR=no
+
+SUDO=""
+if [[ $USE_SUDO == 1 ]]; then
+    echo "sudo is used to read the kernel log and GPU firmware version and to see other GPU users."
+    if sudo -v; then
+        SUDO="sudo -n"
+        # Keep the sudo timestamp fresh for the length of the run.
+        (while kill -0 "$$" 2>/dev/null; do
+            sudo -n -v 2>/dev/null
+            sleep 50
+        done) &
+        KEEPALIVE=$!
+        trap 'kill "$KEEPALIVE" 2>/dev/null' EXIT
+    else
+        echo "WARNING: sudo failed; continuing without the kernel log or firmware version."
+    fi
+fi
+
+# kernel_log SINCE [UNTIL]: kernel messages between two epoch times.
+kernel_log() {
+    if [[ -n "$SUDO" ]]; then
+        $SUDO journalctl -k --no-pager -o short-iso-precise --since "@$1" ${2:+--until "@$2"} 2>/dev/null
+    else
+        journalctl -k --no-pager -o short-iso-precise --since "@$1" ${2:+--until "@$2"} 2>/dev/null ||
+            dmesg 2>/dev/null
+    fi
+}
+# What the xe driver logs around a GPU hang or device loss.
+KERNEL_EVENTS='Engine reset|Timedout job|wedged|coredump|Fault response|CAT error|GT[0-9]+: .*(reset|hang)'
+
+BUILD_ONEAPI=$(sed -n 's/^oneapi: //p' "$HERE/MANIFEST.txt" 2>/dev/null)
+if [[ -z "$BUILD_ONEAPI" ]]; then
+    BUILD_ONEAPI=$(grep -o '([0-9]\{4\}\.[0-9]*\.[0-9]*' "$HERE/MANIFEST.txt" 2>/dev/null | head -1 | tr -d '(')
+fi
+
+# Every binary loads the oneAPI runtime from RUNTIME_DIR: ahead of the linker cache, which on
+# ai-machine also lists /opt/adai/lib (the deployed service's older bundled runtime).
+if [[ -d "$RUNTIME_DIR" ]]; then
+    export LD_LIBRARY_PATH="$RUNTIME_DIR"
+fi
+RUNTIME_VERSION=$(dpkg-query -W -f='${Version}' intel-oneapi-runtime-dpcpp-cpp 2>/dev/null)
 
 # ── 1. Environment ────────────────────────────────────────────────────────────
 
@@ -79,28 +181,58 @@ export GTEST_COLOR=no
     echo "== host"
     date -u
     uname -a
+    echo "kernel command line: $(cat /proc/cmdline 2>/dev/null)"
     grep -m1 'model name' /proc/cpuinfo
     echo "avx2/fma: $(grep -m1 -o -w -e avx2 /proc/cpuinfo) $(grep -m1 -o -w -e fma /proc/cpuinfo)"
-    echo "ONEAPI_DEVICE_SELECTOR=${ONEAPI_DEVICE_SELECTOR:-<unset>}"
+    echo "inherited oneAPI/Level Zero settings (cleared for this run):"
+    echo "${INHERITED:-  none}" | sed 's/^/  /'
     echo "ADAI_SYCL_ALLOW_CPU_DEVICE=${ADAI_SYCL_ALLOW_CPU_DEVICE:-<unset>}"
+    echo
+    echo "== oneAPI runtime"
+    echo "built with: ${BUILD_ONEAPI:-unknown}"
+    echo "runtime dir: $RUNTIME_DIR"
+    echo "intel-oneapi-runtime-dpcpp-cpp: ${RUNTIME_VERSION:-not installed}"
     echo
     echo "== GPU"
     lspci -nn 2>/dev/null | grep -iE 'vga|display|3d' || echo "(lspci unavailable)"
     cat /sys/module/xe/version 2>/dev/null || true
     ls -l /dev/dri 2>/dev/null || true
     id
+    echo "xe parameters:"
+    for p in /sys/module/xe/parameters/*; do
+        [[ -r "$p" ]] && echo "  $(basename "$p")=$(cat "$p" 2>/dev/null)"
+    done
+    echo "compute engine job timeouts (ms):"
+    for f in /sys/class/drm/card*/device/tile*/gt*/engines/ccs/job_timeout_ms; do
+        [[ -r "$f" ]] && echo "  $f: $(cat "$f")"
+    done
+    echo
+    echo "== GPU firmware (GuC/HuC)"
+    if [[ -n "$SUDO" ]]; then
+        $SUDO sh -c 'for f in /sys/kernel/debug/dri/*/gt*/uc/guc_info /sys/kernel/debug/dri/*/gt*/uc/huc_info; do
+            [ -r "$f" ] && { echo "-- $f"; head -12 "$f"; }; done' 2>/dev/null
+        $SUDO journalctl -k -b --no-pager 2>/dev/null | grep -i -E '(guc|huc|dmc).*(firmware|version)|firmware.*(guc|huc)' | head -10
+    else
+        echo "(needs sudo)"
+    fi
     echo
     echo "== sycl-ls"
     command -v sycl-ls >/dev/null && timeout 60 sycl-ls 2>&1 || echo "(sycl-ls not on PATH)"
     echo
     echo "== oneAPI and GPU packages"
-    dpkg -l 2>/dev/null | grep -iE 'intel-oneapi-runtime|level-zero|intel-opencl|libigc|intel-gpu|xe-' || true
+    dpkg -l 2>/dev/null | grep -iE 'intel-oneapi-runtime|level-zero|intel-opencl|libigc|intel-igc|libigdgmm|intel-gpu|xe-' || true
     echo
-    echo "== other ADAI processes (they share the GPU and can skew timings)"
-    pgrep -a -x incremental_tra 2>/dev/null
-    pgrep -a -x trainer_service 2>/dev/null
-    pgrep -a -x chatbot_api_ser 2>/dev/null
-    true
+    echo "== other GPU users"
+    gpu_report
+    echo
+    echo "== host preparation (prepare_host.sh)"
+    latest_prepare=$(ls -t "$HERE"/host_state/prepare_*.txt 2>/dev/null | head -1)
+    if [[ -n "$latest_prepare" ]]; then
+        echo "$latest_prepare"
+        cat "$latest_prepare"
+    else
+        echo "not run"
+    fi
 } >"$RESULTS/environment.txt" 2>&1
 
 log "ADAI SYCL GPU tests on $HOST, $STAMP"
@@ -114,7 +246,7 @@ fi
 missing_libs() {
     ldd "$BIN/incremental_trainer" 2>/dev/null | grep 'not found'
 }
-if [[ -n "$(missing_libs)" && -f /opt/intel/oneapi/setvars.sh ]]; then
+if [[ -n "$(missing_libs)" && ! -d "$RUNTIME_DIR" && -f /opt/intel/oneapi/setvars.sh ]]; then
     # setvars.sh reads unset variables, which `set -u` would turn into an exit.
     set +u
     # shellcheck source=/dev/null
@@ -124,13 +256,53 @@ fi
 if [[ -n "$(missing_libs)" ]]; then
     log "FATAL: oneAPI runtime libraries not found:"
     missing_libs | tee -a "$SUMMARY"
-    log "Install or update the intel-oneapi-runtime-libs packages to at least the build's oneAPI version (MANIFEST.txt)."
+    log "Run ./prepare_host.sh to install the oneAPI runtime the build needs (MANIFEST.txt)."
     exit 1
 fi
 ldd "$BIN/incremental_trainer" >"$RESULTS/ldd.txt" 2>&1
 
-if [[ -n "$(pgrep -x trainer_service; pgrep -x incremental_tra)" ]]; then
-    log "WARNING: a trainer is running on this host. Its GPU use skews the benchmark and the tests share GPU memory with it."
+# The runtime must be one consistent oneAPI release, at least the build's.
+RUNTIME_PROBLEMS=()
+LIB_DIRS=$(grep -E "$ONEAPI_LIB_PATTERN" "$RESULTS/ldd.txt" | awk '$3 ~ /^\// {print $3}' |
+    xargs -r -n1 dirname | xargs -r -n1 realpath -m | sort -u)
+if [[ "$(grep -c . <<<"$LIB_DIRS")" -gt 1 ]]; then
+    RUNTIME_PROBLEMS+=("oneAPI libraries load from several directories: $(tr '\n' ' ' <<<"$LIB_DIRS")")
+fi
+if [[ -n "$LIB_DIRS" && "$LIB_DIRS" != "$(realpath -m "$RUNTIME_DIR")" ]]; then
+    RUNTIME_PROBLEMS+=("oneAPI libraries don't load from $RUNTIME_DIR")
+fi
+if [[ -z "$RUNTIME_VERSION" ]]; then
+    RUNTIME_PROBLEMS+=("intel-oneapi-runtime-dpcpp-cpp isn't installed, so the runtime's version is unknown")
+elif [[ -n "$BUILD_ONEAPI" ]] && ! oneapi_version_at_least "$RUNTIME_VERSION" "$BUILD_ONEAPI"; then
+    RUNTIME_PROBLEMS+=("the runtime ($RUNTIME_VERSION) is older than the build ($BUILD_ONEAPI)")
+fi
+log "oneAPI runtime: ${RUNTIME_VERSION:-unknown} from $(tr '\n' ' ' <<<"${LIB_DIRS:-?}")(built with ${BUILD_ONEAPI:-unknown})"
+if [[ ${#RUNTIME_PROBLEMS[@]} -gt 0 ]]; then
+    for problem in "${RUNTIME_PROBLEMS[@]}"; do
+        log "  $problem"
+    done
+    if [[ $ALLOW_MISMATCH == 0 ]]; then
+        log "FATAL: run ./prepare_host.sh, or pass --allow-runtime-mismatch to test anyway."
+        exit 1
+    fi
+    log "  continuing (--allow-runtime-mismatch)"
+fi
+
+# Nothing else may use the GPU: other work shares its memory and engines, skews the benchmark,
+# and was running during the November 10 device loss.
+OTHERS=$(gpu_work_pids | tr '\n' ' ')
+if [[ -n "${OTHERS// /}" ]]; then
+    log "Other processes have the GPU open:"
+    for pid in $OTHERS; do
+        log "  $(describe_pid "$pid")"
+    done
+    if [[ $ALLOW_SHARED == 0 ]]; then
+        log "FATAL: run ./prepare_host.sh to stop them, or pass --allow-shared-gpu to share the GPU."
+        exit 1
+    fi
+    log "  continuing with a shared GPU (--allow-shared-gpu)"
+elif [[ -z "$SUDO" ]]; then
+    log "No other GPU users visible (without sudo only this user's processes are)."
 fi
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -160,6 +332,13 @@ step() {
     fi
     log "  ${ROWS[-1]}"
     return $rc
+}
+
+# probe_device NAME: whether the GPU still runs work (TD-566's device check, as a test).
+probe_device() {
+    step "$1" 120 "$BIN/gpuutilsTests" \
+        --gtest_filter='GPUManagerTest.InitializeMatchesProbe:GPUManagerTest.DeviceUsableOnlyOnAnInitializedWorkingDevice' \
+        --gtest_output=xml:"$RESULTS/xml/$1.xml"
 }
 
 # ── 2. Device check ───────────────────────────────────────────────────────────
@@ -207,6 +386,11 @@ fi
 
 # ── 5. TD-368 seed replay and TD-391 backend line ─────────────────────────────
 
+backend_of() {
+    grep -h -m1 'Backend:' "$RESULTS/$1.log" "$RESULTS/work/$1/trainer.log"* 2>/dev/null | head -1 |
+        sed 's/.*Backend: //'
+}
+
 if [[ $RUN_TRAINING == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     log ""
     log "Training passes on the GPU (TD-368 seed replay, TD-391 backend)"
@@ -246,11 +430,77 @@ if [[ $RUN_TRAINING == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     cat "$RESULTS/seed_replay.txt"
 fi
 
-# ── 6. Pack the results ───────────────────────────────────────────────────────
+# ── 6. Level Zero soak: v2 (default) against v1 ───────────────────────────────
+
+# Back-to-back training passes, alternating the default Level Zero v2 adapter with
+# SYCL_UR_USE_LEVEL_ZERO_V2=0, which one Arc report found stopped the engine resets. Each pass
+# records its kernel messages; after a device loss the device is probed, the soak stops if the GPU
+# no longer runs work, and TD-566's handling is checked: the pass stops at once without copying
+# weights back and no epoch is reported as loss 0.
+if [[ $RUN_TRAINING == 1 && $SOAK_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" ]]; then
+    log ""
+    log "Level Zero soak: $SOAK_PASSES passes of $SOAK_EPOCHS epochs per variant, alternating (soak_report.txt)"
+    SOAK_TSV="$RESULTS/soak.tsv"
+    printf 'pass\tvariant\tbackend\trc\tseconds\toutcome\tkernel_events\ttd566\n' >"$SOAK_TSV"
+    for ((i = 1; i <= SOAK_PASSES; i++)); do
+        if ((i % 2)); then order=(l0v2 l0v1); else order=(l0v1 l0v2); fi
+        for variant in "${order[@]}"; do
+            name=$(printf 'soak_%s_%02d' "$variant" "$i")
+            envs=()
+            [[ $variant == l0v1 ]] && envs=(SYCL_UR_USE_LEVEL_ZERO_V2=0)
+            t0=$(date +%s)
+            step "$name" 900 env "${envs[@]}" "$HERE/train_pass.sh" "$RESULTS/work/$name" "$((100 + i))" "$SOAK_EPOCHS"
+            rc=$?
+            t1=$(date +%s)
+            events=$(kernel_log "$t0" "$((t1 + 2))" | grep -E "$KERNEL_EVENTS")
+            [[ -n "$events" ]] && { echo "== $name"; echo "$events"; } >>"$RESULTS/soak_kernel_events.txt"
+            outcome=ok
+            td566=-
+            if grep -q -E 'DEVICE_LOST|stopped running work' "$RESULTS/$name.log" "$RESULTS/work/$name/trainer.log"* 2>/dev/null; then
+                outcome=device_lost
+                td566=ok
+                grep -q 'Not copying the device weights back' "$RESULTS/$name.log" "$RESULTS/work/$name/trainer.log"* 2>/dev/null ||
+                    td566="no-skip-copy"
+                grep -q -E 'complete - Loss: 0(\.0+)?([^0-9.]|$)' "$RESULTS/$name.log" 2>/dev/null && td566="loss0-epoch"
+                ((t1 - t0 > 15)) && td566+=",slow-stop"
+            elif [[ $rc -ne 0 ]]; then
+                outcome=failed
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$variant" "$(backend_of "$name")" "$rc" "$((t1 - t0))" \
+                "$outcome" "$(grep -c . <<<"$events")" "$td566" >>"$SOAK_TSV"
+            if [[ $outcome == device_lost ]] && ! probe_device "probe_after_$name"; then
+                log "  the GPU no longer runs work after $name: soak stopped. Reboot before using the GPU again."
+                DEVICE_GONE=1
+                break 2
+            fi
+        done
+    done
+    {
+        echo "Level Zero soak ($SOAK_PASSES passes of $SOAK_EPOCHS epochs per variant, alternating)"
+        echo
+        column -t -s $'\t' "$SOAK_TSV" 2>/dev/null || cat "$SOAK_TSV"
+        echo
+        echo "Per variant (passes, ok, device lost, other failures, passes with kernel GPU events):"
+        awk -F'\t' 'NR > 1 {n[$2]++; o[$2] += ($6 == "ok"); d[$2] += ($6 == "device_lost");
+                    f[$2] += ($6 == "failed"); k[$2] += ($7 > 0)}
+                    END {for (v in n) printf "  %s: %d passes, %d ok, %d device lost, %d other failures, %d with kernel events\n",
+                         v, n[v], o[v], d[v], f[v], k[v]}' "$SOAK_TSV"
+        echo "Backends seen: l0v1 should not say Level-Zero V2, l0v2 should."
+        awk -F'\t' 'NR > 1 {print "  " $2 ": " $3}' "$SOAK_TSV" | sort -u
+        echo "td566: ok = the pass stopped at once without copying weights back and no loss-0 epoch."
+        [[ -n "${DEVICE_GONE:-}" ]] && echo "The soak stopped early: the GPU no longer ran work after a device loss."
+    } >"$RESULTS/soak_report.txt"
+    sed -n '/^Per variant/,$p' "$RESULTS/soak_report.txt" | sed 's/^/  /' | tee -a "$SUMMARY"
+fi
+
+# ── 7. Pack the results ───────────────────────────────────────────────────────
 
 log ""
 log "Steps that failed: $FAILURES"
-dmesg 2>/dev/null | tail -200 >"$RESULTS/dmesg_tail.txt" || true
+kernel_log "$RUN_START" >"$RESULTS/kernel_log.txt"
+EVENTS=$(grep -c -E "$KERNEL_EVENTS" "$RESULTS/kernel_log.txt")
+log "Kernel GPU events during the run (engine resets, job timeouts, faults): ${EVENTS:-0} (kernel_log.txt)"
+[[ -s "$RESULTS/kernel_log.txt" ]] || log "  (kernel log empty: needs sudo or the systemd-journal group)"
 # The trainer's checkpoints are large and not needed: keep logs and configs only.
 find "$RESULTS/work" -path '*/sessions/*' -type f \( -name '*.bin*' -o -name '*.optimizer' -o -name '*.lm_head' \) -delete 2>/dev/null
 ARCHIVE="$HERE/results/$RESULTS_NAME.tar.gz"
@@ -258,4 +508,5 @@ tar -czf "$ARCHIVE" -C "$HERE/results" "$RESULTS_NAME"
 log "Results: $ARCHIVE"
 echo
 echo "Copy $ARCHIVE back to the dev machine."
+[[ -s "$HERE/host_state/stopped.txt" ]] && echo "Then ./restore_host.sh starts the services prepare_host.sh stopped."
 [[ $FAILURES -eq 0 && -z "${FATAL_NO_DEVICE:-}" ]]

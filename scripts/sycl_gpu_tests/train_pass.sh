@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.1.0
-# @adai-reviewed: 2026-11-09
+# @adai-version: 0.2.0
+# @adai-reviewed: 2026-11-10
 
 # One small GPU training pass for run_gpu_tests.sh: a private config (no MNS, registry or metrics),
-# the packaged pairs queued in a private session directory, 3 epochs with dropout and SEED=<seed>.
+# the packaged pairs queued in a private session directory, <epochs> epochs (default 3) with dropout
+# and SEED=<seed>.
 #
-#   train_pass.sh <work_dir> <seed>
+#   train_pass.sh <work_dir> <seed> [epochs]
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DIR="$1"
 SEED="$2"
+EPOCHS="${3:-3}"
 mkdir -p "$DIR/sessions"
 cat >"$DIR/config.trainer.conf" <<CONF
 LOG_FILE_PATH=$DIR/trainer.log
@@ -33,10 +35,10 @@ D_FF=128
 NUM_ENCODER_LAYERS=1
 NUM_DECODER_LAYERS=1
 MAX_SEQ_LENGTH=16
-NUM_EPOCHS=3
+NUM_EPOCHS=$EPOCHS
 DROPOUT=0.1
 SEED=$SEED
 CONF
 cd "$DIR"
 "$HERE/bin/dataset_manager" --config "$DIR/config.trainer.conf" --kind chatbot add "$HERE/data/pairs.jsonl"
-"$HERE/bin/incremental_trainer" --config "$DIR/config.trainer.conf" --foreground train 3
+"$HERE/bin/incremental_trainer" --config "$DIR/config.trainer.conf" --foreground train "$EPOCHS"
