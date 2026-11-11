@@ -158,6 +158,20 @@ instead of hours of re-tokenization) instead of needing manual intervention ever
    prior repro attempt accidentally pointed at the real production registry/MNS and uploaded test
    data into the live queue.
 
+## Engine resets during training (November 2026)
+
+The GPU test package's soak (`scripts/sycl_gpu_tests/`, 40 back-to-back 10-epoch passes) shows the same instability in a
+second form. The kernel logs `xe … GT0: Engine reset: engine_class=ccs` at random points in a pass, and the pass then fails
+with `UR_RESULT_ERROR_DEVICE_LOST` or `UR_RESULT_ERROR_OUT_OF_RESOURCES`. That happened in about 1 pass in 4 on the default
+Level Zero v2 adapter. On the v1 adapter (`SYCL_UR_USE_LEVEL_ZERO_V2=0`) a pass sometimes hangs instead.
+
+- **GuC firmware ruled out (2026-11-11):** GuC 70.72.1 (`scripts/sycl_gpu_tests/guc_firmware.sh install`) gave the same
+  reset rate as Ubuntu's 70.44.1.
+- **Handled:** since TD-566 a pass that loses the device stops within a second without copying weights back, and the device
+  works again in the next process, which `trainer_service` starts.
+- **Not handled yet:** a pass that hangs (TD-569). `trainer_service` has no stall limit, so stop it with
+  `systemctl restart adai-trainer`.
+
 ## Access Constraint
 
 `incremental_trainer`/GPU work runs only on `ai-machine` (192.168.1.24) — not directly reachable
@@ -179,4 +193,4 @@ access.
 
 **Status:** Root cause identified and closed as an external/upstream issue (not fixable in this
 codebase). Mitigated, not resolved — training tolerates the crash; the crash itself still happens.
-**Last updated:** 2026-08-10
+**Last updated:** 2026-11-11

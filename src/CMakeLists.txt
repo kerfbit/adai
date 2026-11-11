@@ -851,6 +851,7 @@ if(BUILD_GUI AND (Qt6_FOUND OR Qt5_FOUND) AND TARGET adai_mns AND HTTPLIB_INCLUD
     add_executable(mns_manager_gui
         MnsManagerGUI_main.cpp
         MnsManagerGUI.cpp
+        MnsCliCommands.cpp  # TD-452: register requests built as mns_cli builds them
         Config.cpp
     )
     if(Qt6_FOUND)
@@ -864,7 +865,8 @@ if(BUILD_GUI AND (Qt6_FOUND OR Qt5_FOUND) AND TARGET adai_mns AND HTTPLIB_INCLUD
             pthread $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
         )
     endif()
-    target_include_directories(mns_manager_gui PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    target_include_directories(mns_manager_gui PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/external)  # TD-452: nlohmann/json
     set_target_properties(mns_manager_gui PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )

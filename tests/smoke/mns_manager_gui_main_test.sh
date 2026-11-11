@@ -58,5 +58,28 @@ run timeout 10 "$BIN" --url http://localhost:9999 --help
 assert_exit 0
 assert_contains "Usage:"
 
+# TD-568: the arguments are read before QApplication exists. With no display and the xcb
+# platform, constructing QApplication aborts, so these only pass when it is never constructed.
+t "--help works without a display (no QApplication is created)"
+run env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb timeout 10 "$BIN" --help
+assert_exit 0
+assert_contains "Usage:"
+
+t "--url with no value is an error, not the default server"
+run env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb timeout 10 "$BIN" --url
+assert_exit 1
+assert_contains "Missing value for --url"
+
+t "--config with no value is an error"
+run env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb timeout 10 "$BIN" --url http://h:1 --config
+assert_exit 1
+assert_contains "Missing value for --config"
+
+t "an unknown argument is an error"
+run env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb timeout 10 "$BIN" --urll http://h:1
+assert_exit 1
+assert_contains "Unknown argument: --urll"
+assert_contains "Usage:"
+
 harness_report
 exit $?

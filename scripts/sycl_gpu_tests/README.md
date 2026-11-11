@@ -55,6 +55,10 @@ checks its SHA-256 and header version, puts it in `/lib/firmware/updates/xe/` (s
 Ubuntu's firmware, untouched by package upgrades) and rebuilds the initramfs; reboot afterwards.
 `uninstall` removes only that file. Run the soak before and after to compare.
 
+Result on ai-machine (November 11, 2026): with 70.72.1 loaded, engine resets were as frequent as with 70.44.1 (8 in 40 soak
+passes, against about 7), so the firmware isn't the cause. 70.72.1 is still installed: it is at least the version the driver
+asks for and made nothing worse. See TD-566 in `docs/development/guides/TECHNICAL_DEBT.md`.
+
 **`restore_host.sh`** starts the services and containers `prepare_host.sh` stopped. The runtime
 upgrade stays.
 

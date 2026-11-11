@@ -135,7 +135,8 @@ struct Reply {
 
 /**
  * An httplib server on a free loopback port that records every request as
- * "METHOD path[?query] body" and answers from a handler the test sets per route.
+ * "METHOD target body" (the target as sent, URL-encoded) and answers from a handler the test sets
+ * per route (matched on the decoded path).
  */
 class RecordingServer {
    public:
@@ -208,13 +209,9 @@ class RecordingServer {
     }
 
    private:
+    // The request target as sent (path and query, still URL-encoded), then the body.
     static std::string describe(const httplib::Request& req) {
-        std::string line = req.method + " " + req.path;
-        char sep = '?';
-        for (const auto& [k, v] : req.params) {
-            line += sep + k + "=" + v;
-            sep = '&';
-        }
+        std::string line = req.method + " " + req.target;
         if (!req.body.empty()) {
             line += " " + req.body;
         }

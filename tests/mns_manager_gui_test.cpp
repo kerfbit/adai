@@ -26,10 +26,9 @@ using mns_gui::json_array_objects;
 using mns_gui::json_escape;
 using mns_gui::json_pretty;
 using mns_gui::json_value;
-using mns_gui::ParsedUrl;
 
 // ============================================================================
-// Part 1: Pure unit tests — JSON helpers and URL parser
+// Part 1: Pure unit tests — JSON helpers
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -96,7 +95,7 @@ TEST(MnsJsonValue, HandlesNullValue) {
 // terminate the value early (find('"', ...) has no escape awareness).
 TEST(MnsJsonValue, HandlesEscapedQuoteInStringValue) {
     std::string body = R"({"reason":"she said \"hello\" to me","name":"test"})";
-    EXPECT_EQ("she said \\\"hello\\\" to me", json_value(body, "reason"));
+    EXPECT_EQ("she said \"hello\" to me", json_value(body, "reason"));  // TD-452: unescaped
     EXPECT_EQ("test", json_value(body, "name"));
 }
 
@@ -143,8 +142,8 @@ TEST(MnsJsonArrayObjects, HandlesSingleObject) {
 
 TEST(MnsJsonArrayObjects, HandlesNoKeyTopLevelArray) {
     std::string body = R"([{"a":1},{"b":2}])";
-    auto objs = json_array_objects(body, "nonexistent");
-    ASSERT_EQ(2u, objs.size());
+    EXPECT_TRUE(json_array_objects(body, "nonexistent").empty());  // TD-452: no fallback
+    ASSERT_EQ(2u, json_array_objects(body, "").size());
 }
 
 // TD-068 regression: a literal '{' or '}' inside a string value (e.g. a
@@ -240,58 +239,6 @@ TEST(MnsJsonPretty, HandlesArray) {
     std::string input = R"({"items":[1,2,3]})";
     std::string result = json_pretty(input);
     EXPECT_NE(result.find('['), std::string::npos);
-}
-
-// ---------------------------------------------------------------------------
-// ParsedUrl
-// ---------------------------------------------------------------------------
-
-TEST(MnsParsedUrl, ParsesHostAndPort) {
-    auto p = ParsedUrl::from("http://myhost:9090");
-    EXPECT_EQ("myhost", p.host);
-    EXPECT_EQ(9090, p.port);
-}
-
-TEST(MnsParsedUrl, ParsesHostOnly) {
-    auto p = ParsedUrl::from("http://myhost");
-    EXPECT_EQ("myhost", p.host);
-    EXPECT_EQ(8083, p.port);
-}
-
-TEST(MnsParsedUrl, StripsTrailingPath) {
-    auto p = ParsedUrl::from("http://server:8083/some/path");
-    EXPECT_EQ("server", p.host);
-    EXPECT_EQ(8083, p.port);
-}
-
-TEST(MnsParsedUrl, HandlesHttps) {
-    auto p = ParsedUrl::from("https://secure:4443");
-    EXPECT_EQ("secure", p.host);
-    EXPECT_EQ(4443, p.port);
-}
-
-TEST(MnsParsedUrl, HandlesNoScheme) {
-    auto p = ParsedUrl::from("bare-host:7777");
-    EXPECT_EQ("bare-host", p.host);
-    EXPECT_EQ(7777, p.port);
-}
-
-TEST(MnsParsedUrl, DefaultsLocalhostPort) {
-    auto p = ParsedUrl::from("");
-    EXPECT_EQ("", p.host);
-    EXPECT_EQ(8083, p.port);
-}
-
-TEST(MnsParsedUrl, ParsesLocalhost) {
-    auto p = ParsedUrl::from("http://localhost:8083");
-    EXPECT_EQ("localhost", p.host);
-    EXPECT_EQ(8083, p.port);
-}
-
-TEST(MnsParsedUrl, HandlesIPAddress) {
-    auto p = ParsedUrl::from("http://192.168.1.19:8083");
-    EXPECT_EQ("192.168.1.19", p.host);
-    EXPECT_EQ(8083, p.port);
 }
 
 // ============================================================================

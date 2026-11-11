@@ -1,186 +1,106 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-11-10
 
+#include <deque>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+#include "nlohmann/json.hpp"
 
-// TODO: See TD-453 in TECHNICAL_DEBT.md - one of six hand-written JSON helpers (vendored nlohmann/json is unused here)
+// The MNS Manager GUI's JSON helpers. TD-452: they parse with the vendored nlohmann/json (an
+// ordered_json, so a pretty-printed record keeps the server's field order) instead of scanning the
+// text, so values are unescaped, any spacing is accepted, an object value comes back whole, a
+// missing array is empty rather than whichever array came first, and escaping covers every control
+// character. Malformed input gives empty results, never an exception.
 namespace mns_gui {
 
-// TD-068 (fixed): find the closing quote of a JSON string literal starting
-// just after the opening quote at `start`, honoring backslash-escapes (so a
-// value like "he said \"hi\"" isn't truncated at the escaped quote).
-// Returns std::string::npos if the string is unterminated.
-inline size_t find_string_end(const std::string& body, size_t start) {
-    for (size_t i = start; i < body.size(); ++i) {
-        if (body[i] == '\\') {
-            ++i;  // skip the escaped character (safe even if it's the last char)
-            continue;
-        }
-        if (body[i] == '"') {
-            return i;
-        }
-    }
-    return std::string::npos;
+namespace detail {
+
+inline nlohmann::ordered_json parse_or_discard(const std::string& body) {
+    return nlohmann::ordered_json::parse(body, nullptr, /*allow_exceptions=*/false);
 }
 
-// TODO: See TD-452 in TECHNICAL_DEBT.md - no unescaping; matches only compact "key": (no spaces); object values return fragments
+// The value of `key` nearest the top of `doc` (breadth-first), or nullptr if there is none. Nearest
+// first, so a record's own "run_id" wins over one in its training_history.
+inline const nlohmann::ordered_json* find_key(const nlohmann::ordered_json& doc,
+                                              const std::string& key) {
+    std::deque<const nlohmann::ordered_json*> queue{&doc};
+    while (!queue.empty()) {
+        const nlohmann::ordered_json* node = queue.front();
+        queue.pop_front();
+        if (node->is_object()) {
+            auto it = node->find(key);
+            if (it != node->end()) {
+                return &*it;
+            }
+        }
+        if (node->is_structured()) {
+            for (const auto& child : *node) {
+                queue.push_back(&child);
+            }
+        }
+    }
+    return nullptr;
+}
+
+inline std::string compact(const nlohmann::ordered_json& value) {
+    return value.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
+}
+
+}  // namespace detail
+
+/// The value of `key` (the one nearest the top of the document): a string unescaped, anything else
+/// as compact JSON (`512`, `true`, `null`, `{"host":"h"}`). Empty when the key is missing or the
+/// body isn't JSON.
 inline std::string json_value(const std::string& body, const std::string& key) {
-    const std::string needle = "\"" + key + "\":";
-    auto pos = body.find(needle);
-    if (pos == std::string::npos)
+    const auto doc = detail::parse_or_discard(body);
+    const auto* value = detail::find_key(doc, key);
+    if (!value) {
         return {};
-    pos += needle.size();
-    while (pos < body.size() && body[pos] == ' ')
-        ++pos;
-    if (pos >= body.size())
-        return {};
-    if (body[pos] == '"') {
-        auto end = find_string_end(body, pos + 1);
-        return (end != std::string::npos) ? body.substr(pos + 1, end - pos - 1) : "";
     }
-    auto end = body.find_first_of(",}] \n", pos);
-    return (end != std::string::npos) ? body.substr(pos, end - pos) : body.substr(pos);
+    return value->is_string() ? value->get<std::string>() : detail::compact(*value);
 }
 
-// TD-068 (fixed): this used to count '{'/'}' unconditionally, so a string
-// value anywhere in an object (e.g. a "tags" entry, a label, an error
-// message) containing a literal '{' or '}' character desynchronized the
-// depth counter — corrupting that object and every object parsed after it
-// for the rest of the array (reproduced: a single stray '}' inside one
-// object's string value truncated that object and turned the next real
-// object into a bogus empty "{}"). Now skips over string content (honoring
-// backslash-escapes) the same way json_pretty() below already does, so only
-// structural braces are counted.
+/// The elements of the array under `key`, each as compact JSON. An empty `key` means the body
+/// itself is the array. Empty when there is no such array or the body isn't JSON.
 inline std::vector<std::string> json_array_objects(const std::string& body,
                                                    const std::string& key) {
     std::vector<std::string> result;
-    std::string needle = "\"" + key + "\":[";
-    auto pos = body.find(needle);
-    if (pos == std::string::npos) {
-        // TODO: See TD-452 in TECHNICAL_DEBT.md - falls back to whatever array appears first (e.g. in an error body)
-        pos = body.find('[');
-        if (pos == std::string::npos)
-            return result;
-    } else {
-        pos += needle.size();
+    const auto doc = detail::parse_or_discard(body);
+    const auto* array = key.empty() ? &doc : detail::find_key(doc, key);
+    if (!array || !array->is_array()) {
+        return result;
     }
-
-    int depth = 0;
-    size_t obj_start = 0;
-    for (size_t i = pos; i < body.size(); ++i) {
-        if (body[i] == '"') {
-            auto end = find_string_end(body, i + 1);
-            if (end == std::string::npos)
-                break;  // unterminated string — malformed JSON, stop parsing
-            i = end;
-            continue;
-        }
-        if (body[i] == '{') {
-            if (depth == 0)
-                obj_start = i;
-            ++depth;
-        } else if (body[i] == '}') {
-            --depth;
-            if (depth == 0) {
-                result.push_back(body.substr(obj_start, i - obj_start + 1));
-            }
-        } else if (body[i] == ']' && depth == 0) {
-            break;
-        }
+    for (const auto& element : *array) {
+        result.push_back(detail::compact(element));
     }
     return result;
 }
 
-// TODO: See TD-452 in TECHNICAL_DEBT.md - escapes only ", \\ and \\n; tabs/CR/other control chars produce invalid JSON
+/// `s` escaped for use inside a JSON string literal (without the surrounding quotes): quotes,
+/// backslashes and every control character; invalid UTF-8 becomes U+FFFD.
 inline std::string json_escape(const std::string& s) {
-    std::string out;
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            default:
-                out += static_cast<char>(c);
-                break;
-        }
-    }
-    return out;
+    const std::string quoted = detail::compact(nlohmann::ordered_json(s));
+    return quoted.substr(1, quoted.size() - 2);
 }
 
+/// `s` indented by two spaces per level, in the server's field order; text that isn't JSON is
+/// returned unchanged.
 inline std::string json_pretty(const std::string& s) {
-    std::string out;
-    int indent = 0;
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if (c == '"') {
-            // TD-102 (fixed): used to toggle an in_string flag by checking only
-            // whether the *immediately preceding* character was a backslash —
-            // for a real closing quote that happens to follow an escaped
-            // backslash in the JSON text (`\\"`, i.e. the string's own content
-            // ends in a literal backslash, e.g. a Windows-style artifact path
-            // like "C:\\models\\"), that preceding character IS a backslash,
-            // so the check misclassified the true closing quote as escaped and
-            // never toggled out of "in string" — garbling every character
-            // after it for the rest of the output. json_array_objects() above
-            // already had (and was fixed for, TD-068) the identical class of
-            // bug; this reuses that fix's escape-aware find_string_end()
-            // scanner instead of a naive single-character lookback.
-            out += c;
-            auto end = find_string_end(s, i + 1);
-            if (end == std::string::npos) {
-                out += s.substr(i + 1);
-                break;
-            }
-            out += s.substr(i + 1, end - i);  // string content + its closing quote
-            i = end;
-            continue;
-        }
-        switch (c) {
-            case '{':
-            case '[':
-                out += c;
-                out += '\n';
-                ++indent;
-                out += std::string(indent * 2, ' ');
-                break;
-            case '}':
-            case ']':
-                out += '\n';
-                --indent;
-                out += std::string(indent * 2, ' ');
-                out += c;
-                break;
-            case ',':
-                out += c;
-                out += '\n';
-                out += std::string(indent * 2, ' ');
-                break;
-            case ':':
-                out += ": ";
-                break;
-            default:
-                out += c;
-        }
+    const auto doc = detail::parse_or_discard(s);
+    if (doc.is_discarded()) {
+        return s;
     }
-    return out;
+    return doc.dump(2, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
 }
 
 // TD-037: parses MnsManagerGUI's "Register" tab tags field (comma-separated `key=value` pairs,
-// arbitrary surrounding whitespace around each key/value) into ordered pairs — extracted
-// verbatim from onRegisterModel() so it's testable without a QMainWindow/QLineEdit. An entry with
-// no '=' is silently skipped (matches the original widget code's behavior).
+// arbitrary surrounding whitespace around each key/value) into ordered pairs. An entry with no '='
+// is skipped.
 inline std::vector<std::pair<std::string, std::string>> parse_tags(const std::string& tags_str) {
     std::vector<std::pair<std::string, std::string>> tags;
     if (tags_str.empty())
@@ -207,48 +127,6 @@ inline std::vector<std::pair<std::string, std::string>> parse_tags(const std::st
     return tags;
 }
 
-// TD-037: the register-model request body's architecture sub-object — one field per
-// MnsManagerGUI "Register" tab spin box, extracted so the whole body can be built (and tested)
-// without any of those widgets existing.
-struct RegisterModelArch {
-    int d_model = 0;
-    int num_heads = 0;
-    int d_ff = 0;
-    int num_encoder_layers = 0;
-    int num_decoder_layers = 0;
-    int max_seq_length = 0;
-};
-
-// TD-037: builds POST /models's JSON body — extracted verbatim from onRegisterModel() (the
-// tags-parsing loop now lives in parse_tags() above).
-// TODO: See TD-452 in TECHNICAL_DEBT.md - no kind/run_group/connection: the GUI can only register legacy chatbots
-inline std::string build_register_model_body(const std::string& name, const std::string& role,
-                                             const RegisterModelArch& arch,
-                                             const std::string& tags_str) {
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
-         << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
-         << ",\"num_heads\":" << arch.num_heads << ",\"d_ff\":" << arch.d_ff
-         << ",\"num_encoder_layers\":" << arch.num_encoder_layers
-         << ",\"num_decoder_layers\":" << arch.num_decoder_layers
-         << ",\"max_seq_length\":" << arch.max_seq_length << "}";
-
-    auto tags = parse_tags(tags_str);
-    if (!tags.empty()) {
-        body << ",\"tags\":{";
-        bool first = true;
-        for (const auto& [k, v] : tags) {
-            if (!first)
-                body << ',';
-            first = false;
-            body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
-        }
-        body << "}";
-    }
-    body << "}";
-    return body.str();
-}
-
 // TD-454: builds PUT /models/{name}/state's JSON body for the "training" transition. MNS allocates
 // the run ID (run-NN), so the body carries none; new_run=true starts the next run instead of
 // continuing the current one (the first run ever is run-01 either way).
@@ -256,8 +134,8 @@ inline std::string build_set_training_body(bool new_run) {
     return new_run ? R"({"state":"training","new_run":true})" : R"({"state":"training"})";
 }
 
-// TD-037: builds PUT /models/{name}/state's JSON body for the "candidate" transition — extracted
-// verbatim from onSetCandidate(). run_id/artifact_path are both optional (either may be empty).
+// TD-037: builds PUT /models/{name}/state's JSON body for the "candidate" transition.
+// run_id/artifact_path are both optional (either may be empty).
 inline std::string build_set_candidate_body(const std::string& run_id,
                                             const std::string& artifact_path) {
     std::ostringstream body;
@@ -271,33 +149,5 @@ inline std::string build_set_candidate_body(const std::string& run_id,
     body << "}";
     return body.str();
 }
-
-struct ParsedUrl {
-    std::string host = "localhost";
-    int port = 8083;
-
-    static ParsedUrl from(const std::string& url) {
-        ParsedUrl p;
-        std::string s = url;
-        if (s.rfind("http://", 0) == 0)
-            s = s.substr(7);
-        if (s.rfind("https://", 0) == 0)
-            s = s.substr(8);
-        auto slash = s.find('/');
-        if (slash != std::string::npos)
-            s = s.substr(0, slash);
-        auto colon = s.find(':');
-        if (colon != std::string::npos) {
-            p.host = s.substr(0, colon);
-            try {
-                p.port = std::stoi(s.substr(colon + 1));
-            } catch (...) {
-            }
-        } else {
-            p.host = s;
-        }
-        return p;
-    }
-};
 
 }  // namespace mns_gui

@@ -18,6 +18,17 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 11, 2026:** Filed [TD-569](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress) (MEDIUM, verified on
+ai-machine) from the second GPU soak: a pass whose GPU work hangs after an engine reset never fails a sample, so TD-566's check
+doesn't run, and `trainer_service` waits for it with no time limit. The always-on service then stalls until someone restarts
+it. The same soak, with GuC firmware 70.72.1 installed, showed engine resets as often as with Ubuntu's 70.44.1; see TD-566's
+on-device results.
+
+**November 11, 2026:** Filed [TD-568](#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight) (LOW, verified)
+while reviewing `mns_manager_gui` for `stable`: `--help` aborts without a display, a flag missing its value and unknown
+arguments are ignored, the selected record loads only on a mouse click, and a refreshed table highlights whichever model
+now sits in the old row. Fixed in code the same day.
+
 **November 10, 2026:** Filed [TD-567](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) (LOW, verified) while reviewing `chatbot_gui` for `stable`: the chat pane
 shows every multi-line message on one line, because `addMessage()` puts the escaped text into HTML without turning line
 breaks into `<br>`. It blocks the GUI's promotion. Fixed in code the same day.
@@ -460,7 +471,7 @@ as the first word (verified), and minor hygiene (TD-451).
 Also October 14, 2026: filed [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) and [TD-453](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code) (both LOW) from the code-traced
 [MnsJsonHelpers.md](../reference/source/MnsJsonHelpers.md). The MNS Manager GUI's helpers don't unescape string values,
 match only compact JSON, fall back to any array, and escape only `"`, `\` and `\n` (verified); its register body has no
-`kind`/`run_group`/`connection`, so the GUI can't manage TD-196 records (TD-452). The same hand-written JSON escaping and
+`kind`/`run_group`/`connection`, so the GUI can't manage TD-196 records (TD-452; fixed in code November 10, 2026). The same hand-written JSON escaping and
 scanning is duplicated across six MNS/metrics files with different coverage while `nlohmann/json` is vendored (TD-453).
 
 Also October 14, 2026: filed [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) and [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) from the code-traced
@@ -468,7 +479,7 @@ Also October 14, 2026: filed [TD-454](#td-454-mns-manager-guis-training--candida
 GUI's exact request bodies: Set Training sends a typed `run_id` the server ignores (it allocates `run-01`) and never sends
 `new_run`, so Set Candidate with the typed ID gets `409 … superseded` and the GUI can't start a new run; the GUI guide
 documents this failing flow (TD-454; fixed in code November 10, 2026). One is LOW: success is judged by the substring `"error"` rather than the HTTP status,
-all HTTP runs on the UI thread, and the Register tab's defaults (128/4/512, layer minimum 1) match neither config (TD-455).
+all HTTP runs on the UI thread, and the Register tab's defaults (128/4/512, layer minimum 1) match neither config (TD-455; fixed in code November 10, 2026).
 
 Also October 14, 2026: filed [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) (MEDIUM, verified with the real `mns_server`) from the code-traced
 [MnsServerArgs.md](../reference/source/MnsServerArgs.md): an unrecognized `--admin-enabled` value falls back to `true`, so
@@ -2134,7 +2145,8 @@ place; do it with TD-226. TD-452's GUI register fields are separate and only mat
 
 **Tier 69 — Newly filed (October 14, 2026): `MnsManagerGUI`.** [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) (code fix landed November 10, 2026) is a small fix (drop the run-ID
 requirement, add a "new run" checkbox, use the run ID from the record for Set Candidate) plus a guide correction; do it
-with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) is cleanup.
+with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) is cleanup. TD-452 and TD-455: code fixes landed
+November 10, 2026.
 
 **Tier 70 — Newly filed (October 14, 2026): `MnsServerArgs`.** Fix [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) together with TD-438 and TD-240 using one
 shared checked port/boolean parser for all the daemons.
@@ -2630,6 +2642,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-565: Vocabularies Have No Room for Future Special Tokens](#td-565-vocabularies-have-no-room-for-future-special-tokens)
   - [TD-566: Training Keeps Going After the GPU Is Lost, and Reports an Epoch That Trained Nothing as Loss 0](#td-566-training-keeps-going-after-the-gpu-is-lost-and-reports-an-epoch-that-trained-nothing-as-loss-0)
   - [TD-567: `chatbot_gui` Shows Multi-Line Messages on One Line](#td-567-chatbot_gui-shows-multi-line-messages-on-one-line)
+  - [TD-568: MNS Manager GUI Argument Handling, Keyboard Selection and a Stale Highlight](#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight)
+  - [TD-569: `trainer_service` Has No Time Limit for a Pass That Stops Making Progress](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress)
 - [Resolved Items](#resolved-items) (217 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -14312,7 +14326,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 10, 2026 | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MnsJsonHelpers` (used only by the optional Qt `mns_manager_gui`):
@@ -14327,16 +14341,30 @@ Found while tracing `MnsJsonHelpers` (used only by the optional Qt `mns_manager_
 
 Action Items:
 
-- [ ] Unescape string values; return `nullopt` for a missing array key; complete `json_escape()` (or adopt TD-453's shared library).
-- [ ] Add kind, run group and encoder/decoder/world-model fields to the GUI's Register tab and body.
+- [x] Unescape string values; return `nullopt` for a missing array key; complete `json_escape()` (or adopt TD-453's shared library).
+- [x] Add kind, run group and encoder/decoder/world-model fields to the GUI's Register tab and body.
 
-Location in code: `src/MnsJsonHelpers.hpp` (`json_value()`, `json_array_objects()`, `json_escape()`, `build_register_model_body()`); tagged `TODO: See TD-452`.
+**Fix (November 10, 2026, with TD-455):** `MnsJsonHelpers.hpp` (2.0.0) parses with the vendored nlohmann/json, as an
+`ordered_json` so the detail view keeps the server's field order: `json_value()` unescapes and returns the key nearest the
+top (a record's own `run_id` over its history's), any spacing works, object values come back whole; `json_array_objects()`
+is empty for a missing key (an empty key reads a top-level array); `json_escape()` escapes every control character;
+`json_pretty()` keeps `{}`/`[]` on one line; text that isn't JSON gives empty results. `find_string_end()`,
+`build_register_model_body()`/`RegisterModelArch` and `ParsedUrl` are removed. The Register tab has Kind, Run group,
+linked Encoder/Decoder and SIGReg fields, showing those of the chosen kind, and builds its request with `mns_cli`'s own
+`adai::build_register_request()` (`MnsCliCommands.cpp`, now linked into the GUI), so both share one set of rules and one
+body. The server URL is parsed with `adai::parse_url()`, and an `https://` URL is refused with a message instead of being
+sent as plain HTTP (this GUI's httplib has no TLS). Verified the same day: the helper tests' nine new cases (unescaping, spacing, object values, nearest-first keys, no
+array fallback, a top-level array by empty key, control-character escaping, one-line empty containers, field order,
+text that isn't JSON) each fail on the old header; `mnsManagerGuiWidgetTests` (31) passes, and the register, training and
+candidate requests the real window builds were accepted by a real `mns_server` (encoder, decoder, world model with its
+SIGReg settings, linked chatbot, `run-01`, candidate; a duplicate name showed `model_name already registered (HTTP 409)`).
 
-Files to Modify:
+Location in code: `src/MnsJsonHelpers.hpp`, `src/MnsManagerGUI.cpp` (`createRegisterTab()`, `onRegisterModel()`, `setServer()`).
 
-- `src/MnsJsonHelpers.hpp`
-- `src/MnsManagerGUI.{hpp,cpp}`
-- `tests/mnsjsonhelpers_test.cpp`
+Files Modified:
+
+- `src/MnsJsonHelpers.hpp`, `src/MnsManagerGUI.{hpp,cpp}`, `src/CMakeLists.txt`
+- `tests/mnsjsonhelpers_test.cpp`, `tests/mns_manager_gui_test.cpp`, `tests/mns_manager_gui_widget_test.cpp`, `tests/qt_widget_test_support.hpp`, `tests/CMakeLists.txt`
 
 ---
 
@@ -14358,6 +14386,11 @@ escaping (TD-449, TD-452), and `ChatbotAPI`'s parser rejecting `]` (TD-226). The
 **Progress (October 25, 2026).** `TrainingMetricsAPI`'s push handlers now parse request bodies with nlohmann/json (TD-527), and
 `MetricsPushClient` writes numbers through one shared helper (TD-443). The MNS files and the API's response writers are still
 hand-written.
+
+**Progress (November 10, 2026).** `MnsJsonHelpers.hpp` (the MNS Manager GUI's) parses and escapes with nlohmann/json
+(TD-452), and the GUI builds its register body with `MnsCliCommands`' builder rather than its own. Still hand-written:
+`MnsCliCommands.cpp`, `ModelNameClient.cpp`, `ModelNameService.cpp`, `MetricsPushClient.cpp` and the metrics API's
+response writers.
 
 Action Items:
 
@@ -14425,7 +14458,7 @@ Files Modified:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 10, 2026 | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MnsManagerGUI`, by inspection:
@@ -14442,16 +14475,32 @@ Found while tracing `MnsManagerGUI`, by inspection:
 
 Action Items:
 
-- [ ] Return status and body from the HTTP helpers and judge success by status.
-- [ ] Run requests off the UI thread (`QtConcurrent`/`QNetworkAccessManager`).
-- [ ] Load Register defaults from a chosen config (or leave them blank and required); allow 0 layers per kind.
-- [ ] Populate the role filter from `/roles`; URL-encode filter values.
+- [x] Return status and body from the HTTP helpers and judge success by status.
+- [x] Run requests off the UI thread (`QtConcurrent`/`QNetworkAccessManager`).
+- [x] Load Register defaults from a chosen config (or leave them blank and required); allow 0 layers per kind.
+- [x] Populate the role filter from `/roles`; URL-encode filter values.
 
-Location in code: `src/MnsManagerGUI.cpp` (`http*()`, action slots, `createRegisterTab()`, `createModelsTab()`); tagged `TODO: See TD-455`.
+**Fix (November 10, 2026, with TD-452):** one `http()` helper returns `{reached, status, body, error}`, and success is a
+2xx status; a failure shows the server's `error` and the status in a dialog (`… (HTTP 409)`, or `HTTP 500: <body>`
+without an `error` field), or "Connection failed (<reason>)". Requests run on a worker thread, one at a time, with the
+`ChatbotGUI` pattern (`runRequest()`/`setBusy()`, the result posted back to the GUI thread); the tabs, panels, URL field,
+Connect and Refresh are disabled meanwhile and the status line shows what runs. The destructor stops the request in
+flight (`httplib::Client::stop()`) and joins the worker. The Register tab's architecture starts blank and required, with
+**Load from config...** (`ConfigLoader::load()`, as `mns_cli register --from-config`); standalone kinds take one layer
+count. The role filter is filled from `/roles` (keeping the current choice, a typed one too, since `/roles` lists only roles with a production model), and model names, filters and the promote role
+are URL-encoded (`adai::url_encode()`). `#pragma once`, one HTTP helper. `MnsManagerGUI.cpp` 0.10.0, `.hpp` 0.9.0.
+Widget tests for each behaviour; breaking it was caught: success judged by the text `"error"` (two tests), unencoded names,
+an empty role filter, and requests run on the GUI thread (the click then took the 10 s read timeout). Verified the same day: the helper tests' nine new cases (unescaping, spacing, object values, nearest-first keys, no
+array fallback, a top-level array by empty key, control-character escaping, one-line empty containers, field order,
+text that isn't JSON) each fail on the old header; `mnsManagerGuiWidgetTests` (31) passes, and the register, training and
+candidate requests the real window builds were accepted by a real `mns_server` (encoder, decoder, world model with its
+SIGReg settings, linked chatbot, `run-01`, candidate; a duplicate name showed `model_name already registered (HTTP 409)`).
 
-Files to Modify:
+Location in code: `src/MnsManagerGUI.{hpp,cpp}`.
 
-- `src/MnsManagerGUI.{hpp,cpp}`
+Files Modified:
+
+- `src/MnsManagerGUI.{hpp,cpp}`, `tests/mns_manager_gui_widget_test.cpp`
 
 ---
 
@@ -19184,6 +19233,15 @@ loss the device ran work again in the next process. With `SYCL_UR_USE_LEVEL_ZERO
 but 2 of 20 hung until killed at the 15-minute limit, one of them after an engine reset; a hang is worse for the always-on service
 than a fast failure, so the default v2 adapter stays.
 
+Second on-device result (November 11, 2026): the same package and soak, run after `scripts/sycl_gpu_tests/guc_firmware.sh install`
+put GuC 70.72.1 in place of Ubuntu's 70.44.1 (the driver asks for 70.49.4; `guc_info` confirmed 70.72.1 loaded). Engine resets
+didn't become rarer: 8 in 40 passes, against about 7 before. On v2, 5 of 20 passes lost the device again (epochs 1 to 9). On v1,
+2 of 20 lost it and 1 hung until killed at the 15-minute limit, 0.7 s after an engine reset. TD-566's check stopped all 7
+losses: 0.5 s after the failed sample for `DEVICE_LOST`, under 1 ms for `OUT_OF_RESOURCES` (4 of the 7). None copied weights
+back or recorded a loss-0 epoch, and the device ran work in the next process every time. The firmware isn't the cause and v2
+stays the default. Across both runs, no pass on v2 hung; a pass that hangs isn't caught by this check, since no sample fails
+(TD-569).
+
 Not covered: the LeJEPA pass (`--objective=lejepa`) has its own training loop and doesn't use this check.
 
 Location in code: `src/ChatbotTrainer.{hpp,cpp}`, `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`.
@@ -19231,6 +19289,105 @@ Files Modified:
 - `src/ChatbotGUI.cpp`
 - `tests/chatbot_gui_widget_test.cpp`
 - `docs/development/reference/source/ChatbotGUI.md`
+
+### TD-568: MNS Manager GUI Argument Handling, Keyboard Selection and a Stale Highlight
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — code fix landed November 11, 2026 | Client / GUI | November 11, 2026 | 2 hours |
+
+Description:
+Found while reviewing `mns_manager_gui` for promotion to `stable`, after TD-452/TD-455 (all verified):
+
+- **Arguments.** `MnsManagerGUI_main.cpp` (tagged `stable`) built `QApplication` before reading its arguments, so
+  `mns_manager_gui --help` aborted with a core dump on a host with no display instead of printing the usage
+  (`chatbot_gui` had the same bug, fixed under TD-266). `--url` or `--config` with no value was ignored, and an unknown
+  argument (`--urll http://h:8083`) too: the window opened on the configured or default server.
+- **Keyboard selection.** The models and roles tables loaded a record only on `cellClicked`, so moving the selection with
+  the arrow keys highlighted a model without loading it, while the actions kept acting on the previously clicked one.
+- **Stale highlight.** Refilling the models table (Refresh, or after any action) left the current row where it was, so it
+  highlighted whichever model now sat in that row while the actions and the detail view belonged to the selected one.
+- **Stylesheet.** It still styled `QSpinBox`, which the Register tab no longer uses since TD-455.
+
+The same review found two bugs in the then-uncommitted TD-452/TD-455 change, fixed in that change rather than here: the
+Server field started empty (the toolbar was built before the URL was stored), and a typed role filter was reset to `(all)`
+whenever the role list was refilled (`GET /roles` lists only roles with a production model), leaving the table filtered.
+
+Action Items:
+
+- [x] Read the arguments before `QApplication`; a value flag with no value and an unknown argument print the usage and
+  exit 1.
+- [x] Load the record when the current row changes, by mouse or keyboard; refilling a table doesn't select a row, and the
+  models table keeps the selected model highlighted (or none).
+- [x] Refresh also reloads the selected record, since selecting its row again no longer does.
+- [x] Remove the `QSpinBox` rule.
+
+**Fix (November 11, 2026):** `main()` checks for `--help`/`-h` anywhere and parses `--url`/`--config` before creating
+`QApplication`, with `Missing value for <flag>` and `Unknown argument: <arg>` errors (exit 1). Both tables load on
+`currentCellChanged` when the row changes; `populateModelsTable()`/`populateRolesTable()` refill under a `QSignalBlocker`, the
+models table re-highlights the selected model's row (or clears the highlight), the roles table clears it. Refresh fetches the
+selected record with the lists. Four new smoke checks (the old binary failed all nine of their assertions: `--help` with no
+display, missing values, an unknown argument) and three new `mnsManagerGuiWidgetTests` cases (keyboard selection, the
+highlight and record after a refresh, no load on refill); breaking each change was caught. `MnsManagerGUI_main.cpp` 1.1.0,
+`MnsManagerGUI.cpp` 0.11.0, `.hpp` 0.9.1.
+
+Location in code: `src/MnsManagerGUI_main.cpp`, `src/MnsManagerGUI.cpp` (`createModelsTab()`, `createRolesTab()`,
+`createToolbar()`, `populateModelsTable()`, `populateRolesTable()`, `applyStylesheet()`).
+
+Files Modified:
+
+- `src/MnsManagerGUI_main.cpp`
+- `src/MnsManagerGUI.{hpp,cpp}`
+- `tests/mns_manager_gui_widget_test.cpp`
+- `tests/smoke/mns_manager_gui_main_test.sh`
+- `docs/development/reference/source/MnsManagerGUI.md`
+- `docs/operations/guides/mns-manager-gui-guide.md`
+
+---
+
+### TD-569: `trainer_service` Has No Time Limit for a Pass That Stops Making Progress
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / `trainer_service` | November 11, 2026 | 1 day |
+
+Description:
+Found in the second ai-machine soak (November 11, 2026; see TD-566's on-device results). In pass `soak_l0v1_10` (the v1 Level
+Zero adapter, `SYCL_UR_USE_LEVEL_ZERO_V2=0`) the kernel logged `GT0: Engine reset: engine_class=ccs` 0.7 s after a checkpoint
+save. The pass then wrote nothing more and didn't exit, and the test script killed it at its 15-minute limit. The November 10
+soak had two such hangs on v1, one after an engine reset.
+
+TD-566 stops a pass when a sample fails and the device check finds the GPU unusable. A pass whose GPU call never returns has no
+failed sample, so that check never runs. `trainer_service` waits for each child with no limit: its loop calls
+`ChildProcess::poll_exit()` every 200 ms and ends a pass early only on a stop request (`stop_and_wait()`). A hung pass therefore
+stalls the always-on service. Nothing more trains, its claimed files stay claimed until their lease runs out, and `/admin/status`
+shows `training` with a stale epoch. The only way out is `systemctl restart`. `Restart=always` doesn't help, because the
+service hasn't exited. No pass on the default v2 adapter has hung in 40 passes across both soaks. But the driver is the cause,
+and a later driver or runtime update could change that.
+
+A fixed wall-clock limit doesn't fit, because a legitimate pass over a large queue runs for hours. What's missing is a check
+for progress.
+
+Action Items:
+
+- [ ] The child reports progress from the thread that does the work: each optimizer step, each validation sample, each file
+  downloaded or tokenized, and each checkpoint written. A heartbeat file in a directory `trainer_service` passes to the child
+  works whether or not the admin API is on (the child's admin port exists only when it is). A separate timer thread would keep
+  beating while the training thread is stuck, so it must not be used.
+- [ ] `trainer_service` stops a child whose heartbeat is older than a new `TRAINER_PASS_STALL_MINUTES` setting (default
+  around 15, 0 = off). It uses the existing `stop_and_wait()`, which sends SIGTERM and kills the child after 25 s, and logs
+  the pass as stalled.
+- [ ] Count stalled passes as failures for TD-523's backoff, and report `total_passes_stalled` in `/admin/status` beside
+  `total_passes_crashed`/`total_passes_failed`.
+- [ ] The killed pass can't release its claims. Check that the next pass reclaims them by `run_id` (TD-406/TD-415), or that
+  they expire under the claim lease (TD-494).
+- [ ] Tests: a stub child that stops beating is stopped and counted, and one that keeps beating through a long pass isn't.
+  Never signal anything but the recorded child pid.
+- [ ] Update `TrainerServiceMain.md`, `ChildProcess.md` if it changes, the admin-API table in CLAUDE.md, and
+  `scripts/adai-trainer.service`'s comments.
+
+Location in code: `src/TrainerServiceMain.cpp` (the supervisory loop's child wait), `src/TrainerServiceControlState.hpp`,
+`src/IncrementalTrainingTool.cpp`/`src/ChatbotTrainer.cpp` (where progress would be reported).
 
 ---
 

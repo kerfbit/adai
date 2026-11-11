@@ -98,8 +98,11 @@ mns_manager_gui [--url URL] [--config PATH] [--help]
 | Option | Description |
 |--------|-------------|
 | `--url URL` | MNS server URL (overrides config) |
-| `--config PATH` | Path to `config.conf` for `NAME_SERVICE_URL` fallback |
-| `--help` | Print usage and exit |
+| `--config PATH` | Path to `config.mns.conf` for the `NAME_SERVICE_URL` fallback |
+| `--help`, `-h` | Print usage and exit (works without a display) |
+
+A flag given without its value, or an argument it doesn't know, prints the usage and exits with status 1 rather than
+opening the window on the default server.
 
 **Server URL resolution order:** `--url` flag > `NAME_SERVICE_URL` in config/env > `http://localhost:8083`.
 
@@ -116,7 +119,11 @@ mns_manager_gui --url http://192.168.1.19:8083
 mns_manager_gui --config /etc/adai/config.conf
 ```
 
-On startup the GUI immediately attempts a health check against the configured server. The toolbar status indicator shows **Connected** (green) or **Disconnected** (red).
+On startup the GUI immediately runs a health check against the configured server. The toolbar status shows
+**Connecting...**, then **Connected** (green) or **Disconnected (reason)** (red).
+
+Use the server's `http://` address: this GUI can't speak `https://` (its HTTP library is built without TLS), and says so
+instead of connecting. Behind a TLS tunnel, use `mns_cli`, which supports `https://`.
 
 ---
 
@@ -148,8 +155,11 @@ The toolbar spans the top of the window.
 |---------|-------------|
 | **Server** field | Editable URL. Change it and click **Connect** to switch servers at runtime. |
 | **Connect** button | Runs a health check against the URL in the field. On success, refreshes all tables. |
-| **Refresh** button | Re-fetches models and roles from the current server without changing the URL. |
-| **Status** label | Shows **Connected** (green) or **Disconnected** (red) and recent action results (e.g. "Registered: my-model"). |
+| **Refresh** button | Re-fetches models, roles and the selected model's record from the current server without changing the URL. |
+| **Status** label | Shows **Connected** (green) or **Disconnected (reason)** (red), recent action results (e.g. "Registered: my-model"), and what is running ("Loading m1...", "Registering..."). |
+
+Requests run in the background, one at a time: while one runs the window keeps responding but its controls are greyed
+out, and closing the window doesn't wait for a slow server.
 
 ### 4.2 Models tab
 
@@ -166,7 +176,7 @@ A table of all registered models. Each row shows:
 **Filters** above the table narrow the list:
 
 - **State** dropdown: `(all)`, `initializing`, `training`, `candidate`, `production`, `retired`. Selecting a state re-fetches the model list with a server-side filter.
-- **Role** dropdown: `(all)` plus an editable field for typing a role name. Selecting a role re-fetches with a server-side filter.
+- **Role** dropdown: `(all)` and the roles that have a production model; type another role name (for example one whose models are still in training) and press Enter to filter by it. A typed role stays selected when the list is refreshed. Selecting a role re-fetches with a server-side filter.
 
 Filters combine: selecting State=`candidate` and Role=`chatbot` shows only candidate chatbot models.
 
@@ -185,23 +195,30 @@ A two-column table showing all known roles.
 
 ### 4.4 Register tab
 
-A form for registering a new model in the MNS.
+A form for registering a new model in the MNS. It applies the same rules and sends the same request as
+`mns_cli register`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | Model Name | Yes | Lowercase, hyphens, digits. E.g. `adai-chatbot-v3` |
 | Role | Yes | Logical role. E.g. `chatbot`, `reward-model` |
-| d_model | No | Model dimension (default: 128) |
-| num_heads | No | Attention heads (default: 4) |
-| d_ff | No | Feed-forward dimension (default: 512) |
-| encoder_layers | No | Encoder layer count (default: 6) |
-| decoder_layers | No | Decoder layer count (default: 6) |
-| max_seq_length | No | Maximum sequence length (default: 1024) |
+| Kind | Yes | `chatbot` (default), `encoder`, `decoder` or `world_model`. Only the fields for that kind are shown |
+| Run group | No | The dataset registry group the trainer draws from |
+| d_model, num_heads, d_ff, max_seq_length | Yes, unless linking | The architecture. These start blank |
+| Encoder layers, Decoder layers | Yes, for a chatbot with an architecture | A chatbot's two layer counts |
+| Layers | Yes, for an encoder, decoder or world model | Its own layer count |
+| Encoder, Decoder | Chatbot only | Names of registered encoder and decoder models to link instead of giving an architecture (leave the architecture blank) |
+| SIGReg Lambda, Sketches | No, world model only | Defaults 1.0 and 64 |
 | Tags | No | Comma-separated `key=value` pairs. E.g. `owner=rodney, dataset=minipile` |
 
-Click **Register Model** to submit. On success, the models table refreshes and the status bar shows the registered name. On failure (e.g. duplicate name), a dialog shows the server error.
+A model's architecture can't be changed after it is registered, so it has no defaults. **Load from config...** fills it
+from a trainer config file (e.g. `/etc/adai/config.trainer.conf`), the same values `mns_cli register --from-config`
+would take; check them before registering.
 
-Architecture defaults in the spin boxes are hard-coded. To register the trainer's own architecture, use `mns_cli register <name> <role> --from-config /etc/adai/config.trainer.conf`.
+Click **Register Model**. A missing or conflicting field shows an **Invalid Registration** dialog and nothing is sent.
+Otherwise a confirmation shows the architecture (or the linked models) to be registered; on **Yes** it is sent, the
+models table refreshes and the status bar shows the registered name. If the server refuses (e.g. a duplicate name), a
+dialog shows its error.
 
 ### 4.5 Detail panel
 
@@ -216,7 +233,8 @@ The detail includes:
 - Training history: array of `{run_id, epochs, final_loss, started_utc, finished_utc}`
 - Tags: arbitrary key-value pairs
 
-The detail refreshes automatically whenever you click a model row or complete a state transition.
+The detail loads whenever you select a model row, by clicking it or moving to it with the arrow keys, and refreshes after a
+state transition or a **Refresh**. When a table is refilled the selected model stays highlighted, wherever its row now is.
 
 ### 4.6 Actions panel
 
@@ -274,10 +292,11 @@ You can switch servers at any time by editing the URL and clicking Connect again
 ### 5.2 Register a new model
 
 1. Click the **Register** tab.
-2. Enter a model name (e.g. `adai-chatbot-v4`) and role (e.g. `chatbot`).
-3. Adjust architecture parameters if they differ from defaults.
-4. Optionally add tags (e.g. `owner=rodney, dataset=minipile-v2`).
-5. Click **Register Model**.
+2. Enter a model name (e.g. `adai-chatbot-v4`) and role (e.g. `chatbot`), and choose the **Kind**.
+3. Fill in the architecture, or click **Load from config...** and choose the trainer's config file. For a chatbot
+   built from registered parts, leave the architecture blank and fill in **Encoder** and **Decoder** instead.
+4. Optionally set a run group and add tags (e.g. `owner=rodney, dataset=minipile-v2`).
+5. Click **Register Model**, check the architecture in the confirmation, and click **Yes**.
 6. The Models table refreshes. The new model appears with state `initializing`.
 
 ### 5.3 Walk a model through its lifecycle
@@ -377,12 +396,18 @@ Use `mns_cli` for scripting, automation, and headless servers. Use the GUI for i
 
 ### Status shows "Disconnected" on startup
 
-The GUI could not reach the MNS server at the configured URL.
+The GUI could not reach the MNS server at the configured URL; the reason is in brackets.
 
+- An `https://` URL isn't supported: use the server's `http://` address, or `mns_cli` for a TLS endpoint.
 - Verify the server is running: `systemctl status adai-mns`
 - Verify the port is listening: `ss -tlnp | grep 8083`
 - If the server is on a remote host, check firewall rules and use `--url http://<host>:8083`.
 - Edit the URL in the toolbar and click **Connect** to retry.
+
+### "Invalid Registration" dialog
+
+The form isn't complete or consistent, so nothing was sent. The message names the problem, e.g. `Missing: --num-heads`
+(fill in num_heads), or an architecture combined with linked Encoder/Decoder names (use one or the other).
 
 ### "Registration Failed" dialog
 
@@ -413,9 +438,13 @@ Common situations:
 | `model must be in candidate state` | The model needs to be in `candidate` state before promotion. Use Set Candidate first. |
 | `model not found` | Check the model name in the Promote field matches exactly. |
 
-### Detail panel is empty after clicking a row
+### "Load Failed" dialog after clicking a row
 
-The server returned an empty response. Click **Refresh** to re-fetch the models table. If the problem persists, check the server logs: `journalctl -u adai-mns -n 20`.
+The server refused to return the record (the dialog shows its error and HTTP status), for example because the model was
+deleted since the table was loaded. Click **Refresh** to re-fetch the models table. If the problem persists, check the
+server logs: `journalctl -u adai-mns -n 20`.
+
+Every failure dialog shows the server's error and the HTTP status, e.g. `model_name already registered (HTTP 409)`.
 
 ### Tables do not update after an action
 

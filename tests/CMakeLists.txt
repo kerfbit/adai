@@ -89,6 +89,7 @@ add_test(NAME HippocampalMemoryTests COMMAND hippocampalMemoryTests)
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
 add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
 target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)
+target_include_directories(mnsjsonhelpersTests PRIVATE ${CMAKE_SOURCE_DIR}/external)  # TD-452: nlohmann/json
 add_test(NAME MnsJsonHelpersTests COMMAND mnsjsonhelpersTests)
 
 # ChatbotGuiLogic tests (TD-037 — pure Qt-free logic extracted from ChatbotGUI)
@@ -849,7 +850,7 @@ if(TARGET adai_mns)
     if(HTTPLIB_INCLUDE_DIR)
         add_executable(mnsManagerGuiTests mns_manager_gui_test.cpp)
         target_include_directories(mnsManagerGuiTests PRIVATE
-            ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+            ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external ${HTTPLIB_INCLUDE_DIR})
         target_link_libraries(mnsManagerGuiTests
             adai_core
             GTest::gtest_main
@@ -1481,11 +1482,14 @@ if(ADAI_QT_TEST_FOUND)
         add_executable(mnsManagerGuiWidgetTests
             mns_manager_gui_widget_test.cpp
             ${CMAKE_SOURCE_DIR}/src/MnsManagerGUI.cpp
+            ${CMAKE_SOURCE_DIR}/src/MnsCliCommands.cpp
+            ${CMAKE_SOURCE_DIR}/src/Config.cpp
         )
         set_target_properties(mnsManagerGuiWidgetTests PROPERTIES AUTOMOC ON)
         target_include_directories(mnsManagerGuiWidgetTests PRIVATE
             ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external ${HTTPLIB_INCLUDE_DIR})
-        target_link_libraries(mnsManagerGuiWidgetTests ${_adai_qt_widget_libs} Threads::Threads)
+        target_link_libraries(mnsManagerGuiWidgetTests ${_adai_qt_widget_libs} adai_core spdlog::spdlog
+            Threads::Threads)
         add_test(NAME MnsManagerGuiWidgetTests COMMAND mnsManagerGuiWidgetTests)
         set_tests_properties(MnsManagerGuiWidgetTests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
