@@ -267,7 +267,7 @@ None — every in-scope file carries a tag.
 | `src/TrainerAdminConfig.cpp` | beta | 0.2.0 | 2026-11-10 | — |
 | `src/TrainerAdminConfig.hpp` | beta | 0.3.0 | 2026-11-10 | — |
 | `src/TrainerServiceControlState.hpp` | beta | 0.4.0 | 2026-11-11 | — |
-| `src/TrainerServiceMain.cpp` | beta | 0.12.0 | 2026-11-11 | — |
+| `src/TrainerServiceMain.cpp` | beta | 0.13.0 | 2026-11-11 | — |
 | `src/TrainerServiceProxy.cpp` | beta | 0.8.0 | 2026-11-11 | — |
 | `src/TrainerServiceProxy.hpp` | beta | 0.4.1 | 2026-11-11 | — |
 | `src/TrainingMetricsAPI.cpp` | beta | 0.18.0 | 2026-11-04 | TD-039 |

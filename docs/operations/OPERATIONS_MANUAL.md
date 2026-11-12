@@ -1264,6 +1264,12 @@ curl http://localhost:8081/health   # metrics
 curl http://localhost:8083/health   # MNS
 ```
 
+#### Training Service (`trainer_service`)
+
+The always-on trainer runs as `adai-trainer.service` (`scripts/adai-trainer.service`): `trainer_service` launches one
+`incremental_trainer` pass at a time, retries failed, crashed or hung passes with a backoff, and serves an optional admin API on port
+8084. See the [trainer service guide](guides/trainer-service-guide.md) for installation, settings, the admin API and troubleshooting.
+
 #### Chatbot API Server
 
 Automated installation for the chatbot API server:

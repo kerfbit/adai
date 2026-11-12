@@ -1,5 +1,5 @@
 // @adai-status: beta
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-11-11
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -148,10 +148,16 @@ int main(int argc, char* argv[]) {
     const std::optional<int> child_admin_port =
         svc_config.trainer_admin_enabled ? std::optional<int>(svc_config.trainer_child_admin_port) : std::nullopt;
     const std::string pass_log = log_path.empty() ? std::string() : adai::pass_log_path(log_path);
-    // TD-569: each pass reports its progress here; without a stall limit no file is used.
+    // TD-569: each pass reports its progress here; without a stall limit no file is used. Named
+    // after the pass's dataset pool, so a chatbot and a LeJEPA service sharing SESSION_DIR don't
+    // overwrite each other's file (each would see the other's pid and stop its own healthy pass as
+    // stalled).
     const std::string heartbeat_path =
         svc_config.trainer_pass_stall_minutes > 0
-            ? (fs::path(svc_config.session_dir) / "trainer_service_pass.heartbeat").string()
+            ? (fs::path(svc_config.session_dir) /
+               ("trainer_service_pass_" +
+                adai::resolve_dataset_kind(cli.objective, cli.dataset_kind) + ".heartbeat"))
+                  .string()
             : std::string();
     const std::vector<std::string> child_argv = adai::trainer_service_child_argv(
         trainer_path, cli, child_admin_port, pass_log, heartbeat_path);

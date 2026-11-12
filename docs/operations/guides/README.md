@@ -17,6 +17,7 @@ User-facing guides for building, training, running, and managing the ADAI chatbo
 
 - **[training-guide.md](training-guide.md)** — Complete guide to the training platform: dataset management, training modes, hyperparameter tuning, metrics, and troubleshooting
 - **[dataset-manager-guide.md](dataset-manager-guide.md)** — Managing training data: add local files, download from Project Gutenberg and HuggingFace, inspect the data queue
+- **[trainer-service-guide.md](trainer-service-guide.md)** — Running `trainer_service`, the always-on training service: systemd, settings, the admin API, what happens after each pass, troubleshooting
 
 ## Subdirectories
 

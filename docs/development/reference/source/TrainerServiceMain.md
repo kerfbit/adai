@@ -1,10 +1,11 @@
 # `TrainerServiceMain` — Source File Reference
 
-- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (309 lines)
+- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (315 lines)
 - **Binary:** `trainer_service` (admin API proxy on 8084, opt-in); deployed by [`scripts/adai-trainer.service`](../../../../scripts/adai-trainer.service)
+- **Operator guide:** [trainer-service-guide.md](../../../operations/guides/trainer-service-guide.md)
 - **Uses:** [`ChildProcess`](ChildProcess.md), [`PassSupervision`/`PassHeartbeat`](PassHeartbeat.md) (TD-569), [`TrainerServiceControlState`](TrainerServiceControlState.md), [`TrainerServiceProxy`](TrainerServiceProxy.md), [`IncrementalTrainerArgs`](IncrementalTrainerArgs.md), `Config`, `Logger`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.12.0`, `@adai-reviewed: 2026-11-11`
-- **Tests:** no test runs `main()` itself. Its pieces have their own tests: the wait for a pass, with the stall check, against real child processes (`passHeartbeatTests`, TD-569); the proxy (`trainerServiceProxyTests`); `ChildProcess` (`childProcessTests`); the argument parser, the pass command line, exit-code classification and backoff (`incrementalTrainerArgsTests`); `SIGHUP` handling of the real binary (`sighupTests`)
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-11`
+- **Tests:** `SmokeTests_trainer_service_main` ([`tests/smoke/trainer_service_main_test.sh`](../../../../tests/smoke/trainer_service_main_test.sh), 38 checks) runs the real binary against a stub pass (§3). Its pieces have their own tests too: the wait for a pass, with the stall check, against real child processes (`passHeartbeatTests`, TD-569); the proxy (`trainerServiceProxyTests`); `ChildProcess` (`childProcessTests`); the argument parser, the pass command line, exit-code classification and backoff (`incrementalTrainerArgsTests`); `SIGHUP` handling of the real binary (`sighupTests`)
 - **Last traced against the code:** 2026-11-11
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `trainer_service` binary next to a stub `incremental_trainer`
@@ -24,7 +25,7 @@ child process, so a GPU-driver crash ends only that pass.
    create the control state, ignore `SIGHUP` (TD-283), and install SIGTERM/SIGINT handlers that only set `stop_requested`.
 3. **The pass command,** built once by `trainer_service_child_argv()`: the `incremental_trainer` beside this executable (`sibling_executable_path()`,
    TD-524), its `--config`/`--model`/`--gpu-strategy` when given, always `--objective=<o>` and `--dataset-kind <kind>` (TD-403), `--log-file
-   <LOG_FILE_PATH with .pass>` when `LOG_FILE_PATH` is set (TD-431), `--heartbeat-file <SESSION_DIR>/trainer_service_pass.heartbeat` when
+   <LOG_FILE_PATH with .pass>` when `LOG_FILE_PATH` is set (TD-431), `--heartbeat-file <SESSION_DIR>/trainer_service_pass_<pool>.heartbeat` when
    `TRAINER_PASS_STALL_MINUTES` is above 0 (TD-569), then `--foreground [--admin-port TRAINER_CHILD_ADMIN_PORT] resume` (the port only with
    `TRAINER_ADMIN_ENABLED`, TD-524). It logs the stall limit, or a warning when it is 0.
 4. **Admin proxy:** with `TRAINER_ADMIN_ENABLED`, `TrainerServiceProxy` runs on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` in a thread (a bind failure is
@@ -97,8 +98,14 @@ failure backs off, and the shipped unit can write the download directory (TD-524
   classification and the backoff.
 - `trainerServiceProxyTests`: the proxy, the status fields, pause/resume/wake.
 
-**Not covered by a test:** `main()`'s loop itself (what it does with each wait result). Its stall handling was checked by hand against the
-real binary (§2).
+- `SmokeTests_trainer_service_main` copies the real `trainer_service` next to a stub `incremental_trainer` that follows a plan per pass, with the
+  admin API on, and checks the loop end to end: a pass that trained is relaunched at once and an idle one counted as neither; each pass's command
+  line (objective, pool, heartbeat file, admin port, `resume`); a failed pass (exit 1) and a killed one (137) counted and backed off; pause and
+  resume; a hung pass stopped after a 1-minute stall limit and counted as stalled (exit 143), with `seconds_since_pass_progress` reported while it
+  ran; SIGTERM during a pass ending both; and, with the stall check and the admin API off, neither flag passed. About 70 s. Disabling the stall
+  branch makes it fail.
+
+**Not covered by a test:** a launch failure (a missing `incremental_trainer`), and the backoff's doubling over several failures.
 
 ---
 
@@ -117,6 +124,9 @@ real binary (§2).
 - **October 19, 2026 (TD-523):** failing passes counted, logged and backed off; `resume` exits 0/3/1.
 - **November 1–2, 2026:** TD-557 (`--help`, argument errors), TD-403 (objective and pool forwarded; the LeJEPA pass hosts the per-pass admin
   API), TD-416 (25 s graceful stop), TD-524, TD-431.
+- **November 11, 2026:** the smoke test above; the heartbeat file named after the pass's pool (`trainer_service_pass_<pool>.heartbeat`), so two
+  services with different objectives sharing `SESSION_DIR` don't overwrite each other's file and stop each other's passes; the
+  [operator guide](../../../operations/guides/trainer-service-guide.md).
 - **November 11, 2026 (TD-569):** the wait for a pass moved to `wait_for_pass()` with the heartbeat stall check, `TRAINER_PASS_STALL_MINUTES`,
   `total_passes_stalled`/`seconds_since_pass_progress`. This document was re-traced at the same time, replacing its October §1–§3 and folding
   its addenda into them.

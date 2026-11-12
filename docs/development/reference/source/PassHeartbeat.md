@@ -62,7 +62,8 @@ the check off); it is −1 once the wait ends. `TrainerServiceMain.cpp` counts a
 ## 4. Settings
 
 `TRAINER_PASS_STALL_MINUTES` (`config.trainer.conf`, read only by `trainer_service`): 0–10080, default 30, 0 turns the check off and no
-heartbeat file is passed. The file is `<SESSION_DIR>/trainer_service_pass.heartbeat`, which the pass can already write.
+heartbeat file is passed. The file is `<SESSION_DIR>/trainer_service_pass_<pool>.heartbeat`, `<pool>` being the pass's dataset pool
+(`chatbot`, `world_model`…, from `--objective`/`--dataset-kind`), in a directory the pass can already write.
 
 ## 5. Known gaps
 
@@ -70,4 +71,4 @@ heartbeat file is passed. The file is `<SESSION_DIR>/trainer_service_pass.heartb
 |---|---|---|
 | A long piece of work that notes no progress is taken for a stall | Such a pass would be stopped after the limit and retried | By design; every long loop found notes progress, and 30 minutes is far above the gaps between them |
 | `wait_for_pass()` tests are POSIX only | The Windows build compiles them out | As `childProcessTests` |
-| The heartbeat is a file in `SESSION_DIR` | Two `trainer_service`s sharing a `SESSION_DIR` would share it | Not a supported setup; each pid is checked, so the other's file never counts as progress |
+| One heartbeat file per pool in `SESSION_DIR` | Two `trainer_service`s training the same pool from one `SESSION_DIR` would overwrite each other's file and stop each other's passes as stalled | Not a supported setup (they would also share checkpoints). A chatbot and a LeJEPA service sharing a `SESSION_DIR` are fine: their pools differ. The file had one fixed name until the guide work on November 11, 2026 found the clash |

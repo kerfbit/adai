@@ -1460,6 +1460,13 @@ if(TARGET mns_manager_gui)
     add_test(NAME SmokeTests_mns_manager_gui_main
              COMMAND bash "${ADAI_SMOKE_TEST_DIR}/mns_manager_gui_main_test.sh")
 endif()
+# trainer_service's supervisory loop (TrainerServiceMain.cpp) against a stub pass: outcomes,
+# pause/resume, the TD-569 stall stop and SIGTERM. About 90 s, most of it the 1-minute stall limit.
+if(TARGET trainer_service)
+    add_test(NAME SmokeTests_trainer_service_main
+             COMMAND bash "${ADAI_SMOKE_TEST_DIR}/trainer_service_main_test.sh" "$<TARGET_FILE:trainer_service>")
+    set_tests_properties(SmokeTests_trainer_service_main PROPERTIES TIMEOUT 300)
+endif()
 
 # ============================================================================
 # TD-037: Qt Test widget suites for the two GUIs

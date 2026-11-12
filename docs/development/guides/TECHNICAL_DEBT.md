@@ -19416,7 +19416,9 @@ Action Items:
     0 = off) it logs an error and calls `stop_and_wait()`.
   - The pass is counted in the new `total_passes_stalled` and in `consecutive_failures`, and backs off like a failure. It isn't
     also counted as crashed or failed.
-  - `/admin/status` also reports `seconds_since_pass_progress`. The file is `<SESSION_DIR>/trainer_service_pass.heartbeat`.
+  - `/admin/status` also reports `seconds_since_pass_progress`. The file is `<SESSION_DIR>/trainer_service_pass_<pool>.heartbeat`, `<pool>`
+    the pass's dataset pool. (Amended the same day: it first had one fixed name, so a chatbot and a LeJEPA service sharing `SESSION_DIR` would
+    have overwritten each other's file and each stopped the other's healthy pass as stalled. The `trainer_service` smoke test checks the name.)
 - **Claims.** A killed pass's claims are taken back by the next pass, which uses the same run id (MNS's current run, or the
   persistent `chatbot_run_id`/`lejepa_run_id`), or they expire under the claim lease.
 - **Tests:** `passHeartbeatTests` (16) drives `wait_for_pass()` with real `/bin/sh` children:

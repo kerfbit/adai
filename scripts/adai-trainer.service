@@ -21,13 +21,12 @@
 # TD-569: a pass can also hang instead of crashing (a GPU call that never returns after a driver
 # engine reset). trainer_service stops a pass that has made no progress for TRAINER_PASS_STALL_MINUTES
 # (config.trainer.conf, default 30): each pass writes its progress to
-# <SESSION_DIR>/trainer_service_pass.heartbeat, so SESSION_DIR must stay in ReadWritePaths. A hung
+# <SESSION_DIR>/trainer_service_pass_<pool>.heartbeat, so SESSION_DIR must stay in ReadWritePaths. A hung
 # service no longer needs a manual `systemctl restart`.
 #
-# Requires the acquire-eligibility fix (a resumed run can reclaim files it had already claimed
-# before crashing — needs NAME_SERVICE_URL configured so MNS hands back the same run_id across
-# restarts; a standalone/no-MNS deployment needs a static RUN_ID= pinned in config.trainer.conf
-# instead).
+# A pass restarted after a crash reclaims the files the last one claimed, since both use the same
+# run id: MNS's current run when NAME_SERVICE_URL is set, else the id kept in SESSION_DIR/chatbot_run_id
+# (or the world-model directory's lejepa_run_id) since TD-404/TD-415.
 #
 # Installation:
 #   1. Copy this file to /etc/systemd/system/adai-trainer.service
@@ -36,9 +35,9 @@
 #   4. Enable: sudo systemctl enable adai-trainer
 #   5. Start: sudo systemctl start adai-trainer
 #
-# Before first start, the model must already exist (run `incremental_trainer init` and at least
-# one manual `train` once) — trainer_service's child `resume` invocations expect a prior session
-# to resume from; they don't bootstrap a new model.
+# No manual first run is needed: with no vocabulary yet, the first pass builds it from its data and
+# then the model (TD-414). Queue data first (dataset_manager), and set MODEL_NAME when NAME_SERVICE_URL
+# is set (the interactive model pick needs a terminal). See docs/operations/guides/trainer-service-guide.md.
 
 [Unit]
 Description=ADAI Trainer Service (crash-resilient, auto-resume)
