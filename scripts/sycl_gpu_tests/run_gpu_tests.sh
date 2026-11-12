@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.2.0
-# @adai-reviewed: 2026-11-10
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-11-12
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
 # archive to copy back. Built into a package by scripts/package_sycl_gpu_tests.sh; see README.md
@@ -12,7 +12,8 @@
 # see other users' GPU processes.
 #
 #   ./run_gpu_tests.sh [--quick] [--skip-tests] [--skip-benchmark] [--skip-training] [--skip-soak]
-#                      [--soak-passes N] [--soak-epochs N] [--runtime-dir DIR]
+#                      [--soak-passes N] [--soak-epochs N] [--lejepa-only] [--skip-lejepa]
+#                      [--lejepa-soak-passes N] [--lejepa-soak-epochs N] [--runtime-dir DIR]
 #                      [--allow-shared-gpu] [--allow-runtime-mismatch] [--no-sudo]
 #                      [--allow-cpu-device]
 #
@@ -20,6 +21,12 @@
 #                     a 3-pass soak
 # --soak-passes N     training passes per Level Zero variant in the soak (default 20; 0 = no soak)
 # --soak-epochs N     epochs per soak pass (default 10)
+# --lejepa-only       only the device check and the LeJEPA world-model passes (TD-572)
+# --skip-lejepa       no LeJEPA world-model passes
+# --lejepa-soak-passes N
+#                     LeJEPA soak passes (default 20, --quick 3; 0 = lifecycle checks only)
+# --lejepa-soak-epochs N
+#                     epochs per LeJEPA soak pass (default 5)
 # --runtime-dir DIR   the oneAPI runtime every binary must load (default /opt/intel/oneapi/redist/lib,
 #                     where Intel's intel-oneapi-runtime-* packages install it)
 # --allow-shared-gpu  run even while other processes have the GPU open
@@ -43,6 +50,10 @@ RUN_TRAINING=1
 SOAK_PASSES=20
 SOAK_EPOCHS=10
 SOAK_PASSES_SET=0
+RUN_LEJEPA=1
+LEJEPA_SOAK_PASSES=20
+LEJEPA_SOAK_EPOCHS=5
+LEJEPA_SOAK_SET=0
 RUNTIME_DIR=/opt/intel/oneapi/redist/lib
 ALLOW_SHARED=0
 ALLOW_MISMATCH=0
@@ -89,6 +100,23 @@ while [[ $# -gt 0 ]]; do
             RUNTIME_DIR="$2"
             shift
             ;;
+        --lejepa-only)
+            RUN_TESTS=0
+            RUN_BENCHMARK=0
+            RUN_TRAINING=0
+            ;;
+        --skip-lejepa) RUN_LEJEPA=0 ;;
+        --lejepa-soak-passes)
+            need_number "$1" "${2:-}"
+            LEJEPA_SOAK_PASSES="$2"
+            LEJEPA_SOAK_SET=1
+            shift
+            ;;
+        --lejepa-soak-epochs)
+            need_number "$1" "${2:-}"
+            LEJEPA_SOAK_EPOCHS="$2"
+            shift
+            ;;
         --allow-shared-gpu) ALLOW_SHARED=1 ;;
         --allow-runtime-mismatch) ALLOW_MISMATCH=1 ;;
         --no-sudo) USE_SUDO=0 ;;
@@ -106,6 +134,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 [[ $QUICK == 1 && $SOAK_PASSES_SET == 0 ]] && SOAK_PASSES=3
+[[ $QUICK == 1 && $LEJEPA_SOAK_SET == 0 ]] && LEJEPA_SOAK_PASSES=3
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_START=$(date +%s)
@@ -312,8 +341,14 @@ declare -a ROWS
 
 # step NAME TIMEOUT_SECONDS COMMAND...: runs COMMAND in work/NAME, output in NAME.log.
 step() {
-    local name="$1" limit="$2"
-    shift 2
+    step_expect "$1" "$2" 0 "${@:3}"
+}
+
+# step_expect NAME TIMEOUT_SECONDS EXPECTED_RC COMMAND...: as step, but EXPECTED_RC is the pass
+# result (a LeJEPA resume with nothing pending exits 3).
+step_expect() {
+    local name="$1" limit="$2" expect="$3"
+    shift 3
     local dir="$RESULTS/work/$name"
     mkdir -p "$dir"
     local start end rc
@@ -326,8 +361,9 @@ step() {
     local skipped
     skipped=$(grep -c '^\[  SKIPPED \]' "$RESULTS/$name.log" 2>/dev/null)
     [[ "${skipped:-0}" -gt 0 ]] && note+=" (${skipped} SKIPPED lines)"
+    [[ $expect -ne 0 ]] && note+=" (expected rc=$expect)"
     ROWS+=("$(printf '%-34s rc=%-4s %6ss%s' "$name" "$rc" "$((end - start))" "$note")")
-    if [[ $rc -ne 0 ]]; then
+    if [[ $rc -ne $expect ]]; then
         FAILURES=$((FAILURES + 1))
     fi
     log "  ${ROWS[-1]}"
@@ -430,14 +466,168 @@ if [[ $RUN_TRAINING == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     cat "$RESULTS/seed_replay.txt"
 fi
 
-# ── 6. Level Zero soak: v2 (default) against v1 ───────────────────────────────
+# ── 6. LeJEPA world-model pass on the GPU (TD-572) ────────────────────────────
+
+# The LeJEPA pass (src/LeJEPATrainingPass.cpp) has run only on the CPU and with an injected device
+# check since it moved out of IncrementalTrainingTool.cpp. Here it runs on the GPU through
+# incremental_trainer --objective=lejepa: train, resume with nothing pending, re-queue and resume
+# from the checkpoint, a SIGTERM drain (checkpoint, files released) and a resume after it. Then a
+# soak of fresh passes on the default Level Zero v2 adapter, where a real engine reset should reach
+# TD-566's check: the pass stops at once, saves nothing and gives its files back.
+
+# The world_model pool's pending entries are unclaimed (every run_id empty).
+lejepa_released() {
+    local pending="$1/sessions/world_model/pending_files.txt"
+    [[ -f "$pending" ]] && grep -q '"path"' "$pending" && ! grep -q '"run_id":"[^"]' "$pending"
+}
+lejepa_trained() {
+    grep -q 'Trained  : 1 file' <("$HERE/lejepa_pass.sh" status "$1" 2>/dev/null)
+}
+# A soak pass's output and its own trainer log (the lifecycle's passes share one, so its checks
+# read each step's output only).
+lejepa_log() {
+    cat "$RESULTS/$1.log" "$RESULTS/work/$1/trainer.log"* 2>/dev/null
+}
+# epoch seconds of the first log line matching PATTERN in the given text
+log_time() {
+    local stamp
+    stamp=$(grep -m1 -E "$2" <<<"$1" | grep -o -m1 '^\[[0-9-]* [0-9:.]*\]' | tr -d '[]')
+    [[ -n "$stamp" ]] && date -d "$stamp" +%s
+}
+
+if [[ $RUN_LEJEPA == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
+    log ""
+    log "LeJEPA world-model pass on the GPU (TD-572; lejepa_report.txt)"
+    LJ=lejepa_lifecycle
+    LJDIR="$RESULTS/work/$LJ"
+    declare -a LJ_CHECKS
+    check() {
+        local verdict=FAIL
+        if eval "$2"; then verdict=ok; else FAILURES=$((FAILURES + 1)); fi
+        LJ_CHECKS+=("$(printf '  %-4s %s' "$verdict" "$1")")
+    }
+    step lejepa_setup 300 "$HERE/lejepa_pass.sh" setup "$LJDIR" 7 3
+    step lejepa_train 1800 "$HERE/lejepa_pass.sh" train "$LJDIR" 3
+    check "train: a checkpoint is written and the texts are recorded as trained" \
+        '[[ -f "$LJDIR/sessions/world_model_checkpoint/config.bin" ]] && lejepa_trained "$LJDIR"'
+    check "train: the pass ran on the GPU" \
+        'grep -q -E "Device 0:|Backend:" "$RESULTS/lejepa_train.log"'
+    step_expect lejepa_resume_nothing_pending 600 3 "$HERE/lejepa_pass.sh" resume "$LJDIR"
+    step lejepa_requeue 120 "$HERE/lejepa_pass.sh" requeue "$LJDIR"
+    step lejepa_resume_trains 1800 "$HERE/lejepa_pass.sh" resume "$LJDIR"
+    check "resume: trains the re-queued texts from the checkpoint" \
+        'grep -q "Resumed world-model weights" "$RESULTS/lejepa_resume_trains.log" && lejepa_trained "$LJDIR"'
+
+    # SIGTERM drain: the helper execs the trainer, so $! is the trainer's own PID; only it is
+    # signalled.
+    step lejepa_requeue_again 120 "$HERE/lejepa_pass.sh" requeue "$LJDIR"
+    t0=$(date +%s)
+    (cd "$LJDIR" && exec "$HERE/lejepa_pass.sh" resume "$LJDIR") >"$RESULTS/lejepa_sigterm.log" 2>&1 &
+    TRAINER_PID=$!
+    for ((s = 0; s < 1200; s++)); do
+        grep -q '\[lejepa\] Epoch 1/' "$RESULTS/lejepa_sigterm.log" && break
+        kill -0 "$TRAINER_PID" 2>/dev/null || break
+        sleep 1
+    done
+    if kill -0 "$TRAINER_PID" 2>/dev/null; then
+        kill -TERM "$TRAINER_PID"
+        for ((s = 0; s < 120; s++)); do
+            kill -0 "$TRAINER_PID" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "$TRAINER_PID" 2>/dev/null; then
+            echo "run_gpu_tests.sh: no exit 120 s after SIGTERM; SIGKILL" >>"$RESULTS/lejepa_sigterm.log"
+            kill -KILL "$TRAINER_PID"
+        fi
+    fi
+    wait "$TRAINER_PID"
+    rc=$?
+    ROWS+=("$(printf '%-34s rc=%-4s %6ss (expected rc=1)' lejepa_sigterm "$rc" "$(($(date +%s) - t0))")")
+    log "  ${ROWS[-1]}"
+    [[ $rc -eq 1 ]] || FAILURES=$((FAILURES + 1))
+    check "SIGTERM: the pass checkpoints and gives its texts back" \
+        'grep -q "Checkpoint saved (paused)" "$RESULTS/lejepa_sigterm.log" && lejepa_released "$LJDIR"'
+    step lejepa_resume_after_sigterm 1800 "$HERE/lejepa_pass.sh" resume "$LJDIR"
+    check "resume after SIGTERM: trains from the paused checkpoint" \
+        'grep -q "Resumed world-model weights" "$RESULTS/lejepa_resume_after_sigterm.log" && lejepa_trained "$LJDIR"'
+
+    LJ_TSV="$RESULTS/lejepa_soak.tsv"
+    printf 'pass\tbackend\trc\tseconds\toutcome\tkernel_events\tskipped_batches\ttd566\n' >"$LJ_TSV"
+    for ((i = 1; i <= LEJEPA_SOAK_PASSES; i++)); do
+        name=$(printf 'lejepa_soak_%02d' "$i")
+        dir="$RESULTS/work/$name"
+        "$HERE/lejepa_pass.sh" setup "$dir" "$((200 + i))" "$LEJEPA_SOAK_EPOCHS" >"$RESULTS/${name}_setup.log" 2>&1 || {
+            log "  $name: setup failed (${name}_setup.log)"
+            FAILURES=$((FAILURES + 1))
+            continue
+        }
+        t0=$(date +%s)
+        step "$name" 900 "$HERE/lejepa_pass.sh" train "$dir" "$LEJEPA_SOAK_EPOCHS"
+        rc=$?
+        t1=$(date +%s)
+        events=$(kernel_log "$t0" "$((t1 + 2))" | grep -E "$KERNEL_EVENTS")
+        [[ -n "$events" ]] && { echo "== $name"; echo "$events"; } >>"$RESULTS/lejepa_soak_kernel_events.txt"
+        text=$(lejepa_log "$name")
+        skipped=$(grep -c '\[lejepa\] Skipping batch' <<<"$text")
+        outcome=ok
+        td566=-
+        if grep -q '\[lejepa\] The GPU stopped running work' <<<"$text"; then
+            outcome=device_lost
+            td566=ok
+            grep -q 'Not saving the world model: the GPU was lost' <<<"$text" || td566="no-skip-save"
+            [[ -f "$dir/sessions/world_model_checkpoint/config.bin" ]] && td566+=",checkpoint-written"
+            lejepa_released "$dir" || td566+=",not-released"
+            [[ $rc -eq 1 ]] || td566+=",rc=$rc"
+            lost_at=$(log_time "$text" 'The GPU stopped running work')
+            [[ -n "$lost_at" ]] && ((t1 - lost_at > 15)) && td566+=",slow-stop"
+        elif grep -q -E 'DEVICE_LOST|device lost' <<<"$text"; then
+            # A device loss the pass's check didn't see: outside a batch (GPU start-up, a save)
+            # or a batch skipped on a device that still answered the probe.
+            outcome=device_lost_elsewhere
+            td566=missed
+        elif [[ $rc -eq 124 || $rc -eq 137 ]]; then
+            outcome=hung
+        elif [[ $rc -ne 0 ]]; then
+            outcome=failed
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$(backend_of "$name")" "$rc" "$((t1 - t0))" \
+            "$outcome" "$(grep -c . <<<"$events")" "$skipped" "$td566" >>"$LJ_TSV"
+        if [[ $outcome == device_lost* ]] && ! probe_device "probe_after_$name"; then
+            log "  the GPU no longer runs work after $name: LeJEPA soak stopped. Reboot before using the GPU again."
+            DEVICE_GONE=1
+            break
+        fi
+    done
+
+    {
+        echo "LeJEPA world-model pass on the GPU (TD-572)"
+        echo
+        echo "Lifecycle (one session directory, work/$LJ):"
+        printf '%s\n' "${LJ_CHECKS[@]}"
+        echo
+        echo "Soak: $LEJEPA_SOAK_PASSES fresh passes of $LEJEPA_SOAK_EPOCHS epochs, Level Zero v2 (the default)"
+        echo
+        column -t -s $'\t' "$LJ_TSV" 2>/dev/null || cat "$LJ_TSV"
+        echo
+        awk -F'\t' 'NR > 1 {n++; o += ($5 == "ok"); d += ($5 == "device_lost"); e += ($5 == "device_lost_elsewhere");
+                    h += ($5 == "hung"); f += ($5 == "failed"); k += ($6 > 0); s += ($7 > 0); t += ($8 == "ok")}
+                    END {printf "%d passes: %d ok, %d device lost (%d handled as TD-566 expects), %d device lost outside the check, %d hung, %d other failures; %d with kernel GPU events, %d with skipped batches\n",
+                         n, o, d, t, e, h, f, k, s}' "$LJ_TSV"
+        echo "td566: ok = the pass stopped within 15 s of the loss, saved nothing, released its texts and exited 1."
+        echo "TD-572 is closed by a run where the lifecycle passes and, ideally, at least one device loss is handled."
+        [[ -n "${DEVICE_GONE:-}" ]] && echo "The soak stopped early: the GPU no longer ran work after a device loss."
+    } >"$RESULTS/lejepa_report.txt"
+    sed -n '/^Lifecycle/,$p' "$RESULTS/lejepa_report.txt" | grep -v -E '^pass |^lejepa_soak_' | sed 's/^/  /' | tee -a "$SUMMARY"
+fi
+
+# ── 7. Level Zero soak: v2 (default) against v1 ───────────────────────────────
 
 # Back-to-back training passes, alternating the default Level Zero v2 adapter with
 # SYCL_UR_USE_LEVEL_ZERO_V2=0, which one Arc report found stopped the engine resets. Each pass
 # records its kernel messages; after a device loss the device is probed, the soak stops if the GPU
 # no longer runs work, and TD-566's handling is checked: the pass stops at once without copying
 # weights back and no epoch is reported as loss 0.
-if [[ $RUN_TRAINING == 1 && $SOAK_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" ]]; then
+if [[ $RUN_TRAINING == 1 && $SOAK_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}" ]]; then
     log ""
     log "Level Zero soak: $SOAK_PASSES passes of $SOAK_EPOCHS epochs per variant, alternating (soak_report.txt)"
     SOAK_TSV="$RESULTS/soak.tsv"
@@ -493,7 +683,7 @@ if [[ $RUN_TRAINING == 1 && $SOAK_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" ]]; 
     sed -n '/^Per variant/,$p' "$RESULTS/soak_report.txt" | sed 's/^/  /' | tee -a "$SUMMARY"
 fi
 
-# ── 7. Pack the results ───────────────────────────────────────────────────────
+# ── 8. Pack the results ───────────────────────────────────────────────────────
 
 log ""
 log "Steps that failed: $FAILURES"

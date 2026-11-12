@@ -75,7 +75,9 @@ class LeJEPATrainingPassTest : public ::testing::Test {
         svc_.world_model_sigreg_batch_size = 2;
         svc_.max_seq_length = 16;
         svc_.auto_save_enabled = false;
-        world_model_dir_ = (dir_ / "world_model_checkpoint").string();
+        // Where incremental_trainer saves with WORLD_MODEL_ARTIFACT_PATH unset, which is also where
+        // the pass resumes from.
+        world_model_dir_ = LeJEPAEncoder::default_checkpoint_dir(svc_.session_dir);
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_));
         reg.load_registry();
@@ -181,4 +183,74 @@ TEST_F(LeJEPATrainingPassTest, AnEpochThatTrainsNothingFailsThePass) {
     EXPECT_FALSE(LeJEPAEncoder::has_checkpoint(world_model_dir_));
     EXPECT_FALSE(trained());
     EXPECT_TRUE(pending_and_unclaimed());
+}
+
+// TD-572: the pass's other paths.
+
+// A second pass resumes the first pass's checkpoint (a checkpoint it can't load would fail it) and,
+// with the file already trained, finds nothing pending.
+TEST_F(LeJEPATrainingPassTest, ASecondPassResumesTheCheckpointAndFindsNothingPending) {
+    ASSERT_EQ(run({}), 0);
+    EXPECT_EQ(run({}), adai::kResumeExitNothingPending);
+}
+
+// The re-queued file trains again on top of the saved world model.
+TEST_F(LeJEPATrainingPassTest, AReQueuedFileTrainsAgainFromTheCheckpoint) {
+    ASSERT_EQ(run({}), 0);
+    {
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_));
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_GE(reg.requeue_trained({data_}, false, "").requeued, 1);
+    }
+    ASSERT_FALSE(trained());
+    EXPECT_EQ(run({}), 0);
+    EXPECT_TRUE(trained());
+}
+
+// A checkpoint that can't be loaded fails the pass before anything is claimed.
+TEST_F(LeJEPATrainingPassTest, ACheckpointThatCantBeLoadedFailsBeforeClaiming) {
+    fs::create_directories(world_model_dir_);
+    std::ofstream(fs::path(world_model_dir_) / "config.bin") << "not a checkpoint";
+    ASSERT_TRUE(LeJEPAEncoder::has_checkpoint(world_model_dir_));
+    EXPECT_EQ(run({}), 1);
+    EXPECT_FALSE(trained());
+    EXPECT_TRUE(pending_and_unclaimed());
+}
+
+// A pause (/admin/pause, or SIGTERM) stops the pass at the next batch, checkpoints what it trained
+// and gives the files back.
+TEST_F(LeJEPATrainingPassTest, APauseCheckpointsAndReleasesTheFiles) {
+    auto control = std::make_shared<adai::TrainerControlState>();
+    adai::LeJEPAPassHooks hooks;
+    std::size_t batches = 0;
+    hooks.before_batch = [&](std::size_t i) {
+        ++batches;
+        if (i == 2)
+            control->paused = true;  // batch 2 still trains; the pass stops before batch 3
+    };
+    EXPECT_EQ(adai::run_lejepa_training_pass(svc_, vocab_, world_model_dir_, 1, control, hooks),
+              adai::kResumeExitFailed);
+    EXPECT_EQ(batches, 3u);
+    EXPECT_TRUE(LeJEPAEncoder::has_checkpoint(world_model_dir_)) << "the progress is kept";
+    EXPECT_GE(control->checkpoints_written.load(), 1);
+    EXPECT_FALSE(trained());
+    EXPECT_TRUE(pending_and_unclaimed());
+}
+
+// A checkpoint request (/admin/checkpoint) is written at the next batch and marked served.
+TEST_F(LeJEPATrainingPassTest, ACheckpointRequestIsWrittenAtTheNextBatch) {
+    auto control = std::make_shared<adai::TrainerControlState>();
+    long long ticket = 0;
+    adai::LeJEPAPassHooks hooks;
+    hooks.before_batch = [&](std::size_t i) {
+        if (i == 1)
+            ticket = control->request_checkpoint();
+    };
+    EXPECT_EQ(adai::run_lejepa_training_pass(svc_, vocab_, world_model_dir_, 1, control, hooks), 0);
+    ASSERT_GT(ticket, 0);
+    EXPECT_EQ(control->checkpoints_written.load(), 1)
+        << "the request's checkpoint (the final save isn't counted)";
+    EXPECT_EQ(control->checkpoint_requests_served.load(), ticket);
+    EXPECT_TRUE(trained());
 }

@@ -1,7 +1,7 @@
 # ADAI SYCL GPU test package
 
-Runs this repository's GPU tests, the TD-171 stacked-multiply benchmark, seeded training passes and a
-Level Zero soak on a host with an Intel GPU (ai-machine), and packs the results into one archive to
+Runs this repository's GPU tests, the TD-171 stacked-multiply benchmark, seeded training passes, the
+LeJEPA world-model pass (TD-572) and a Level Zero soak on a host with an Intel GPU (ai-machine), and packs the results into one archive to
 copy back. Built by `scripts/package_sycl_gpu_tests.sh`. `MANIFEST.txt` records the commit and the
 oneAPI release it was built with (`oneapi:`).
 
@@ -13,6 +13,7 @@ oneAPI release it was built with (`oneapi:`).
 | Test binaries | Every test that runs GPU kernels: the GPU primitives and reductions (TD-385), the device optimizer, embeddings, dropout masks, gated paths, GPU training against the CPU (TD-358), the device-loss check (TD-566), and GPU generation and serving |
 | Benchmark | Stacked against separate multiplies at the model's real shapes (TD-171) |
 | Training passes | Two `SEED=7` passes and one `SEED=8` pass on the GPU: whether a seed replays (TD-368) |
+| LeJEPA world-model pass | `incremental_trainer --objective=lejepa` on the GPU (TD-572): a pass trains and checkpoints, a resume finds nothing pending (exit 3), a re-queued file trains again from the checkpoint, a SIGTERM checkpoints and gives the texts back, and a resume continues from that checkpoint. Then a soak of fresh passes on Level Zero v2 (the default), where a real engine reset should reach TD-566's check: the pass stops at once, saves nothing and releases its texts. Results in `lejepa_report.txt` |
 | Level Zero soak | Back-to-back passes alternating the default Level Zero v2 adapter with `SYCL_UR_USE_LEVEL_ZERO_V2=0`, with the kernel's GPU messages per pass: whether either one avoids the engine resets that end in `DEVICE_LOST`, and whether a device loss stops the pass at once (TD-566) |
 
 ## Running it
@@ -44,7 +45,8 @@ cd adai-sycl-gpu-tests-*/
 to start when that runtime is older than the build, mixes directories, or another process has the
 GPU open (`--allow-runtime-mismatch`, `--allow-shared-gpu` override). It uses sudo only to read the
 kernel log and the GuC firmware version and to see other users' processes; it stops nothing.
-`--quick` takes a few minutes. Each step has a time limit; if the driver hangs a step it is reported
+`--quick` takes a few minutes. `--lejepa-only` runs just the device check and the LeJEPA passes,
+which is what TD-572 still needs (`--lejepa-soak-passes N`, default 20, sets the soak's length). Each step has a time limit; if the driver hangs a step it is reported
 as timed out, and if the GPU stops running work after a device loss the soak stops and asks for a
 reboot.
 
@@ -69,6 +71,6 @@ at boot then need `prepare_host.sh` again.
 ## What to send back
 
 The script ends by printing the path of `results/adai-gpu-results-<host>-<time>.tar.gz`. Copy that
-file back. It holds `summary.txt`, `soak_report.txt`, every step's log, the test XML, the environment
+file back. It holds `summary.txt`, `lejepa_report.txt`, `soak_report.txt`, every step's log, the test XML, the environment
 (packages, firmware, GPU users, `ldd`, the preparation report) and the kernel log for the run; trained
 weights are left out.

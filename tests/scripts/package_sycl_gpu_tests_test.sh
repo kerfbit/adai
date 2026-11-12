@@ -11,13 +11,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PACKAGER="${REPO_ROOT}/scripts/package_sycl_gpu_tests.sh"
 RUNNER="${REPO_ROOT}/scripts/sycl_gpu_tests/run_gpu_tests.sh"
 TRAIN_PASS="${REPO_ROOT}/scripts/sycl_gpu_tests/train_pass.sh"
+LEJEPA_PASS="${REPO_ROOT}/scripts/sycl_gpu_tests/lejepa_pass.sh"
 PREPARE="${REPO_ROOT}/scripts/sycl_gpu_tests/prepare_host.sh"
 RESTORE="${REPO_ROOT}/scripts/sycl_gpu_tests/restore_host.sh"
 LIB="${REPO_ROOT}/scripts/sycl_gpu_tests/gpu_host_lib.sh"
 GUC="${REPO_ROOT}/scripts/sycl_gpu_tests/guc_firmware.sh"
 source "${SCRIPT_DIR}/harness.sh"
 
-for script in "$PACKAGER" "$RUNNER" "$TRAIN_PASS" "$PREPARE" "$RESTORE" "$LIB" "$GUC"; do
+for script in "$PACKAGER" "$RUNNER" "$TRAIN_PASS" "$LEJEPA_PASS" "$PREPARE" "$RESTORE" "$LIB" "$GUC"; do
     t "syntax check: $(basename "$script")"
     run bash -n "$script"
     assert_exit 0
@@ -60,6 +61,26 @@ t "runner --soak-passes needs a whole number"
 run bash "$RUNNER" --soak-passes abc
 assert_exit 2
 assert_contains "whole number"
+
+t "runner --lejepa-soak-passes needs a whole number"
+run bash "$RUNNER" --lejepa-soak-passes abc
+assert_exit 2
+assert_contains "whole number"
+
+t "runner --help lists the LeJEPA options"
+run bash "$RUNNER" --help
+assert_exit 0
+assert_contains "--lejepa-only"
+
+t "lejepa_pass.sh without arguments prints its usage"
+run bash "$LEJEPA_PASS"
+assert_exit 2
+assert_contains "lejepa_pass.sh setup"
+
+t "lejepa_pass.sh rejects an unknown command"
+run bash "$LEJEPA_PASS" bogus /nonexistent
+assert_exit 2
+assert_contains "Unknown command"
 
 t "prepare --help prints its usage without sudo or changes"
 run bash "$PREPARE" --help

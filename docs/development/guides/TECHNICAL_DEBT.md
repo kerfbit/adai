@@ -18,7 +18,11 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
-**November 12, 2026:** Filed [TD-572](#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable) (LOW) when
+**November 12, 2026:** Closed [TD-572](../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable):
+both pairs have direct tests, and the LeJEPA pass ran on ai-machine's Arc B60 (lifecycle, then 220 soak passes with no engine reset);
+`LeJEPATrainingPass` and `TrainingPassFiles` are `stable` 1.0.0.
+
+**November 12, 2026:** Filed [TD-572](../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable) (LOW) when
 `LeJEPATrainingPass.{hpp,cpp}` and `TrainingPassFiles.{hpp,cpp}`, split out of `IncrementalTrainingTool.cpp` for TD-566, moved to `beta`:
 what each still needs before `stable`.
 
@@ -2659,8 +2663,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-569: `trainer_service` Has No Time Limit for a Pass That Stops Making Progress](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress)
   - [TD-570: `BPETokenizer::load_vocab()` Takes Header Syntax Inside the Token and Merge Sections](#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections)
   - [TD-571: Findings From the November 11, 2026 Trace of the Files TD-569 Touched](#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched)
-  - [TD-572: `LeJEPATrainingPass` and `TrainingPassFiles`: What Stands Between Them and `stable`](#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable)
-- [Resolved Items](#resolved-items) (217 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -19555,44 +19558,11 @@ Location in code: `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTraini
 
 ---
 
-### TD-572: `LeJEPATrainingPass` and `TrainingPassFiles`: What Stands Between Them and `stable`
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / LeJEPA pass, download step | November 12, 2026 | 3-4 hours, plus an ai-machine run |
-
-Description:
-`LeJEPATrainingPass.{hpp,cpp}` (the LeJEPA world-model pass) and `TrainingPassFiles.{hpp,cpp}` (`resolve_pass_files()`/`cleanup_downloads()`, the
-download step every pass shares) were moved out of `IncrementalTrainingTool.cpp` on November 12, 2026 for TD-566, and moved from `experimental`
-to `beta` the same day. Neither is ready for `stable`, for these reasons:
-
-- **`TrainingPassFiles` has no direct test.** Only its local-file branch runs in a test, indirectly, through `lejepaTrainingPassTests`. The FTP
-  branch (download into `DOWNLOAD_DIR` or `<SESSION_DIR>/downloads`, one range per claimed unit, false on a failed download) and
-  `cleanup_downloads()` (each download and its TD-338 checksum sidecar, a path listed twice) are untested. `DataTransport` underneath has its own
-  tests (`dataTransportFtpTests`, `dataTransportFtpsTests`).
-- **`LeJEPATrainingPass`'s GPU-loss handling has run only against an injected check.** A real device loss can't be produced on demand. The check
-  is the chatbot pass's `GPUManager::device_usable()`, which ai-machine's soak exercised, but the LeJEPA pass itself has not run on ai-machine's
-  Arc B60 since the move. Its other paths (checkpoint and pause, an unreachable registry, nothing pending, metrics) are tested only by reading
-  and the earlier real-binary checks, not by `lejepaTrainingPassTests`.
-
-Action Items:
-
-- [ ] `TrainingPassFiles` tests against a loopback `FtpDataServer` (as `dataTransportFtpsTests` set one up): a claimed batch downloads and
-  each range keeps its segment; an unset `DOWNLOAD_DIR` falls back to `<SESSION_DIR>/downloads`; a failed download returns false; the
-  local-registry branch passes the registry's own paths; `cleanup_downloads()` removes files and sidecars and tolerates a repeated path.
-- [ ] `lejepaTrainingPassTests` cases for the paths it doesn't cover: nothing pending (3), a pause through the control state (checkpoint,
-  release, 1), `/admin/checkpoint`, a resumed checkpoint, a failed checkpoint load before claiming.
-- [ ] A LeJEPA pass on ai-machine with the redeployed binaries (`--objective=lejepa`, under `trainer_service` or by hand), ideally across a
-  soak so a real engine reset reaches the new check; record the result here.
-- [ ] Then promote both pairs to `stable` 1.0.0.
-
-Location in code: `src/LeJEPATrainingPass.{hpp,cpp}`, `src/TrainingPassFiles.{hpp,cpp}`, `tests/lejepa_training_pass_test.cpp`.
-
 ---
 
 ## Resolved Items
 
-217 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+218 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.2.1
-# @adai-reviewed: 2026-11-10
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-11-12
 
-# Builds the SYCL GPU test binaries, the TD-171 benchmark and the trainer, and packs them with
+# Builds the SYCL GPU test binaries, the TD-171 benchmark, the trainer and its tools (the LeJEPA
+# passes, TD-572, need vocab_builder), and packs them with
 # scripts/sycl_gpu_tests/ into one tarball to run on the GPU host (ai-machine): see that
 # directory's README.md. Uses the host's oneAPI runtime rather than bundling one: the package's
 # prepare_host.sh upgrades it from Intel's apt repository to the release recorded in MANIFEST.txt.
@@ -54,7 +55,7 @@ done
 TEST_TARGETS=(deviceSelectionTests gpuutilsTests matrixgpuTd003Tests gpuOptimizerTests matrixTests
     feedforwardTests multiheadattentionTests encoderdecoderTests initRngTests
     generationQualityAsyncTests chatbottrainerTests incrementaltrainerTests chatbotapiTests)
-TOOL_TARGETS=(incremental_trainer dataset_manager stacked_gemm_benchmark)
+TOOL_TARGETS=(incremental_trainer dataset_manager vocab_builder stacked_gemm_benchmark)
 
 # ── Preflight ──────────────────────────────────────────────────────────────────
 
@@ -113,13 +114,13 @@ mkdir -p "$STAGE/bin" "$STAGE/data"
 for target in "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"; do
     cp "$(find_binary "$target")" "$STAGE/bin/"
 done
-HOST_SCRIPTS=(run_gpu_tests.sh train_pass.sh prepare_host.sh restore_host.sh gpu_host_lib.sh guc_firmware.sh)
+HOST_SCRIPTS=(run_gpu_tests.sh train_pass.sh lejepa_pass.sh prepare_host.sh restore_host.sh gpu_host_lib.sh guc_firmware.sh)
 for script in "${HOST_SCRIPTS[@]}"; do
     cp "$SCRIPT_DIR/sycl_gpu_tests/$script" "$STAGE/"
     chmod +x "$STAGE/$script"
 done
 cp "$SCRIPT_DIR/sycl_gpu_tests/README.md" "$STAGE/"
-cp "$SCRIPT_DIR/sycl_gpu_tests/pairs.jsonl" "$STAGE/data/"
+cp "$SCRIPT_DIR/sycl_gpu_tests/pairs.jsonl" "$SCRIPT_DIR/sycl_gpu_tests/world_model_texts.jsonl" "$STAGE/data/"
 
 {
     echo "$PACKAGE_NAME"

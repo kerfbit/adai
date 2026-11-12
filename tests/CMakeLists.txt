@@ -1168,6 +1168,20 @@ if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
     add_test(NAME DataTransportFtpTests COMMAND dataTransportFtpTests)
 endif()
 
+# TD-572: resolve_pass_files()/cleanup_downloads() (TrainingPassFiles.cpp), the download step every training
+# pass shares, against a real FtpDataServer (plain FTP) on loopback.
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
+    add_executable(trainingPassFilesTests training_pass_files_test.cpp ../src/TrainingPassFiles.cpp)
+    target_compile_definitions(trainingPassFilesTests PRIVATE BUILD_FTP_TRANSPORT)
+    target_include_directories(trainingPassFilesTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(trainingPassFilesTests
+        adai_core
+        CURL::libcurl
+        GTest::gtest_main
+    )
+    add_test(NAME TrainingPassFilesTests COMMAND trainingPassFilesTests)
+endif()
+
 # TD-339: FTPS server authentication, end to end — a real FtpDataServer (BUILD_FTPS) serving a
 # real DataTransport (libcurl, BUILD_FTP_TRANSPORT) on loopback.
 if(ENABLE_FTP_TRANSPORT AND CURL_FOUND AND OPENSSL_FOUND)

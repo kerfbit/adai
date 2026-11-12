@@ -1,5 +1,5 @@
-// @adai-status: beta
-// @adai-version: 0.1.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-12
 
 // TD-566: the LeJEPA world-model pass, moved out of IncrementalTrainingTool.cpp so it can be tested

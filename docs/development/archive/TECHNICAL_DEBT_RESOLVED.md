@@ -4,6 +4,81 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-572: `LeJEPATrainingPass` and `TrainingPassFiles`: What Stands Between Them and `stable`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 12, 2026 | `src/LeJEPATrainingPass.{hpp,cpp}`, `src/TrainingPassFiles.{hpp,cpp}`, `tests/`, `scripts/sycl_gpu_tests/` | Direct tests of both (`trainingPassFilesTests`, 5 more `lejepaTrainingPassTests` cases), and the LeJEPA pass run on ai-machine's Arc B60 through the GPU test package; both promoted to `stable` 1.0.0 |
+
+Description:
+`LeJEPATrainingPass.{hpp,cpp}` (the LeJEPA world-model pass) and `TrainingPassFiles.{hpp,cpp}` (`resolve_pass_files()`/`cleanup_downloads()`, the
+download step every pass shares) were moved out of `IncrementalTrainingTool.cpp` on November 12, 2026 for TD-566, and moved from `experimental`
+to `beta` the same day. Neither is ready for `stable`, for these reasons:
+
+- **`TrainingPassFiles` has no direct test.** Only its local-file branch runs in a test, indirectly, through `lejepaTrainingPassTests`. The FTP
+  branch (download into `DOWNLOAD_DIR` or `<SESSION_DIR>/downloads`, one range per claimed unit, false on a failed download) and
+  `cleanup_downloads()` (each download and its TD-338 checksum sidecar, a path listed twice) are untested. `DataTransport` underneath has its own
+  tests (`dataTransportFtpTests`, `dataTransportFtpsTests`).
+- **`LeJEPATrainingPass`'s GPU-loss handling has run only against an injected check.** A real device loss can't be produced on demand. The check
+  is the chatbot pass's `GPUManager::device_usable()`, which ai-machine's soak exercised, but the LeJEPA pass itself has not run on ai-machine's
+  Arc B60 since the move. Its other paths (checkpoint and pause, an unreachable registry, nothing pending, metrics) are tested only by reading
+  and the earlier real-binary checks, not by `lejepaTrainingPassTests`.
+
+Action Items:
+
+- [x] `TrainingPassFiles` tests against a loopback `FtpDataServer` (as `dataTransportFtpsTests` set one up): a claimed batch downloads and
+  each range keeps its segment; an unset `DOWNLOAD_DIR` falls back to `<SESSION_DIR>/downloads`; a failed download returns false; the
+  local-registry branch passes the registry's own paths; `cleanup_downloads()` removes files and sidecars and tolerates a repeated path.
+- [x] `lejepaTrainingPassTests` cases for the paths it doesn't cover: nothing pending (3), a pause through the control state (checkpoint,
+  release, 1), `/admin/checkpoint`, a resumed checkpoint, a failed checkpoint load before claiming.
+- [x] A LeJEPA pass on ai-machine with the redeployed binaries (`--objective=lejepa`, under `trainer_service` or by hand), ideally across a
+  soak so a real engine reset reaches the new check; record the result here.
+  **Package ready (November 12, 2026):** `scripts/package_sycl_gpu_tests.sh` builds it; on ai-machine,
+  `./prepare_host.sh` then `./run_gpu_tests.sh --lejepa-only` runs `--objective=lejepa` on the GPU through a lifecycle (train, resume
+  with nothing pending, re-queue and resume from the checkpoint, a SIGTERM drain, resume after it) and a 20-pass soak on Level Zero
+  v2 that checks any device loss against TD-566, written to `lejepa_report.txt`. Tried on the oneAPI CPU device: every check passes.
+  **Result on ai-machine (November 12, 2026, `adai-gpu-results-ai-machine-20261112T211115Z`):** Arc Pro B60 over Level Zero v2, GuC
+  70.72.1, oneAPI runtime 2026.2.0. The lifecycle passed on the GPU: a pass trained and checkpointed in 10 s, a resume found nothing
+  pending (3), a re-queued file trained from the checkpoint, a SIGTERM checkpointed and released the texts (1), and a resume continued
+  from that checkpoint. All 20 soak passes (5 epochs, 640 steps each, 318 s in all) trained with no skipped batch. The kernel log
+  was readable but had no GPU events in the whole run, so no real device loss reached the pass's check: the loss branch is still covered
+  only by `lejepaTrainingPassTests`' injected check and by the chatbot soaks, which exercised the same `GPUManager::device_usable()`
+  probe.
+  **Longer soak (November 12, 2026, `adai-gpu-results-ai-machine-20261112T212322Z`):** the lifecycle passed again, and 200 fresh passes
+  (3,177 s of GPU work) all trained, with no skipped batch and no kernel GPU event in the whole run. The chatbot soaks on the same host
+  and firmware lost the device about once every five passes, so this workload doesn't seem to provoke the engine resets at all (it
+  multiplies through `Matrix::multiply_gpu()` and runs none of the chatbot pass's device-resident kernels). Soaking longer is unlikely
+  to reach the loss branch.
+- [x] Then promote `LeJEPATrainingPass` to `stable` 1.0.0. (`TrainingPassFiles` was promoted November 12, 2026, below.)
+
+**Tests added (November 12, 2026):**
+
+- `trainingPassFilesTests` (5, new): a plain-FTP `FtpDataServer` on kernel-chosen loopback ports. It covers the local-registry branch
+  (registry paths and segment ranges, nothing downloaded); an FTP batch downloaded in order with its ranges, two segments of one file
+  sharing one download; the `<SESSION_DIR>/downloads` fallback; a download with credentials the server never issued returning false; and
+  `cleanup_downloads()` removing downloads and sidecars, with a repeated, a missing and an empty path, and leaving other files alone.
+- `lejepaTrainingPassTests` (4 → 9) gains five cases:
+  - a second pass resuming the first one's checkpoint and finding nothing pending (3);
+  - a re-queued file training again from the checkpoint;
+  - a checkpoint that can't be loaded failing the pass before anything is claimed;
+  - a pause checkpointing and releasing the files;
+  - a checkpoint request written at the next batch and marked served.
+
+  The fixture now saves where the pass resumes from (`LeJEPAEncoder::default_checkpoint_dir(SESSION_DIR)`); it used another directory, so no
+  case had actually resumed.
+- **Breaking the code is caught.** Removing the segment copy, the downloads fallback, the sidecar removal, the paused checkpoint, the served
+  mark or the failed-load return each fails a test.
+
+**`TrainingPassFiles` promoted to `stable` 1.0.0 (November 12, 2026).** With these tests nothing stands in its way: the ai-machine run concerns
+the LeJEPA pass only, and the code is unchanged from what every pass of the deployed `incremental_trainer` has run. 
+
+**Closed (November 12, 2026, owner decision):** `LeJEPATrainingPass.{hpp,cpp}` promoted to `stable` 1.0.0 after the two ai-machine
+runs. No real device loss reached the LeJEPA pass, and soaking longer is unlikely to produce one; its loss branch is covered by the
+injected-check tests and by the `GPUManager::device_usable()` probe, which the chatbot soaks proved on every one of their device losses.
+
+Location in code: `src/LeJEPATrainingPass.{hpp,cpp}`, `src/TrainingPassFiles.{hpp,cpp}`, `tests/lejepa_training_pass_test.cpp`,
+`tests/training_pass_files_test.cpp`.
+
 ### TD-037: No Qt Test Infrastructure for GUI Classes
 
 | Resolution Date | Component | Resolved By |

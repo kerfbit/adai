@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta
-// @adai-version: 0.1.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-11-12
 
 // The LeJEPA world-model training pass (`incremental_trainer --objective=lejepa train|resume`),

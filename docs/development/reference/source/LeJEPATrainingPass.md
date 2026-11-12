@@ -3,8 +3,8 @@
 - **Files:** [`src/LeJEPATrainingPass.hpp`](../../../../src/LeJEPATrainingPass.hpp) (42 lines), [`src/LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp) (678), [`src/TrainingPassFiles.hpp`](../../../../src/TrainingPassFiles.hpp) (32), [`src/TrainingPassFiles.cpp`](../../../../src/TrainingPassFiles.cpp) (83)
 - **Namespace:** `adai`
 - **Built into:** `incremental_trainer` (with [IncrementalTrainingTool.cpp](IncrementalTrainingTool.md), which calls them) and `lejepaTrainingPassTests`
-- **Status tags:** all four `beta` 0.1.0, reviewed 2026-11-12 (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, and from `experimental` to `beta` the same day; what `stable` needs is [TD-572](../../guides/TECHNICAL_DEBT.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
-- **Tests:** [`tests/lejepa_training_pass_test.cpp`](../../../../tests/lejepa_training_pass_test.cpp) → `lejepaTrainingPassTests` (4: a whole pass against a local registry and a tiny world model; a failed batch on a working GPU; a lost GPU; an epoch that trains nothing)
+- **Status tags:** all four `stable` 1.0.0, reviewed 2026-11-12 (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, to `beta` the same day, and to `stable` once their tests landed and the LeJEPA pass ran on ai-machine; [TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
+- **Tests:** [`tests/lejepa_training_pass_test.cpp`](../../../../tests/lejepa_training_pass_test.cpp) → `lejepaTrainingPassTests` (9, against a local registry and a tiny world model: a whole pass, a failed batch on a working GPU, a lost GPU, an epoch that trains nothing, a second pass resuming and finding nothing pending, a re-queued file training again, a checkpoint that can't load, a pause, a checkpoint request); [`tests/training_pass_files_test.cpp`](../../../../tests/training_pass_files_test.cpp) → `trainingPassFilesTests` (5, `TrainingPassFiles` against a loopback `FtpDataServer`)
 - **Last traced against the code:** 2026-11-12
 
 > Code-traced reference. The code was moved unchanged from `IncrementalTrainingTool.cpp` on November 12, 2026, then given TD-566's GPU-loss
@@ -74,7 +74,5 @@ batch (TD-569). A batch that throws, `TokenizerEncodingError` included, has been
 
 | Item | Impact | Tracked as |
 |---|---|---|
-| The device-loss path is tested with an injected check; a real loss can't be produced on demand, and the pass hasn't run on ai-machine since the move | The real `GPUManager::device_usable()` probe is the chatbot pass's, which ai-machine's soak exercised (TD-566) | [TD-572](../../guides/TECHNICAL_DEBT.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable) |
-| `TrainingPassFiles` has no direct test; only its local-file branch runs, through `lejepaTrainingPassTests` | The FTP branch and `cleanup_downloads()` are untested here (`DataTransport` has its own tests) | TD-572 |
-| `lejepaTrainingPassTests` doesn't cover nothing pending, pause, a checkpoint request, resuming or a failed load | Those paths rest on reading and the earlier real-binary checks | TD-572 |
+| A real device loss has never reached this pass: 220 passes on ai-machine's Arc B60 caused no engine reset (the chatbot pass's workload does, about once in five passes) | The loss branch is tested with an injected check, and its probe, `GPUManager::device_usable()`, is the chatbot pass's, proved on every one of its losses | Accepted at promotion ([TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable)) |
 | The pass has no validation split | Its loss is the training predictor loss only | By design (TD-183) |
