@@ -28,7 +28,7 @@ supervisor used to wait for it forever. These files let the supervisor see that 
   | `DatasetRegistry::load_conversation_pairs()` | each line read, both formats |
   | `DataTransport.hpp`'s FTP write callback | each downloaded chunk |
   | `BPETokenizer::build_bpe_merges()` | each merge (a first pass builds the vocabulary) |
-  | the LeJEPA pass (`IncrementalTrainingTool.cpp`) | each batch |
+  | the LeJEPA pass (`LeJEPATrainingPass.cpp`) | each batch |
   | `IncrementalTrainer::perform_auto_save()` | each checkpoint attempt |
 
   Progress is noted when work finishes or starts, never from a timer, so a stuck working thread stops the count. The per-epoch generation-quality

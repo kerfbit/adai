@@ -386,6 +386,29 @@ if(HTTPLIB_INCLUDE_DIR)
 endif()
 add_test(NAME IncrementalTrainerTests COMMAND incrementaltrainerTests)
 
+# TD-566: the LeJEPA world-model pass (moved out of IncrementalTrainingTool.cpp to be testable) against a
+# local registry and a tiny world model: a lost GPU, a failed batch, an epoch that trains nothing.
+add_executable(lejepaTrainingPassTests
+    lejepa_training_pass_test.cpp
+    ../src/LeJEPATrainingPass.cpp
+    ../src/TrainingPassFiles.cpp
+    ../src/IncrementalTrainerArgs.cpp
+    ../src/Config.cpp
+    ../src/GenerationSettings.cpp
+)
+target_link_libraries(lejepaTrainingPassTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+)
+add_test(NAME LeJEPATrainingPassTests COMMAND lejepaTrainingPassTests)
+
 # ============================================================================
 # Phase 5 Advanced Features Tests
 # ============================================================================

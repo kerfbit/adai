@@ -60,7 +60,7 @@ training thread.
 only store a value; it reaches the server inside the next `end_epoch()` payload, and `start_epoch()`
 resets the buffers. So every buffered setter must be called **after `start_epoch()` and before
 `end_epoch()`** of the same epoch, or its value lands in the wrong epoch or is lost. Both callers get
-this right today. `IncrementalTrainingTool.cpp` documents the rule in a call-site comment ("These
+this right today. The LeJEPA pass (`LeJEPATrainingPass.cpp`, formerly `IncrementalTrainingTool.cpp`) documents the rule in a call-site comment ("These
 buffered-field setters must all run BEFORE end_epoch()"), but the interface itself says nothing, and
 nothing in the signatures shows which methods are immediate and which are buffered. A new
 implementation or a reordered caller would break silently.

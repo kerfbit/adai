@@ -3,7 +3,7 @@
 - **Files:** [`src/MetricsPushClient.hpp`](../../../../src/MetricsPushClient.hpp), [`src/MetricsPushClient.cpp`](../../../../src/MetricsPushClient.cpp) (895 lines together)
 - **Namespace:** global
 - **Built into:** `adai_core`; HTTP only when `BUILD_METRICS_API_SERVER` is defined (otherwise every POST returns 0)
-- **Used by:** `IncrementalTrainer` (chatbot passes) and `run_lejepa_training_pass()` in `IncrementalTrainingTool.cpp`, both inside `incremental_trainer`
+- **Used by:** `IncrementalTrainer` (chatbot passes) and `run_lejepa_training_pass()` in `LeJEPATrainingPass.cpp` (in `IncrementalTrainingTool.cpp` before November 12, 2026), both inside `incremental_trainer`
 - **Implements:** [IMetricsReporter](IMetricsReporter.md)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-23` (both files)
 - **Tests:** [`tests/metrics_push_client_test.cpp`](../../../../tests/metrics_push_client_test.cpp) (12 tests)

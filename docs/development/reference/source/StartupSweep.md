@@ -2,7 +2,7 @@
 
 - **File:** [`src/StartupSweep.hpp`](../../../../src/StartupSweep.hpp) (header-only, 147 lines)
 - **Namespace:** global (`startup_sweep()`)
-- **Used by:** `incremental_trainer` ([`IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp)): before the first acquire in `train`, `retrain` and `--objective=lejepa`
+- **Used by:** `incremental_trainer`: before the first acquire in `train`, `retrain` and `resume` ([`IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp)) and in the `--objective=lejepa` pass ([`LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp), moved there November 12, 2026)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.3.0`, `@adai-reviewed: 2026-10-19`
 - **Tests:** [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10 tests; all pass)
 - **Design:** [dataset-transport-proposal.md](../../archive/dataset-transport-proposal.md), "Stale Download Cleanup"

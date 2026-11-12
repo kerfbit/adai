@@ -37,7 +37,7 @@ sees between passes (§8).
 | Area | Call sites | Uses |
 |---|---|---|
 | **Building** | `VocabBuilder.cpp` (`vocab_builder`); `IncrementalTrainer.cpp`'s first-pass bootstrap (TD-414); `ChatbotTrainer::build_vocabulary()` | `build_vocab()` + `save_vocab()`; the bootstrap sizes it with `recommend_vocab_size()` unless `VOCAB_BUILD_SIZE` is set, then logs `measure_fertility()`; `vocab_builder` prints `vocab_stats()` and `get_tokens_by_id()` |
-| **Loading** | `IncrementalTrainer.cpp` (the model's tokenizer and size probes), `IncrementalTrainingTool.cpp` (the LeJEPA pass's size probe), `ChatbotAPIServer.cpp`, `ChatbotTrainer.cpp`, `LLMEncoder.cpp`, `LeJEPAEncoder.cpp` | `load_vocab()`; `LLMEncoder` and `LeJEPAEncoder` own a private tokenizer |
+| **Loading** | `IncrementalTrainer.cpp` (the model's tokenizer and size probes), `LeJEPATrainingPass.cpp` (the LeJEPA pass's size probe), `ChatbotAPIServer.cpp`, `ChatbotTrainer.cpp`, `LLMEncoder.cpp`, `LeJEPAEncoder.cpp` | `load_vocab()`; `LLMEncoder` and `LeJEPAEncoder` own a private tokenizer |
 | **Checkpoints** | `EncoderDecoderModel.cpp` | `save_vocab(path + ".vocab")` / `load_vocab(path + ".vocab")` |
 | **Prompts** | `EncoderDecoderModel.cpp`, `ChatbotAPI.cpp`, `ChatbotTrainer.cpp`, `ConversationContext.cpp`, `RAGInference.cpp` | `encode_prompt()` / `encode_conversation()` (turn tokens, TD-295) |
 | **Training preprocessing** | `ChatbotTrainer::preprocess_data()` (OpenMP) | `encode()` from many threads on one tokenizer |

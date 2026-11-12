@@ -1,11 +1,11 @@
 # `IncrementalTrainingTool` — Source File Reference
 
-- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,784 lines): the `main()` of `incremental_trainer`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.36.0`, `@adai-reviewed: 2026-11-11`
-- **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp` and `IncrementalTrainerArgs.cpp` and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
-- **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
-- **Tests:** none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
-- **Last traced against the code:** 2026-11-11
+- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,145 lines): the `main()` of `incremental_trainer`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.37.0`, `@adai-reviewed: 2026-11-12`
+- **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp`, `IncrementalTrainerArgs.cpp`, `LeJEPATrainingPass.cpp` and `TrainingPassFiles.cpp` (the LeJEPA pass and the shared download step, moved out of this file November 12, 2026) and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
+- **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [LeJEPATrainingPass.md](LeJEPATrainingPass.md) (the LeJEPA pass and the download step), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
+- **Tests:** none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
+- **Last traced against the code:** 2026-11-12
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the built `build/debug/bin/incremental_trainer` (and
 > `dataset_manager`, `vocab_builder`) against a scratch session directory.
@@ -56,10 +56,9 @@ pass registered yet, or on a second signal, it `_exit(1)`s.
 `MAX_SESSIONS_TO_KEEP`) for the signal handler; with `--admin-port` (only `trainer_service` passes it), it also runs the per-pass
 `TrainerAdminAPI` on `127.0.0.1:<port>`, waiting up to 2 s for it to listen.
 
-**`resolve_pass_files()`** (TD-411), shared by every pass: when the registry advertises an FTP host, download the claimed files with
-`DataTransport::fetch_all()` into `DOWNLOAD_DIR` (or `<SESSION_DIR>/downloads`, with a warning); otherwise use the registry's own paths. Each
-local file keeps its TD-205 segment range. A failed download fails the pass, which releases its files. The downloads and their checksum
-sidecars are removed after the pass.
+**`resolve_pass_files()`/`cleanup_downloads()`** (TD-411), shared by every pass, download the claimed files when the registry serves them over
+FTP and remove them afterwards; they live in `TrainingPassFiles.cpp` since November 12, 2026 ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)
+§1).
 
 `main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414).
 
@@ -77,29 +76,16 @@ sidecars are removed after the pass.
 | `train`/`resume --objective=lejepa` | Needs `WORLD_MODEL_ENABLED`. `run_lejepa_training_pass()` (below); `train` runs `epochs`, `resume` `NUM_EPOCHS`, with the same exit codes |
 | `status`, `history` | Read `session_history.txt` with `IncrementalTrainer::read_session_history()` without building a trainer (TD-416), and print it with the registry |
 
-**`run_lejepa_training_pass()`:**
-
-1. Load the vocabulary (`TOKENIZER_MODE`, TD-416) to size a `LeJEPAEncoder`. A missing vocabulary is an exception, exit 1: this pass
-   doesn't build one.
-2. Resume from the checkpoint `resolve_checkpoint_dir()` finds (the pre-TD-548 `<SESSION_DIR>/world_model` too); a failed load exits 1
-   before claiming anything.
-3. Make a fresh Adam optimizer. The run id is `persistent_run_id(RUN_ID, world_model_dir)` (TD-415).
-4. Sweep and acquire. An unreachable registry exits 1; an empty pool exits 3.
-5. Download, and load each unit's segment rows (TD-415). Both sides of every pair become unpaired texts; no texts → release, exit 1.
-6. Push metrics to the stable key `lejepa-<model>`, retrying a 409 twice.
-7. Walk the texts in batches of `WORLD_MODEL_SIGREG_BATCH_SIZE` through `train_batch()` (TD-503). Progress is noted per batch (TD-569), and
-   a throwing batch is skipped.
-   - **Checkpoints:** `AUTO_SAVE_*` (live from the admin API) and `/admin/checkpoint` both write one; a failed periodic save is logged and
-     skipped.
-   - **Pause:** `/admin/pause` or a SIGTERM checkpoints, releases the files and exits 1.
-8. At the end, the final `world_model.save()`, then `mark_trained()` with the pair counts; a failed save is logged and the files are
-   released, exit 1 (TD-571, §3); with no step trained, release and exit 1.
+**`run_lejepa_training_pass()`** is in `LeJEPATrainingPass.cpp` since November 12, 2026 (moved to be testable, TD-566); it is described in
+[LeJEPATrainingPass.md](LeJEPATrainingPass.md). The tool builds the pass's `PassAdminApi`, initializes the GPU and calls it.
 
 ---
 
 ## 3. Problems
 
 ### Fixed: the LeJEPA pass recorded its files as trained before its final save (TD-571, November 11, 2026; was verified)
+
+(The pass has lived in `LeJEPATrainingPass.cpp` since November 12, 2026.)
 
 `run_lejepa_training_pass()` called `mark_trained()` and only then `world_model.save()`, outside any `try`, so a failed save reached `main()`
 (exit 1) with the files recorded as trained and the pass's training unwritten. With `WORLD_MODEL_ARTIFACT_PATH` under a read-only directory
@@ -125,7 +111,7 @@ run with the fixed binary left no trained record and the claim cleared.
 |---|---|---|---|
 | The LeJEPA pass marked its files trained before its final save; `reset` ignored unknown tokens; the per-pass admin API started late; a silent MNS lookup failure; start-up lines on stdout (§3) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
 | `retrain` reads trained units by registry path | A retrain against a remote FTP registry can't read its trained files | By inspection | [TD-411](../../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (open item) |
-| The LeJEPA pass has no device-lost check | A lost GPU retries every remaining batch | By inspection | TD-566 ("not covered") |
+| The LeJEPA pass had no device-lost check | A lost GPU failed every remaining batch, and the pass then recorded its files as trained | **Fixed November 12, 2026** ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)) | TD-566 |
 | `resume` without FTP, zero-sample success, the wrong pending pool, the vocabulary bootstrap, LeJEPA segments and claims, signals, auto-save overrides, read-only `status`, log files | — | **Fixed** | TD-411, TD-412, TD-413, TD-414, TD-415, TD-416, TD-431 |
 
 ## 5. History
@@ -135,5 +121,6 @@ run with the fixed binary left no trained record and the claim cleared.
 - **November 1–2, 2026:** objective and kind under `trainer_service` and the LeJEPA pass's admin API (TD-403), LeJEPA segments and run id
   (TD-415), command hygiene and signals (TD-416), the first-run vocabulary and exception exits (TD-414), run ids (TD-404), log files (TD-431).
 - **November 9, 2026:** `--seed` (TD-368).
+- **November 12, 2026:** the LeJEPA pass and the download helpers moved to their own files, and the LeJEPA pass stops on a lost GPU (TD-566).
 - **November 11, 2026:** `--heartbeat-file` and progress per LeJEPA batch (TD-569). This document was re-traced against the code, replacing its
   October sections and folding in its addenda; the findings were fixed the same day (TD-571).

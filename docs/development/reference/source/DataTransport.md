@@ -65,7 +65,7 @@ Groups the tokens by local path (TD-337), so a file's TD-205 segment tokens trig
 threads that take indexes from an atomic counter and `fetch()` each distinct file. Results come back in `resp.files` order, each token getting
 its file's path. After all threads join, the **first** error in index order is rethrown; files that did download stay on disk.
 
-The trainer calls it through `resolve_pass_files()` (`IncrementalTrainingTool.cpp`) for every pass, with `DOWNLOAD_DIR` (or
+The trainer calls it through `resolve_pass_files()` (`TrainingPassFiles.cpp`, [LeJEPATrainingPass.md](LeJEPATrainingPass.md) §1) for every pass, with `DOWNLOAD_DIR` (or
 `<SESSION_DIR>/downloads`) and `MAX_PARALLEL_DOWNLOADS`. On an exception the pass releases its exact units (TD-333). After the pass the
 downloads and sidecars are removed. The start-up sweep (`StartupSweep.hpp`) matches files by the same names: it deletes zero-byte, trained and
 orphaned downloads with their sidecars, and keeps non-empty pending ones for Condition B or a resume.

@@ -84,8 +84,10 @@ possible.
 
 ### Smaller items (by inspection)
 
-- **An escaping exception type.** `TokenizerEncodingError` derives from `runtime_error`, so it escapes
-  `run_lejepa_training_pass()`'s `catch (const std::invalid_argument&)` and ends the pass.
+- **An escaping exception type (no longer ends the pass).** `TokenizerEncodingError` derives from `runtime_error`, so it escaped the pass's
+  old `catch (const std::invalid_argument&)` and ended the pass. Since TD-503 the pass (now `run_lejepa_training_pass()` in
+  `LeJEPATrainingPass.cpp`) catches any exception per batch and skips the batch, or, since TD-566, stops when the GPU is lost; the exception
+  type itself is unchanged (TD-429).
 - **Hard-coded and unseeded choices.** The span RNG is seeded from `random_device` (TD-368); the mask
   ratio is fixed at 25% (`kMaskRatio`).
 - **The tokenizer is always ASCII** (TD-416).

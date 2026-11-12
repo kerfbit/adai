@@ -97,6 +97,7 @@ This directory contains reference materials, technical specifications, and imple
   - [TrainerControlState](source/TrainerControlState.md) (`src/TrainerControlState.hpp`; per-pass state shared by the trainer and its admin API)
   - [TrainerServiceControlState](source/TrainerServiceControlState.md) (`src/TrainerServiceControlState.hpp`; `trainer_service`'s process-lifetime pause/stop state)
   - [TrainerServiceMain](source/TrainerServiceMain.md) (`src/TrainerServiceMain.cpp`; `trainer_service` supervisory loop)
+  - [LeJEPATrainingPass](source/LeJEPATrainingPass.md) (`src/LeJEPATrainingPass.{hpp,cpp}`, `src/TrainingPassFiles.{hpp,cpp}`; the LeJEPA world-model pass and the shared download step)
   - [PassHeartbeat](source/PassHeartbeat.md) (`src/PassHeartbeat.{hpp,cpp}`, `src/PassSupervision.{hpp,cpp}`; a pass's progress heartbeat and `trainer_service`'s stall check, TD-569)
   - [TrainerServiceProxy](source/TrainerServiceProxy.md) (`src/TrainerServiceProxy.{hpp,cpp}`; `trainer_service`'s public admin listener and child proxy)
   - [TrainingMetricsAPI](source/TrainingMetricsAPI.md) (`src/TrainingMetricsAPI.{hpp,cpp}`; `metrics_api_server`'s HTTP layer; endpoint catalogue in [TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md))

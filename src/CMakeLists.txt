@@ -513,7 +513,8 @@ message(STATUS "Building chatbot as lightweight API client")
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp
     ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp
-    IncrementalTrainerArgs.cpp)  # Logger.cpp compiled into adai_core
+    IncrementalTrainerArgs.cpp
+    LeJEPATrainingPass.cpp TrainingPassFiles.cpp)  # TD-566: the LeJEPA pass, testable  # Logger.cpp compiled into adai_core
 target_link_libraries(incremental_trainer 
     adai_models 
     adai_nlp
