@@ -18,6 +18,10 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 12, 2026:** Fixed [TD-465](#td-465-safetensors-round-trip-replaces-the-decoder-embedding) in code: SafeTensors export
+writes the decoder's own token embedding (`model.decoder.embed_tokens.weight`) next to the encoder's, and import loads each into its
+own embedding, so a round trip no longer changes the model's outputs. Files written before the fix still load.
+
 **November 12, 2026:** Filed [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): no Android file is `stable`, and
 TD-047/TD-048 cap them without saying what `stable` would take. It sets that bar for `app` and `opsdashboard` (a first release, the
 `opsdashboard` instrumented tests actually run, each file covered, a decision on documentation) and lists what each `experimental`
@@ -2193,7 +2197,7 @@ before the next registration or promotion. [TD-462](#td-462-modelnameservice-dea
 report persistence in `/health`) protecting the system of record; [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) goes with TD-248/TD-249's shutdown fixes.
 
 **Tier 74 — Newly filed (October 14, 2026): `ModelSerializer`.** Fix [TD-465](#td-465-safetensors-round-trip-replaces-the-decoder-embedding) (and extend the round-trip test
-to compare outputs) before anything starts using SafeTensors export. [TD-466](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation): owner decided (October 14, 2026) to make
+to compare outputs) before anything starts using SafeTensors export (fixed in code November 12, 2026). [TD-466](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation): owner decided (October 14, 2026) to make
 the format T5-faithful, which needs a T5-style architecture variant (RMSNorm, bias-free linears, relative position bias, shared
 embedding) as well as serializer changes; do the export-side mappings and relabelling first.
 
@@ -14903,7 +14907,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Models / ModelSerializer | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 12, 2026 | Models / ModelSerializer | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelSerializer` and verified. `LLMEncoder` and `LLMDecoder` each own a separately trained `TokenEmbedding`
@@ -14915,10 +14919,16 @@ compares only three weight matrices. (No production caller today, so no shipped 
 
 Action Items:
 
-- [ ] Export the decoder embedding as its own tensor (e.g. `decoder.embed_tokens.weight`) and import it when present.
-- [ ] Extend `FullModelRoundTrip` to compare both embeddings and the model's forward output.
+- [x] Export the decoder embedding as its own tensor (e.g. `decoder.embed_tokens.weight`) and import it when present.
+- [x] Extend `FullModelRoundTrip` to compare both embeddings and the model's forward output.
 
-Location in code: `src/ModelSerializer.cpp` (`export_safetensors()`, `import_safetensors()` shared-embedding blocks); tagged `TODO: See TD-465`.
+**Fix (November 12, 2026).** `export_safetensors()` writes the encoder's embedding as `model.shared.weight` and the decoder's as
+`model.decoder.embed_tokens.weight` (the name HuggingFace uses for an untied T5 decoder). `import_safetensors()` loads each into its
+own embedding; a file written before the fix has only `model.shared.weight`, which still goes to both. Two new tests, both failing on
+the old code: `RoundTripKeepsBothEmbeddingsAndOutputs` (both embeddings and the logits from `next_token_logits()` match after a round
+trip) and `FileWithOnlySharedEmbeddingLoadsItIntoBoth` (an older file still loads). TD-466 is unchanged.
+
+Location in code: `src/ModelSerializer.cpp` (`export_safetensors()`, `import_safetensors()` token-embedding blocks).
 
 Files to Modify:
 
@@ -14960,7 +14970,8 @@ ADAI-specific format. Only part of the gap can be closed in the serializer; the 
   tied, T5's `d_model^-0.5` rescale before it. Existing checkpoints can't be converted exactly, so this is a new variant (selected
   per model, e.g. an MNS architecture flag, since architecture is immutable) trained from scratch or imported from a real T5
   checkpoint. Optionally support T5 v1.1's gated GELU (`wi_0`/`wi_1`).
-- For the current (non-T5) architecture, TD-465's fix still applies: export the decoder embedding separately. Until the variant
+- For the current (non-T5) architecture, TD-465's fix still applies: export the decoder embedding separately (done November 12,
+  2026). Until the variant
   exists, the current export should stop claiming `T5ForConditionalGeneration`.
 
 Action Items:

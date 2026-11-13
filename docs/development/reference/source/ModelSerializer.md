@@ -1,12 +1,12 @@
 # `ModelSerializer` — Source File Reference
 
-- **Files:** [`src/ModelSerializer.hpp`](../../../../src/ModelSerializer.hpp), [`src/ModelSerializer.cpp`](../../../../src/ModelSerializer.cpp) (665 lines together)
+- **Files:** [`src/ModelSerializer.hpp`](../../../../src/ModelSerializer.hpp), [`src/ModelSerializer.cpp`](../../../../src/ModelSerializer.cpp) (677 lines together)
 - **Namespace:** global (`ModelSerializer`, `ModelSerializer::TensorDescriptor`)
 - **Built into:** `adai_models`; uses the vendored `nlohmann/json`
-- **Used by:** **nothing in production**: no binary, flag or endpoint calls `export_safetensors()`/`import_safetensors()`; only [`tests/model_serializer_test.cpp`](../../../../tests/model_serializer_test.cpp) (6 tests)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10` (both files)
+- **Used by:** **nothing in production**: no binary, flag or endpoint calls `export_safetensors()`/`import_safetensors()`; only [`tests/model_serializer_test.cpp`](../../../../tests/model_serializer_test.cpp) (8 tests)
+- **Status tag:** `@adai-status: stable`; `.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-11-12` (TD-465); `.hpp` `1.0.0`, `2026-09-10`
 - **Proposal:** "HuggingFace SafeTensors Compatibility" in [docs/proposals/README.md](../../../proposals/README.md)
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-11-12 (§1–§3 for TD-465; the rest as of 2026-10-14)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linked against the real
 > model and serializer.
@@ -29,22 +29,25 @@ Weight export and import between ADAI's `EncoderDecoderModel` and the
 |---|---|
 | `write_safetensors(path, tensors, metadata)` | Builds the header with `nlohmann/json`, pads it to 8 bytes, writes header and F32 data; checks the stream |
 | `read_safetensors(path)` | Reads every tensor into F32 `TensorDescriptor`s |
-| `export_safetensors(model, dir)` | `model.shared.weight` (the **encoder's** embedding), per encoder block Q/K/V/O, norms, FFN `wi`/`wo` weights **and biases**; per decoder block the same plus `EncDecAttention`; both final norms; `lm_head.weight` and `lm_head.bias`. Linear weights are transposed (ADAI right-multiplies) |
-| `import_safetensors(model, dir)` | Checks five `config.json` fields against the live model, then `require()`s every tensor above (by element count), transposes back, and sets it. `model.shared.weight` is written to **both** the encoder's and the decoder's embedding. Final norms are optional; unknown keys are ignored |
+| `export_safetensors(model, dir)` | `model.shared.weight` (the encoder's token embedding) and `model.decoder.embed_tokens.weight` (the decoder's, TD-465), per encoder block Q/K/V/O, norms, FFN `wi`/`wo` weights **and biases**; per decoder block the same plus `EncDecAttention`; both final norms; `lm_head.weight` and `lm_head.bias`. Linear weights are transposed (ADAI right-multiplies) |
+| `import_safetensors(model, dir)` | Checks five `config.json` fields against the live model, then `require()`s every tensor above (by element count), transposes back, and sets it. Each embedding goes to its own model; a file without `model.decoder.embed_tokens.weight` (written before TD-465) loads `model.shared.weight` into both. Final norms are optional; unknown keys are ignored |
 
 ---
 
 ## 2. Problems
 
-### A round trip changes the model (verified)
+### Fixed: a round trip changed the model (TD-465, November 12, 2026)
 
 ADAI's encoder and decoder have **separate, separately trained** token embeddings (`LLMDecoder` owns its own
-`TokenEmbedding` and updates it in `backward()`/`update_weights()`). Export writes only the encoder's as
-`model.shared.weight`, and import copies it into both. In a probe, the original model's two embeddings differed by up to
-0.85; after `export_safetensors()` → `import_safetensors()` into a fresh model, the decoder embedding was the encoder's, and
-**the logits for the same input differed by up to 1.05** from the original. `FullModelRoundTrip` passes because it compares
-only three weight matrices (encoder Q, decoder Q, LM head), not the embeddings or outputs. The exported decoder embedding
-needs its own tensor (e.g. `decoder.embed_tokens.weight`, the name HF uses for untied T5 variants).
+`TokenEmbedding` and updates it in `backward()`/`update_weights()`). Export used to write only the encoder's, as
+`model.shared.weight`, and import copied it into both. In a probe, the original model's two embeddings differed by up to
+0.85, and after a round trip into a fresh model **the logits for the same input differed by up to 1.05**.
+`FullModelRoundTrip` passed because it compared only three weight matrices.
+
+Export now also writes the decoder's embedding as `model.decoder.embed_tokens.weight` (the name HuggingFace uses for an untied
+T5 decoder), and import loads it into the decoder. A file written before the fix has only `model.shared.weight`, which still
+goes to both embeddings, as it did. `RoundTripKeepsBothEmbeddingsAndOutputs` checks both embeddings and the logits after a round
+trip.
 
 Other state isn't exported either: the TD-180 gated world-model/hippocampal layers (TD-345), and the tokenizer vocabulary,
 without which the weights can't be used.
@@ -84,10 +87,12 @@ model, selected per model (architecture is immutable in MNS), plus verification 
 
 ## 3. Tests
 
-`model_serializer_test.cpp` (6 tests): protocol round trip, a full-model round trip (three matrices), transpose symmetry,
-config mismatch, unknown keys ignored, a missing required tensor.
+`model_serializer_test.cpp` (8 tests): protocol round trip, a full-model round trip (three matrices), transpose symmetry,
+config mismatch, unknown keys ignored, a missing required tensor, and for TD-465 a round trip that keeps both embeddings and the
+model's logits (`RoundTripKeepsBothEmbeddingsAndOutputs`) and an older file with only `model.shared.weight`, which loads into
+both embeddings (`FileWithOnlySharedEmbeddingLoadsItIntoBoth`). Both TD-465 tests fail on the code before the fix.
 
-**Not covered:** the decoder embedding or model outputs after a round trip; non-F32 dtypes; corrupt headers.
+**Not covered:** non-F32 dtypes; corrupt headers.
 
 ---
 
@@ -98,7 +103,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Export writes only the encoder's embedding; import copies it to the decoder (§2) | A round trip changes the model's outputs (up to 1.05 in logits) | **Verified** | [TD-465](../../guides/TECHNICAL_DEBT.md#td-465-safetensors-round-trip-replaces-the-decoder-embedding) |
+| ~~Export writes only the encoder's embedding; import copies it to the decoder (§2)~~ | **Fixed November 12, 2026:** both embeddings are exported and imported | **Verified** (tests) | [TD-465](../../guides/TECHNICAL_DEBT.md#td-465-safetensors-round-trip-replaces-the-decoder-embedding) |
 | "T5" names/config for a non-T5 architecture: no relative bias, RMSNorm vs LayerNorm, GELU vs "relu", biases, scaling (§2); decision: make it T5-faithful | Exports aren't usable in `transformers`; real T5 checkpoints can never be imported | By inspection | [TD-466](../../guides/TECHNICAL_DEBT.md#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation) |
 | dtype ignored; no header/offset validation; partial imports; dead `json_escape()`; `stable` with no production caller (§2) | Cryptic errors on real files; half-overwritten models | By inspection | [TD-466](../../guides/TECHNICAL_DEBT.md#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation) |
 | Gated world-model/hippocampal layers not exported | Already tracked | — | TD-345 |

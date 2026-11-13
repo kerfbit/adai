@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-12
 
 #include "ModelSerializer.hpp"
 
@@ -262,14 +262,14 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
 
     std::vector<TensorDescriptor> tensors;
 
-    // ── Shared embedding ──────────────────────────────────────────────────────
-    // TODO: See TD-465 in TECHNICAL_DEBT.md - they don't share it: the decoder's separately trained embedding is never exported
-    // encoder and decoder share the same token embedding; use encoder's.
+    // ── Token embeddings ──────────────────────────────────────────────────────
+    // The encoder and decoder each train their own embedding (TD-465): the encoder's is written as
+    // model.shared.weight, the decoder's as model.decoder.embed_tokens.weight.
     // Shape: [vocab_size, d_model] — no transpose needed.
-    {
-        TokenEmbedding* emb = enc->get_token_embedding();
-        tensors.push_back(make_td("model.shared.weight", emb->get_embeddings(), false));
-    }
+    tensors.push_back(
+        make_td("model.shared.weight", enc->get_token_embedding()->get_embeddings(), false));
+    tensors.push_back(make_td("model.decoder.embed_tokens.weight",
+                              dec->get_token_embedding()->get_embeddings(), false));
 
     // ── Encoder layers ────────────────────────────────────────────────────────
     for (int i = 0; i < enc_layers; ++i) {
@@ -471,16 +471,20 @@ void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::
     LLMDecoder* dec_ptr = model.get_decoder();
     LanguageModelHead* lm_head = model.get_lm_head();
 
-    // ── Shared embedding ──────────────────────────────────────────────────────
+    // ── Token embeddings ──────────────────────────────────────────────────────
+    // The decoder's own embedding when the file has one (TD-465); a file written before that has
+    // only model.shared.weight, which then goes to both.
     {
-        Matrix emb = from_flat(require("model.shared.weight", vocab_size * d_model).data,
-                               vocab_size, d_model);
-        enc->get_token_embedding()->set_embeddings(emb);
-        // TODO: See TD-465 in TECHNICAL_DEBT.md - overwrites the decoder's own embedding with the encoder's (round trip changes outputs)
-        // Decoder uses its own embedding; set it to the same values.
-        if (dec_ptr->get_token_embedding()) {
-            dec_ptr->get_token_embedding()->set_embeddings(emb);
-        }
+        Matrix enc_emb = from_flat(require("model.shared.weight", vocab_size * d_model).data,
+                                   vocab_size, d_model);
+        const bool has_dec_emb = tensors.count("model.decoder.embed_tokens.weight") > 0;
+        Matrix dec_emb =
+            has_dec_emb
+                ? from_flat(require("model.decoder.embed_tokens.weight", vocab_size * d_model).data,
+                            vocab_size, d_model)
+                : enc_emb;
+        enc->get_token_embedding()->set_embeddings(enc_emb);
+        dec_ptr->get_token_embedding()->set_embeddings(dec_emb);
     }
 
     // ── Encoder layers ────────────────────────────────────────────────────────

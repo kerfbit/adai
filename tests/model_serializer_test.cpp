@@ -127,6 +127,64 @@ TEST(ModelSerializerTest, FullModelRoundTrip) {
         << "LM head W_output mismatch after round-trip";
 }
 
+// TD-465: the encoder and decoder each train their own token embedding. A round trip must keep both
+// and give the same outputs; it used to write only the encoder's and copy it over the decoder's.
+TEST(ModelSerializerTest, RoundTripKeepsBothEmbeddingsAndOutputs) {
+    TempDir tmp("st_embeddings_");
+    std::string dir = tmp.path.string();
+
+    EncoderDecoderModel src(VOCAB, D_MODEL, ENC_L, DEC_L, HEADS, D_FF, MAX_SEQ);
+    const Matrix src_enc_emb = src.get_encoder()->get_token_embedding()->get_embeddings();
+    const Matrix src_dec_emb = src.get_decoder()->get_token_embedding()->get_embeddings();
+    ASSERT_FALSE(matrices_approx_equal(src_enc_emb, src_dec_emb))
+        << "the test needs a model whose two embeddings differ";
+
+    ASSERT_NO_THROW(ModelSerializer::export_safetensors(src, dir));
+    EncoderDecoderModel dst(VOCAB, D_MODEL, ENC_L, DEC_L, HEADS, D_FF, MAX_SEQ);
+    ASSERT_NO_THROW(ModelSerializer::import_safetensors(dst, dir));
+
+    EXPECT_TRUE(matrices_approx_equal(src_enc_emb,
+                                      dst.get_encoder()->get_token_embedding()->get_embeddings()))
+        << "encoder embedding changed";
+    EXPECT_TRUE(matrices_approx_equal(src_dec_emb,
+                                      dst.get_decoder()->get_token_embedding()->get_embeddings()))
+        << "decoder embedding changed";
+
+    const std::vector<int> input = {5, 9, 17, 23, 2};
+    const std::vector<int> decoder_input = {1, 30, 41, 12};
+    const Matrix src_logits = src.next_token_logits(input, decoder_input, 3);
+    const Matrix dst_logits = dst.next_token_logits(input, decoder_input, 3);
+    EXPECT_TRUE(matrices_approx_equal(src_logits, dst_logits, 1e-4f))
+        << "logits differ after a round trip";
+}
+
+// A file written before TD-465 has only model.shared.weight; it still loads, into both embeddings.
+TEST(ModelSerializerTest, FileWithOnlySharedEmbeddingLoadsItIntoBoth) {
+    TempDir tmp("st_shared_only_");
+    std::string dir = tmp.path.string();
+
+    EncoderDecoderModel src(VOCAB, D_MODEL, ENC_L, DEC_L, HEADS, D_FF, MAX_SEQ);
+    ASSERT_NO_THROW(ModelSerializer::export_safetensors(src, dir));
+
+    const std::string st_path = dir + "/model.safetensors";
+    auto tensors = ModelSerializer::read_safetensors(st_path);
+    ASSERT_EQ(tensors.erase("model.decoder.embed_tokens.weight"), 1u)
+        << "export should write the decoder embedding as its own tensor";
+    std::vector<ModelSerializer::TensorDescriptor> kept;
+    for (auto& [name, td] : tensors) {
+        kept.push_back(td);
+    }
+    ModelSerializer::write_safetensors(st_path, kept, {{"format", "pt"}});
+
+    EncoderDecoderModel dst(VOCAB, D_MODEL, ENC_L, DEC_L, HEADS, D_FF, MAX_SEQ);
+    ASSERT_NO_THROW(ModelSerializer::import_safetensors(dst, dir));
+    const Matrix& src_enc_emb = src.get_encoder()->get_token_embedding()->get_embeddings();
+    EXPECT_TRUE(matrices_approx_equal(src_enc_emb,
+                                      dst.get_encoder()->get_token_embedding()->get_embeddings()));
+    EXPECT_TRUE(matrices_approx_equal(src_enc_emb,
+                                      dst.get_decoder()->get_token_embedding()->get_embeddings()));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Transpose correctness: (W.T).T == W
 // ─────────────────────────────────────────────────────────────────────────────
