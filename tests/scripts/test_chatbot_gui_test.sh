@@ -16,8 +16,12 @@ assert_find_build_dir_correct "$TARGET" "src/chatbot_gui"
 
 # ---------------------------------------------------------------------------
 t "TD-044 regression: runs correctly regardless of caller's CWD"
-run_in "${REPO_ROOT}/scripts" bash "$TARGET"
-assert_not_contains "chatbot_gui executable not found" "must find the real build/debug/src/chatbot_gui, not fail with the old bare-build/ bug"
+if checkout_has_build "$TARGET" "src/chatbot_gui"; then
+    run_in "${REPO_ROOT}/scripts" bash "$TARGET"
+    assert_not_contains "chatbot_gui executable not found" "must find the real build/debug/src/chatbot_gui, not fail with the old bare-build/ bug"
+else
+    t "(skipped: no build in this checkout has src/chatbot_gui; the GUIs need Qt)"
+fi
 
 t "reports SUCCESS against a real, complete build (or a specific, real symbol/link gap — never the old false 'not found')"
 if [[ -x "${REPO_ROOT}/build/debug/src/chatbot_gui_binary" ]]; then

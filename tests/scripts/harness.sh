@@ -193,6 +193,16 @@ trap harness_cleanup EXIT
 # than reimplementing its logic), sources it into a throwaway REPO_ROOT,
 # and checks: preset-directory preference order, fallback to bare
 # "build/", and a clean failure when nothing matches at all.
+# checkout_has_build SCRIPT MARKER: whether SCRIPT's own find_build_dir() finds MARKER in this
+# checkout. Checks that run SCRIPT against the real checkout skip without one: CI's coverage job,
+# for one, builds into plain build/ with no Qt, so no GUI binary exists there.
+checkout_has_build() {
+    local fn_file
+    fn_file="$(mktemp_dir)/find_build_dir.sh"
+    sed -n '/^find_build_dir()/,/^}/p' "$1" >"$fn_file"
+    [[ -s "$fn_file" ]] && REPO_ROOT="$REPO_ROOT" bash -c "source '$fn_file'; find_build_dir '$2'" >/dev/null 2>&1
+}
+
 assert_find_build_dir_correct() {
     local script="$1" marker="$2"
     local d fn_file

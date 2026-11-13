@@ -195,8 +195,15 @@ stop_service
 setup stalled 'hang' 1
 start_service
 t "while a pass runs, the time since its progress is reported"
-sleep 4
-since="$(status seconds_since_pass_progress)"
+# Polled rather than read after a fixed sleep: under a slow (coverage) build the pass's one
+# heartbeat can arrive seconds after launch, and it resets the time to 0.
+for _ in $(seq 1 40); do [[ -s "$DIR/passes.log" ]] && break; sleep 0.25; done
+since=""
+for _ in $(seq 1 60); do
+    since="$(status seconds_since_pass_progress)"
+    [[ "$since" =~ ^[0-9]+$ ]] && ((since >= 1)) && break
+    sleep 0.5
+done
 if [[ "$since" =~ ^[0-9]+$ ]] && ((since >= 1)); then pass; else fail "seconds_since_pass_progress was '$since'"; fi
 t "a pass with no progress for TRAINER_PASS_STALL_MINUTES is stopped and counted as stalled"
 if wait_for total_passes_stalled 1 90; then pass; else fail "no stall counted: $(cat "$DIR/service.log")"; fi

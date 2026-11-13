@@ -16,10 +16,14 @@ assert_find_build_dir_correct "$TARGET" "src/chatbot_gui_binary"
 
 # ---------------------------------------------------------------------------
 t "TD-044 regression: runs correctly regardless of caller's CWD"
-run_in "${REPO_ROOT}/scripts" bash "$TARGET"
-# Before the fix this failed 11 of the binary/linkage/symbol/artifact tests
-# purely because it never found the real build/debug binaries at all.
-assert_not_contains "❌ FAIL: Executable not found" "must find the real build, not fail with the old bare-build/ bug"
+if checkout_has_build "$TARGET" "src/chatbot_gui_binary"; then
+    run_in "${REPO_ROOT}/scripts" bash "$TARGET"
+    # Before the fix this failed 11 of the binary/linkage/symbol/artifact tests
+    # purely because it never found the real build/debug binaries at all.
+    assert_not_contains "❌ FAIL: Executable not found" "must find the real build, not fail with the old bare-build/ bug"
+else
+    t "(skipped: no build in this checkout has src/chatbot_gui_binary; the GUIs need Qt)"
+fi
 
 t "TD-044 regression: docs/guides/ path corrected to docs/operations/guides/"
 run_in "${REPO_ROOT}/scripts" bash "$TARGET"

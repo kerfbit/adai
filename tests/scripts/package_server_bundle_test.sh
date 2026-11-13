@@ -52,18 +52,18 @@ assert_contains "mns_server"
 assert_contains "mns_cli"
 
 # ---------------------------------------------------------------------------
-t "real build/debug is only found via explicit --build-dir, not auto-detected"
-# build/debug is not one of the three auto-detect candidates (build/portable,
-# build, build-clang-release) — confirms auto-detect fails cleanly rather
-# than silently finding the wrong thing when none of its candidates exist.
-if [[ -d "${REPO_ROOT}/build/portable" || -d "${REPO_ROOT}/build-clang-release" ]]; then
-    t "(skipped: build/portable or build-clang-release exists in this checkout)"
-else
-    out_dir="$(mktemp_dir)"
-    run_in "$REPO_ROOT" bash "$TARGET" --output-dir "$out_dir"
-    assert_exit 1
-    assert_contains "Could not auto-detect build directory"
-fi
+t "auto-detect fails cleanly when none of its candidates is built"
+# The script's root is its own parent directory, so a copy in an empty tree sees none of the three
+# candidates (build/portable, build, build-clang-release) whatever this checkout has built (CI's
+# coverage job builds into plain build/). build/debug, which isn't a candidate, is there too.
+fake_root="$(mktemp_dir)"
+mkdir -p "$fake_root/scripts" "$fake_root/build/debug/bin"
+cp "$TARGET" "$fake_root/scripts/"
+touch "$fake_root/build/debug/bin/metrics_api_server"
+out_dir="$(mktemp_dir)"
+run_in "$fake_root" bash "$fake_root/scripts/package_server_bundle.sh" --output-dir "$out_dir"
+assert_exit 1
+assert_contains "Could not auto-detect build directory"
 
 # ---------------------------------------------------------------------------
 t "full real run against build/debug produces a real, well-formed tarball"
