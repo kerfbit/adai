@@ -878,7 +878,7 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerSegmentsAServerPathByItsServerP
     fs::create_directories(local.parent_path());
     write_five_pairs(local);
     RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td543-server");
-    const std::string server_path = rt.upload_file(local.string());
+    const std::string server_path = rt.upload_file(local.string(), false).path;
     ASSERT_FALSE(server_path.empty());
 
     auto pending = pending_in(http_port_, "td543-server");
@@ -1006,5 +1006,89 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerReportsThePairsActuallyQueued) 
     EXPECT_NE(out.find("(" + std::to_string(queued) + " pairs of 50 requested)"),
               std::string::npos)
         << out;
+}
+
+// TD-552: `add` uploads in remote mode, and the server refuses (409) to replace a queued or trained
+// file unless overwrite=true, which no client could send. `add --overwrite` sends it; every refusal
+// is reported plainly. The registry's records show what actually happened at each step.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerAddOverwriteReplacesQueuedAndTrainedFiles) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path local = scratch_root_ / "client-side" / "td552.jsonl";
+    fs::create_directories(local.parent_path());
+    write_five_pairs(local);
+    const std::string config = segment_config(scratch_root_ / "td552.conf", http_port_, "td552",
+                                              scratch_root_ / "sessions");
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td552");
+    std::string out;
+
+    ASSERT_EQ(run_dataset_manager_output({"--config", config, "add", local.string()}, out), 0)
+        << out;
+    EXPECT_NE(out.find("Uploaded as"), std::string::npos) << out;
+    auto pending = pending_in(http_port_, "td552");
+    ASSERT_EQ(pending.size(), 1u);
+    const std::string server_path = pending[0].path;
+    EXPECT_EQ(pending[0].num_entries, 5);
+
+    // Queued: refused without --overwrite, replaced with it (the entry refreshed, not duplicated).
+    std::ofstream(local, std::ios::app) << R"({"input":"question 5","output":"answer 5"})" << "\n";
+    EXPECT_EQ(run_dataset_manager_output({"--config", config, "add", local.string()}, out), 1);
+    EXPECT_NE(out.find("already queued"), std::string::npos) << out;
+    EXPECT_NE(out.find("--overwrite"), std::string::npos) << out;
+    ASSERT_EQ(
+        run_dataset_manager_output({"--config", config, "add", "--overwrite", local.string()}, out),
+        0)
+        << out;
+    EXPECT_NE(out.find("Replaced the queued file"), std::string::npos) << out;
+    pending = pending_in(http_port_, "td552");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].path, server_path);
+    EXPECT_EQ(pending[0].num_entries, 6) << "the entry describes the new version";
+
+    // Trained: refused without --overwrite; with it the new version is queued again.
+    const AcquireResponse claimed = rt.acquire("td552-run", 0);
+    ASSERT_EQ(claimed.files.size(), 1u);
+    DataVersion dv;
+    dv.data_file = server_path;
+    dv.trained = true;
+    dv.num_samples = 6;
+    rt.commit_trained("td552-run", {dv}, {server_path});
+    ASSERT_TRUE(pending_in(http_port_, "td552").empty());
+    EXPECT_EQ(run_dataset_manager_output({"--config", config, "add", local.string()}, out), 1);
+    EXPECT_NE(out.find("already trained"), std::string::npos) << out;
+    ASSERT_EQ(
+        run_dataset_manager_output({"--config", config, "add", "--overwrite", local.string()}, out),
+        0)
+        << out;
+    EXPECT_NE(out.find("Uploaded as"), std::string::npos) << out;
+    pending = pending_in(http_port_, "td552");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_TRUE(pending[0].run_id.empty());
+
+    // Claimed: refused even with --overwrite, and the claim is untouched.
+    ASSERT_EQ(rt.acquire("td552-run-2", 0).files.size(), 1u);
+    EXPECT_EQ(
+        run_dataset_manager_output({"--config", config, "add", "--overwrite", local.string()}, out),
+        1);
+    EXPECT_NE(out.find("claimed by a training run"), std::string::npos) << out;
+    pending = pending_in(http_port_, "td552");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].run_id, "td552-run-2");
+}
+
+// TD-552: in local mode a file is queued where it is, so --overwrite has nothing to replace.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerAddOverwriteNeedsARegistryServer) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path local = scratch_root_ / "td552-local.jsonl";
+    write_five_pairs(local);
+    const fs::path config = scratch_root_ / "td552-local.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nSESSION_DIR="
+                          << (scratch_root_ / "local-sessions").string() << "\n";
+    std::string out;
+    EXPECT_EQ(run_dataset_manager_output(
+                  {"--config", config.string(), "add", "--overwrite", local.string()}, out),
+              1);
+    EXPECT_NE(out.find("only with a registry server"), std::string::npos) << out;
 }
 #endif

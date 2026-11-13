@@ -1,12 +1,12 @@
 # `DatasetRegistry` — Source File Reference
 
-- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (502 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (947 lines)
+- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (504 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (947 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_core`; used by `incremental_trainer` (including `trainer_service`'s passes), `dataset_manager`, `vocab_builder`'s loader and their tests
-- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` `@adai-version: 1.12.1`, `@adai-reviewed: 2026-11-11`; `.hpp` `1.11.0`, `2026-11-08`
-- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (84), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (106, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
+- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` and `.hpp` `@adai-version: 2.0.0`, `@adai-reviewed: 2026-11-12` (MAJOR, TD-552: `remote_upload()` returns an `UploadResult`)
+- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (85), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (106, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
 - **Design:** [dataset_manager_separation.md](../../archive/dataset_manager_separation.md) (TD-028, archived); TD-202 (kinds), TD-205 (segments)
-- **Last traced against the code:** 2026-11-11
+- **Last traced against the code:** 2026-11-12
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class against a scratch `LocalTransport` pool, or a
 > real `registry_server`.
@@ -76,8 +76,10 @@ all) **nor `data_registry_file`** (TD-335).
 
 ### Remote-only helpers
 
-`remote_fetch_gutenberg()`, `remote_fetch_huggingface()` and `remote_upload()` call the server and add the returned path to `pending_`. In local
-mode they fail; `dataset_manager` uses `DataFetcher` + `add_file()` instead.
+`remote_fetch_gutenberg()` and `remote_fetch_huggingface()` call the server and add the returned path to `pending_`.
+`remote_upload(local_path, overwrite = false)` returns the transport's `UploadResult` (TD-552) and adds the path only for a new entry: a
+file that `overwrite` replaced in the queue is already there. In local mode they fail; `dataset_manager` uses `DataFetcher` + `add_file()`
+instead.
 
 ### Persistence and reporting
 
@@ -122,7 +124,8 @@ pass the pairs it loads (TD-334). A 20-pair file records 20.
 
 ## 7. Tests
 
-- **`DatasetRegistryTests.cpp` (84):** queue operations, assignment, delete, re-queue (TD-540), segments (TD-205/TD-333: an acquired segmented
+- **`DatasetRegistryTests.cpp` (85):** queue operations, assignment, delete, re-queue (TD-540), the upload pass-through (a replaced file
+  isn't queued twice, a refusal's reason kept, TD-552), segments (TD-205/TD-333: an acquired segmented
   batch released exactly, separately trained segments each recorded), the registry file's segment columns and legacy lines,
   `count_acquirable()` (TD-413), unknown kinds (TD-402), claim renewal (`DatasetRegistryClaimLeaseTest`, TD-494), and the parser (segment ranges,
   a BOM, multi-line legacy responses).
@@ -152,3 +155,4 @@ pass the pairs it loads (TD-334). A 20-pair file records 20.
 - **October 24–25, 2026:** re-trained units sent with their counts (TD-493); claim renewal (TD-494).
 - **November 1, 2026:** unknown kinds refused (TD-402). **November 7–8, 2026:** TD-327, TD-328, TD-336.
 - **November 11, 2026:** progress per line read (TD-569). This document was re-traced against the code, folding in its addenda.
+- **November 12, 2026:** `remote_upload()` takes `overwrite` and returns an `UploadResult` (TD-552).

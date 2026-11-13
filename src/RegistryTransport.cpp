@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.10.0
-// @adai-reviewed: 2026-11-05
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -522,8 +522,8 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
     unlock_pending(lock_fd);
 }
 
-// TODO: See TD-498 in TECHNICAL_DEBT.md - appends without dedupe or claim check (duplicate rows, verified); the
-// registry rewrite runs outside the lock.
+// TODO: See TD-498 in TECHNICAL_DEBT.md - appends without dedupe: a unit recorded by an earlier
+// pass gets a second row.
 void LocalTransport::commit_trained(const std::string& run_id,
                                     const std::vector<DataVersion>& new_entries,
                                     const std::vector<std::string>& trained_paths,
@@ -812,8 +812,8 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
         return result;
     }
 
-    // Registry half has no run_id/ownership concept and needs no lock,
-    // mirroring commit_trained()'s split locking.
+    // TODO: See TD-498 in TECHNICAL_DEBT.md - the registry is read before the lock and saved after
+    // it, so a concurrent commit_trained() can lose a record (requeue_trained() does the same).
     std::vector<DataVersion> registry;
     load_registry(registry);
 
@@ -937,11 +937,11 @@ std::string LocalTransport::fetch_huggingface(const std::string& /*dataset_id*/,
     return "";
 }
 
-std::string LocalTransport::upload_file(const std::string& /*local_path*/) {
+UploadResult LocalTransport::upload_file(const std::string& /*local_path*/, bool /*overwrite*/) {
     Logger::warn(
         "LocalTransport::upload_file — not supported in local mode; use "
         "DatasetRegistry::add_file() directly");
-    return "";
+    return {};
 }
 
 RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& paths, bool all,
@@ -1555,7 +1555,8 @@ DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths
 // Phase 11: server-side dataset fetch ---------------------------------------
 
 namespace {
-// The queued path from a fetch or upload reply, or "" (logged) when the registry reports failure.
+// The queued path from a fetch reply, or "" (logged) when the registry reports failure. (Uploads
+// read their reply themselves: a replacement answers added:false, TD-552.)
 std::string added_path(const std::string& body, const char* method) {
     const Json reply = parse_reply(body, method);
     if (reply.is_discarded())
@@ -1623,12 +1624,13 @@ std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, in
 #endif
 }
 
-std::string RemoteTransport::upload_file(const std::string& local_path) {
+UploadResult RemoteTransport::upload_file(const std::string& local_path, bool overwrite) {
+    UploadResult result;
 #ifdef BUILD_METRICS_API_SERVER
     std::ifstream in(local_path, std::ios::binary);
     if (!in.is_open()) {
         Logger::error("RemoteTransport::upload_file — cannot open local file: {}", local_path);
-        return "";
+        return result;
     }
     std::ostringstream buf;
     buf << in.rdbuf();
@@ -1642,19 +1644,41 @@ std::string RemoteTransport::upload_file(const std::string& local_path) {
     cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
     cli.set_write_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
 
-    const std::string path =
-        group_prefix_ + "/upload?filename=" + httplib::detail::encode_query_param(filename);
+    const std::string path = group_prefix_ +
+                             "/upload?filename=" + httplib::detail::encode_query_param(filename) +
+                             (overwrite ? "&overwrite=true" : "");
     const auto res = cli.Post(path.c_str(), contents, "application/octet-stream");
+    if (res && res->status == 409) {
+        // TD-492: the name is claimed, segmented, or (without overwrite) trained or queued.
+        const Json reply = parse_reply(res->body, "upload_file");
+        result.refused = reply.is_discarded() ? "conflict" : json_str(reply, "reason");
+        if (result.refused.empty())
+            result.refused = "conflict";
+        Logger::warn("RemoteTransport::upload_file — registry refused {}: {}", filename,
+                     result.refused);
+        return result;
+    }
     if (!res || res->status != 200) {
-        // TD-492: 409 = the name is already claimed, trained or queued ("reason" in the body).
         Logger::error("RemoteTransport::upload_file — HTTP {} from {}:{}{}: {}",
                       res ? res->status : -1, host_, port_, path, res ? res->body : "");
-        return "";
+        return result;
     }
-    return added_path(res->body, "upload_file");
+    // TD-552: a replaced queued file answers added:false, replaced:true; added_path() would have
+    // taken that for a failure.
+    const Json reply = parse_reply(res->body, "upload_file");
+    if (reply.is_discarded())
+        return result;
+    result.replaced = json_flag(reply, "replaced");
+    if (!json_flag(reply, "added") && !result.replaced) {
+        Logger::error("RemoteTransport::upload_file — registry reported failure: {}", res->body);
+        return result;
+    }
+    result.path = json_str(reply, "path");
+    return result;
 #else
+    (void)overwrite;
     Logger::error("RemoteTransport::upload_file — not compiled");
-    return "";
+    return result;
 #endif
 }
 

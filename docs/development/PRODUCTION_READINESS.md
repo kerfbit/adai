@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 82 | 36 | 0 | 0 | 0 | 118 |
 | scripts | 9 | 27 | 9 | 0 | 0 | 0 | 45 |
-| src | 98 | 102 | 4 | 0 | 0 | 0 | 204 |
+| src | 100 | 100 | 4 | 0 | 0 | 0 | 204 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
 
-**109/370 files (29%) are tagged `stable`.**
+**111/370 files (30%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -63,7 +63,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/OpsApp.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/metrics/MetricsRepository.kt` | beta | 0.4.1 | 2026-09-23 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/mns/ModelRepository.kt` | beta | 0.5.0 | 2026-11-10 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt` | beta | 0.7.0 | 2026-10-19 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt` | beta | 0.8.0 | 2026-11-12 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/trainer/TrainerRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/wearsync/ActiveSessionSelector.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/wearsync/WatchFacePushRepository.kt` | beta | 0.5.0 | 2026-09-13 | TD-047 |
@@ -77,13 +77,13 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/network/CloudflareAccessInterceptor.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/MetricsApiService.kt` | beta | 0.4.1 | 2026-09-23 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/MnsApiService.kt` | beta | 0.5.0 | 2026-11-10 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/network/RegistryApiService.kt` | beta | 0.5.0 | 2026-09-20 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/network/RegistryApiService.kt` | beta | 0.6.0 | 2026-11-12 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/SafeCall.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/TrainerApiService.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/CommonDtos.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MetricsDtos.kt` | beta | 0.4.1 | 2026-09-23 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt` | beta | 0.5.1 | 2026-11-10 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/RegistryDtos.kt` | beta | 0.5.0 | 2026-09-20 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/RegistryDtos.kt` | beta | 0.6.0 | 2026-11-12 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/TrainerDtos.kt` | beta | 0.5.0 | 2026-11-02 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/AdaptivePoller.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/FixedIntervalPoller.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
@@ -117,11 +117,11 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/RegisterModelDialogs.kt` | experimental | 0.1.1 | 2026-11-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsDestinations.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsNavHost.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | beta | 0.6.0 | 2026-10-19 | TD-205 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.7.0 | 2026-10-19 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | beta | 0.7.0 | 2026-11-12 | TD-205 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.8.0 | 2026-11-12 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | beta | 0.3.0 | 2026-09-20 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryActionDialogs.kt` | experimental | 0.1.0 | 2026-09-20 | — |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryActionDialogs.kt` | experimental | 0.2.0 | 2026-11-12 | — |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/scaffold/OpsAppScaffold.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/theme/Theme.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
@@ -202,8 +202,6 @@ None — every in-scope file carries a tag.
 | `src/ConversationFormat.hpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/CrossAttention.cpp` | beta | 0.15.4 | 2026-11-10 | TD-050 |
 | `src/CrossAttention.hpp` | beta | 0.15.0 | 2026-11-10 | TD-050 |
-| `src/DatasetManagerArgs.cpp` | beta | 0.8.0 | 2026-11-10 | — |
-| `src/DatasetManagerArgs.hpp` | beta | 0.4.0 | 2026-11-10 | — |
 | `src/Decoder.cpp` | beta | 0.19.1 | 2026-11-10 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.19.0 | 2026-11-10 | TD-050 |
 | `src/Dropout.cpp` | beta | 0.1.1 | 2026-11-10 | — |

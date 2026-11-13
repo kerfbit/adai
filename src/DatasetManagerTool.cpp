@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.9.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.10.0
+// @adai-reviewed: 2026-11-12
 
 #include <algorithm>
 #include <filesystem>
@@ -250,7 +250,12 @@ int main(int argc, char* argv[]) {
                      "below.\n\n";
         std::cout << "Commands:\n";
         std::cout
-            << "  add <data_file>              Add a local training file to the pending queue\n";
+            << "  add [--overwrite] <data_file>  Add a local training file to the pending queue\n";
+        std::cout << "                               With a registry server it is uploaded; "
+                     "--overwrite replaces\n"
+                     "                               a file of that name already trained or "
+                     "queued (not claimed\n"
+                     "                               or segmented)\n";
         std::cout << "  gutenberg <id> [pairs] [model]  Download & queue a Gutenberg book "
                      "(default: 500 pairs)\n";
         std::cout << "  gutenberg-batch <id1,id2...> [pairs] [model]  Download multiple books\n";
@@ -367,22 +372,54 @@ int main(int argc, char* argv[]) {
         reg.load_registry();
         reg.load_pending_list();
 
-        bool ok;
-        if (!svc_config.registry_server_url.empty()) {
-            // Remote mode: upload the bytes to registry_server so they land on
-            // its data_dir, where the FTP delivery pipeline can serve them out.
-            ok = !reg.remote_upload(data_file).empty();
-        } else {
-            ok = reg.add_file(data_file);
-        }
-
-        if (ok) {
+        if (svc_config.registry_server_url.empty()) {
+            if (parsed.overwrite) {
+                // TD-552: a local file is queued where it is; there is no copy to replace.
+                std::cerr << "❌ --overwrite applies only with a registry server "
+                             "(REGISTRY_SERVER_URL), where add uploads the file\n";
+                return 1;
+            }
+            if (!reg.add_file(data_file)) {
+                std::cerr << "❌ Failed to add data file\n";
+                return 1;
+            }
             std::cout << "✅ Data file added to pending queue\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add data file\n";
+            return 0;
+        }
+
+        // Remote mode: upload the bytes to registry_server so they land on its data_dir, where
+        // the FTP delivery pipeline can serve them out.
+        const UploadResult up = reg.remote_upload(data_file, parsed.overwrite);
+        if (!up.ok()) {
+            // TD-552: the server's reason, said plainly.
+            if (up.refused == "trained") {
+                std::cerr << "❌ A file of that name is already trained on the registry server; "
+                             "add --overwrite to upload this version and queue it again\n";
+            } else if (up.refused == "already_queued") {
+                std::cerr << "❌ A file of that name is already queued on the registry server; "
+                             "add --overwrite to replace it\n";
+            } else if (up.refused == "claimed") {
+                std::cerr << "❌ A file of that name is claimed by a training run, so it can't be "
+                             "replaced; wait for the pass to finish or release it\n";
+            } else if (up.refused == "segmented") {
+                std::cerr << "❌ A file of that name is queued as segments, which a new version "
+                             "would break; delete the segments first\n";
+            } else if (!up.refused.empty()) {
+                std::cerr << "❌ The registry server refused the upload (" << up.refused << ")\n";
+            } else {
+                std::cerr << "❌ Failed to upload the data file (see the log for the server's "
+                             "answer)\n";
+            }
             return 1;
         }
+        if (up.replaced) {
+            std::cout << "✅ Replaced the queued file '" << up.path << "'\n";
+        } else {
+            std::cout << "✅ Uploaded as '" << up.path << "' and added to the pending queue\n";
+        }
+        reg.load_pending_list();
+        std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
 
     } else if (command == "gutenberg") {
         auto parsed = adai::parse_gutenberg_args(cmd_args);
@@ -967,13 +1004,18 @@ int main(int argc, char* argv[]) {
                 std::cerr << "❌ '" << path << "' has no JSONL pairs to segment\n";
                 return 1;
             }
-            const std::string uploaded = reg.remote_upload(path);
-            if (uploaded.empty()) {
-                std::cerr << "❌ Could not upload '" << path
-                          << "' to the registry server (a file of that name may already be "
-                             "queued there; segment its server path, as list-pending shows it)\n";
+            const UploadResult up = reg.remote_upload(path);
+            if (!up.ok()) {
+                std::cerr << "❌ Could not upload '" << path << "' to the registry server";
+                if (!up.refused.empty()) {
+                    std::cerr << " (" << up.refused
+                              << ": a file of that name is there already; segment its server "
+                                 "path, as list-pending shows it)";
+                }
+                std::cerr << "\n";
                 return 1;
             }
+            const std::string& uploaded = up.path;
             std::cout << "⬆️  Uploaded as '" << uploaded << "'\n";
             path = uploaded;
             reg.load_pending_list();

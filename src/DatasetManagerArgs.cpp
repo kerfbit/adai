@@ -1,6 +1,6 @@
-// @adai-status: beta
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-11-12
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -70,11 +70,25 @@ T missing_value(const char* flag, const char* usage) {
 }  // namespace
 
 AddArgs parse_add_args(const std::vector<std::string>& args) {
-    // TD-325: one file; a second argument used to be ignored.
-    if (args.size() != 1)
-        return make_error<AddArgs>("Usage: dataset_manager add <data_file>");
+    static const char* usage = "Usage: dataset_manager add [--overwrite] <data_file>";
     AddArgs r;
-    r.data_file = args[0];
+    std::vector<std::string> files;
+    bool options = true;
+    for (const auto& arg : args) {
+        if (options && arg == "--") {
+            options = false;
+        } else if (options && arg == "--overwrite") {  // TD-552
+            r.overwrite = true;
+        } else if (options && looks_like_option(arg)) {
+            return unknown_option<AddArgs>(arg, usage);  // TD-322: it used to be the file name
+        } else {
+            files.push_back(arg);
+        }
+    }
+    // TD-325: one file; a second argument used to be ignored.
+    if (files.size() != 1)
+        return make_error<AddArgs>(usage);
+    r.data_file = files[0];
     return r;
 }
 
@@ -274,16 +288,21 @@ RequeueArgs parse_requeue_args(const std::vector<std::string>& args) {
     static const char* usage =
         "Usage: dataset_manager requeue (--all | <file1> [file2 ...]) [--model <name>]";
     RequeueArgs r;
+    // TD-322's rules, as the other commands: it treated only "--..." as an option, so `requeue -a`
+    // took "-a" for a file name, and it had no "--".
+    bool options = true;
     for (std::size_t i = 0; i < args.size(); ++i) {
-        if (args[i] == "--all") {
+        if (options && args[i] == "--") {
+            options = false;
+        } else if (options && args[i] == "--all") {
             r.all = true;
-        } else if (args[i] == "--model") {
-            if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
-                return make_error<RequeueArgs>(std::string("--model needs a value. ") + usage);
+        } else if (options && args[i] == "--model") {
+            if (i + 1 >= args.size() || looks_like_option(args[i + 1])) {
+                return missing_value<RequeueArgs>("--model", usage);
             }
             r.model_name = args[++i];
-        } else if (args[i].rfind("--", 0) == 0) {
-            return make_error<RequeueArgs>("Unknown option " + args[i] + ". " + usage);
+        } else if (options && looks_like_option(args[i])) {
+            return unknown_option<RequeueArgs>(args[i], usage);
         } else {
             r.targets.push_back(args[i]);
         }

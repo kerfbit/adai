@@ -214,4 +214,19 @@ class GroupDetailViewModelTest {
         assertEquals(false, viewModel.uiState.value.actionInProgress)
         pollJob.cancel()
     }
+
+    // TD-552: what an upload did, or why it was refused, in words.
+    @Test
+    fun `uploadOutcomeMessage says what happened`() {
+        assertEquals("Uploaded '/p'.", uploadOutcomeMessage(PendingAddResponseDto(added = true, path = "/p")))
+        assertEquals(
+            "Replaced the queued file '/p'.",
+            uploadOutcomeMessage(PendingAddResponseDto(replaced = true, path = "/p")),
+        )
+        assertTrue(uploadOutcomeMessage(PendingAddResponseDto(reason = "trained")).contains("Overwrite"))
+        assertTrue(uploadOutcomeMessage(PendingAddResponseDto(reason = "already_queued")).contains("Overwrite"))
+        assertTrue(uploadOutcomeMessage(PendingAddResponseDto(reason = "claimed")).contains("claimed by a training run"))
+        assertTrue(uploadOutcomeMessage(PendingAddResponseDto(reason = "segmented")).contains("segments"))
+        assertEquals("Upload failed: odd", uploadOutcomeMessage(PendingAddResponseDto(reason = "odd")))
+    }
 }

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.12.1
-// @adai-reviewed: 2026-11-11
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -676,12 +676,12 @@ std::string DatasetRegistry::remote_fetch_huggingface(const std::string& dataset
     return path;
 }
 
-std::string DatasetRegistry::remote_upload(const std::string& local_path) {
-    const std::string path = transport_->upload_file(local_path);
-    if (!path.empty()) {
-        pending_.push_back({path, {}, {}});
+UploadResult DatasetRegistry::remote_upload(const std::string& local_path, bool overwrite) {
+    UploadResult result = transport_->upload_file(local_path, overwrite);
+    if (result.ok() && !result.replaced) {  // a replaced file's entry is already queued
+        pending_.push_back({result.path, {}, {}});
     }
-    return path;
+    return result;
 }
 
 // TODO: See TD-335 in TECHNICAL_DEBT.md - no caller

@@ -20,6 +20,31 @@ TEST(ParseAddArgs, ParsesDataFile) {
     EXPECT_EQ(r.data_file, "myfile.jsonl");
 }
 
+// TD-552: --overwrite, before or after the file.
+TEST(ParseAddArgs, OverwriteFlag) {
+    EXPECT_FALSE(parse_add_args({"myfile.jsonl"}).overwrite);
+    for (const auto& args : {std::vector<std::string>{"--overwrite", "myfile.jsonl"},
+                             std::vector<std::string>{"myfile.jsonl", "--overwrite"}}) {
+        auto r = parse_add_args(args);
+        ASSERT_FALSE(r.error) << r.error_message;
+        EXPECT_TRUE(r.overwrite);
+        EXPECT_EQ(r.data_file, "myfile.jsonl");
+    }
+}
+
+// TD-322 for add: an unknown option is an error (it used to be taken as the file name), and "--"
+// ends the options for a file whose name starts with "-".
+TEST(ParseAddArgs, UnknownOptionIsAnErrorAndDashDashEndsOptions) {
+    const auto bad = parse_add_args({"--overwrit", "myfile.jsonl"});
+    ASSERT_TRUE(bad.error);
+    EXPECT_NE(bad.error_message.find("Unknown option --overwrit"), std::string::npos);
+    const auto dashed = parse_add_args({"--overwrite", "--", "-odd.jsonl"});
+    ASSERT_FALSE(dashed.error) << dashed.error_message;
+    EXPECT_EQ(dashed.data_file, "-odd.jsonl");
+    EXPECT_TRUE(dashed.overwrite);
+    EXPECT_TRUE(parse_add_args({"--overwrite"}).error) << "no file";
+}
+
 TEST(ParseGutenbergArgs, RequiresBookId) {
     EXPECT_TRUE(parse_gutenberg_args({}).error);
 }
@@ -341,6 +366,22 @@ TEST(DatasetManagerArgsTest, RequeueArgs) {
     EXPECT_TRUE(parse_requeue_args({"--all", "a.jsonl"}).error) << "not both";
     EXPECT_TRUE(parse_requeue_args({"--all", "--model"}).error) << "--model needs a value";
     EXPECT_TRUE(parse_requeue_args({"--all", "--modle", "x"}).error) << "unknown flag";
+}
+
+// TD-322's option rules for requeue too: it treated only "--..." as an option, so `requeue -a` took
+// "-a" for a file name, and it had no "--" for a file whose name starts with "-".
+TEST(DatasetManagerArgsTest, RequeueFollowsTheSharedOptionRules) {
+    const auto short_flag = parse_requeue_args({"-a"});
+    ASSERT_TRUE(short_flag.error);
+    EXPECT_NE(short_flag.error_message.find("Unknown option -a"), std::string::npos);
+    const auto dashed = parse_requeue_args({"--model", "m", "--", "-odd.jsonl"});
+    ASSERT_FALSE(dashed.error) << dashed.error_message;
+    EXPECT_EQ(dashed.targets, std::vector<std::string>{"-odd.jsonl"});
+    EXPECT_EQ(dashed.model_name, "m");
+    EXPECT_TRUE(parse_requeue_args({"--all", "--model", "-x"}).error)
+        << "a model name isn't an option";
+    EXPECT_TRUE(parse_requeue_args({"--", "--all"}).targets.size() == 1)
+        << "--all after -- is a file";
 }
 
 // TD-322: an unknown option, or --count with no value, used to become a file target, so a typo'd

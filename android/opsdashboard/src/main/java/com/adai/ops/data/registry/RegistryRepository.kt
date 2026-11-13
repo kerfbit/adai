@@ -1,8 +1,8 @@
 package com.adai.ops.data.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-12
 
 
 import com.adai.ops.network.ApiClientProvider
@@ -33,10 +33,14 @@ import com.adai.ops.network.safeApiCall
 import com.adai.ops.network.safeResponseCall
 import com.adai.ops.settings.OpsSettingsRepository
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+
+// TD-552: decodes an upload's 409 body, {"added":false,"reason":...}.
+private val refusalJson = Json { ignoreUnknownKeys = true }
 
 /**
  * Client for registry_server. [forceRelease] is the original admin action exposed
@@ -201,15 +205,31 @@ class RegistryRepository(
      * TD-205: upload a local file's raw bytes directly from the device — the upload half of
      * "Manual add + Upload". [filename] is a bare basename (no path separators, matching the
      * server's own `is_safe_upload_filename` check).
+     *
+     * TD-552: [overwrite] replaces a trained or unclaimed queued file of the same name. The server
+     * refuses some uploads with HTTP 409 and a reason in the body ("claimed", "segmented", and
+     * without overwrite "trained" or "already_queued"); that answer is returned as a Success
+     * whose `added` and `replaced` are false and whose `reason` says why, so the screen can say so
+     * plainly instead of showing the raw body.
      */
     suspend fun upload(
         group: String,
         filename: String,
         bytes: ByteArray,
         kind: String? = null,
-    ): ApiResult<PendingAddResponseDto> = safeResponseCall {
-        val body = bytes.toRequestBody("application/octet-stream".toMediaType())
-        service().upload(groupPath(group, kind), filename, body)
+        overwrite: Boolean = false,
+    ): ApiResult<PendingAddResponseDto> {
+        val result = safeResponseCall {
+            val body = bytes.toRequestBody("application/octet-stream".toMediaType())
+            service().upload(groupPath(group, kind), filename, body, if (overwrite) true else null)
+        }
+        if (result is ApiResult.Conflict) {
+            runCatching { refusalJson.decodeFromString<PendingAddResponseDto>(result.message) }
+                .getOrNull()
+                ?.takeIf { it.reason != null }
+                ?.let { return ApiResult.Success(it) }
+        }
+        return result
     }
 
     /**

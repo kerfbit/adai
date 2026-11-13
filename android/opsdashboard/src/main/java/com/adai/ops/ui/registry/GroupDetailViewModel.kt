@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-12
 
 
 import androidx.lifecycle.ViewModel
@@ -11,6 +11,7 @@ import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.PendingAddResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.SegmentTargetDto
@@ -277,22 +278,18 @@ class GroupDetailViewModel(
         }
     }
 
-    /** TD-205: upload a local file's raw bytes directly from the device. */
-    fun upload(filename: String, bytes: ByteArray) {
+    /**
+     * TD-205: upload a local file's raw bytes directly from the device. TD-552: [overwrite]
+     * replaces a trained or unclaimed queued file of the same name.
+     */
+    fun upload(filename: String, bytes: ByteArray, overwrite: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
             val kind = _uiState.value.selectedKind
-            when (val result = registryRepository.upload(group, filename, bytes, kind = kind)) {
+            when (val result = registryRepository.upload(group, filename, bytes, kind = kind, overwrite = overwrite)) {
                 is ApiResult.Success -> {
                     _uiState.update {
-                        it.copy(
-                            actionInProgress = false,
-                            actionMessage = if (result.data.added) {
-                                "Uploaded '${result.data.path}'."
-                            } else {
-                                "Upload failed: ${result.data.reason ?: "unknown reason"}"
-                            },
-                        )
+                        it.copy(actionInProgress = false, actionMessage = uploadOutcomeMessage(result.data))
                     }
                     refresh()
                 }
@@ -419,4 +416,23 @@ class GroupDetailViewModel(
         const val DETAIL_POLL_INTERVAL_MS = 6000L
         val ALL_KINDS: List<String?> = listOf(null, "encoder", "decoder", "world_model", "chatbot")
     }
+}
+
+/**
+ * TD-552: what an upload did, or why the registry server refused it, in words. The reasons are
+ * registry_server's 409 answers (TD-492).
+ */
+internal fun uploadOutcomeMessage(response: PendingAddResponseDto): String = when {
+    response.replaced -> "Replaced the queued file '${response.path}'."
+    response.added -> "Uploaded '${response.path}'."
+    response.reason == "trained" ->
+        "A file of that name is already trained. Choose \"Overwrite\" to upload this version and queue it again."
+    response.reason == "already_queued" ->
+        "A file of that name is already queued. Choose \"Overwrite\" to replace it."
+    response.reason == "claimed" ->
+        "A file of that name is claimed by a training run, so it can't be replaced. " +
+            "Wait for the pass to finish or release it."
+    response.reason == "segmented" ->
+        "A file of that name is queued as segments, which a new version would break. Delete the segments first."
+    else -> "Upload failed: ${response.reason ?: "unknown reason"}"
 }

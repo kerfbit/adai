@@ -67,34 +67,48 @@ queued, e.g. `(40 pairs of 50 requested)`.
 
 ### `add`
 
-Add a local training file to the pending queue.
+Add a training file to the pending queue.
 
 ```bash
-./build/bin/dataset_manager add <data_file>
+./build/bin/dataset_manager add [--overwrite] <data_file>
 ```
 
 **Arguments:**
 
 | Argument | Description |
 | --- | --- |
-| `<data_file>` | Path to a local file in `INPUT:` / `RESPONSE:` format |
+| `<data_file>` | A local training file: JSON Lines (`{"input": ..., "response": ...}` per line, what the trainer reads) or the legacy `INPUT:` / `RESPONSE:` format. `--` before it allows a name starting with `-` |
+| `--overwrite` | With a registry server only: replace a file of the same name that is already trained or queued (below) |
 
-The file must exist on disk at the time of the call. Relative paths are resolved from the current working directory and stored as-is, so run from the project root or use absolute paths.
+**Without a registry server** (`REGISTRY_SERVER_URL` empty), the file is queued where it is. It must exist; a relative path is
+resolved from the current directory and stored absolute (TD-328). It is skipped with a warning when it is already trained or already
+queued. `--overwrite` is an error here: there is no copy to replace.
+
+**With a registry server**, the file's bytes are uploaded to the server's own storage (`<data_dir>/<group>/[<kind>/]uploads/<name>`),
+where trainers download it over FTP, and that path is queued. The server refuses to replace a file of the same name in some states
+(TD-492), and `add` says which:
+
+| The server's file is… | `add` | `add --overwrite` |
+| --- | --- | --- |
+| new | Uploaded and queued | Uploaded and queued |
+| queued, not claimed | Refused: already queued | Replaced; its queue entry describes the new version (size, checksum, pair count) |
+| trained | Refused: already trained | Uploaded and queued again, to be trained on the new version |
+| claimed by a training run | Refused | Refused: wait for the pass to finish, or release the file |
+| queued as segments | Refused | Refused: a new version would break the segments' row ranges; delete them first |
+
+A refusal exits 1. `--overwrite` was added November 12, 2026 (TD-552); before that, replacing a file needed `curl … &overwrite=true`.
+The Android ops dashboard's Registry upload dialog has the same option ("Overwrite a file of this name…"), confirmed like its other
+changes with the request it sends shown.
 
 **Examples:**
 
 ```bash
-./build/bin/dataset_manager add sample_training_data.txt
-./build/bin/dataset_manager add /opt/adai/data/conversations_2026_w24.txt
+./build/bin/dataset_manager add data/conversations_2026_w24.jsonl
+# A corrected version of a file already queued or trained on the registry server
+./build/bin/dataset_manager add --overwrite data/conversations_2026_w24.jsonl
 ```
 
-**Skip conditions:**
-
-- File does not exist on disk → error
-- File is already in the trained registry → skipped with a warning
-- File is already in the pending queue → skipped with a warning
-
-**Training data format** — every file must use alternating `INPUT:` / `RESPONSE:` pairs:
+**Legacy format** — alternating `INPUT:` / `RESPONSE:` pairs:
 
 ```text
 INPUT: Hello

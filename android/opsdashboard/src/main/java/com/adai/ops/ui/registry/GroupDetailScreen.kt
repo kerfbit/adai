@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; real-device run still unverified, see TD-048)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-11-12
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -72,7 +72,7 @@ private sealed interface PendingAction {
     data class Unassign(val entry: QueueEntryDto) : PendingAction
     data class Delete(val path: String, val entry: QueueEntryDto?, val deleteFiles: Boolean) : PendingAction
     data class ManualAdd(val path: String) : PendingAction
-    data class Upload(val filename: String, val bytes: ByteArray) : PendingAction
+    data class Upload(val filename: String, val bytes: ByteArray, val overwrite: Boolean) : PendingAction
     data class Migrate(val entry: QueueEntryDto, val destKind: String) : PendingAction
     data class FetchGutenberg(val bookId: Int, val numPairs: Int, val modelName: String) : PendingAction
     data class FetchHuggingface(
@@ -228,9 +228,9 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
 
     if (showUploadDialog) {
         UploadFileDialog(
-            onSubmit = { filename, bytes ->
+            onSubmit = { filename, bytes, overwrite ->
                 showUploadDialog = false
-                pending = PendingAction.Upload(filename, bytes)
+                pending = PendingAction.Upload(filename, bytes, overwrite)
             },
             onDismiss = { showUploadDialog = false },
         )
@@ -333,11 +333,19 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
             onDismiss = { pending = PendingAction.None },
         )
         is PendingAction.Upload -> ConfirmActionDialog(
-            title = "Upload file?",
-            httpCallDescription = "POST /registry/$group/upload?filename=${p.filename}\n(${p.bytes.size} byte(s))",
-            effectDescription = "Uploads '${p.filename}' to the registry server's own storage and queues it.",
-            confirmLabel = "Upload",
-            onConfirm = { pending = PendingAction.None; viewModel.upload(p.filename, p.bytes) },
+            title = if (p.overwrite) "Upload and overwrite?" else "Upload file?",
+            httpCallDescription = "POST /registry/$group/upload?filename=${p.filename}" +
+                (if (p.overwrite) "&overwrite=true" else "") + "\n(${p.bytes.size} byte(s))",
+            effectDescription = if (p.overwrite) {
+                // TD-552
+                "Uploads '${p.filename}' to the registry server's own storage, replacing a file of that name if it " +
+                    "is already trained (it is queued again) or queued and not claimed. A claimed or segmented " +
+                    "file is still refused."
+            } else {
+                "Uploads '${p.filename}' to the registry server's own storage and queues it."
+            },
+            confirmLabel = if (p.overwrite) "Upload and overwrite" else "Upload",
+            onConfirm = { pending = PendingAction.None; viewModel.upload(p.filename, p.bytes, p.overwrite) },
             onDismiss = { pending = PendingAction.None },
         )
         is PendingAction.Migrate -> ConfirmActionDialog(

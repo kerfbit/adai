@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-11-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-11-12
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -18,6 +18,7 @@ namespace adai {
 
 struct AddArgs {
     std::string data_file;
+    bool overwrite = false;  // TD-552: replace a trained or queued file on registry_server
     bool error = false;
     std::string error_message;
 };
@@ -88,8 +89,8 @@ struct DeleteArgs {
 DeleteArgs parse_delete_args(const std::vector<std::string>& args);
 
 // `requeue (--all | <file> ...) [--model <name>]`: move trained entries back to the pending
-// queue (on registry_server when REGISTRY_SERVER_URL is set). Unknown flags are errors, not
-// file targets.
+// queue (on registry_server when REGISTRY_SERVER_URL is set). Unknown options are errors, not
+// file targets, and "--" ends the options (TD-322's rules, as every other command).
 struct RequeueArgs {
     std::vector<std::string> targets;
     bool all = false;

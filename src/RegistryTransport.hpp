@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.1
-// @adai-reviewed: 2026-11-05
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include <cstddef>
 #include <cstdint>
@@ -55,12 +55,12 @@ inline bool trained_matches(const DataVersion& dv, const std::string& path, int 
 /**
  * @brief A file in the pending training queue.
  *
- * run_id is set by RemoteTransport::acquire_pending() (Phase 9) for atomic
- * ownership tracking.  LocalTransport always leaves it empty.
+ * run_id is the claim: set by acquire() (either transport) for the run training the entry, and
+ * cleared by release(); empty = unclaimed.
  */
 struct PendingEntry {
     std::string path;
-    std::string run_id;      // empty for LocalTransport
+    std::string run_id;      // the claiming run; empty = unclaimed
     std::string model_name;  // target model; empty = unassigned
     /// Phase 15: "gutenberg" | "huggingface" | "upload" | "manual"; empty = legacy/unknown.
     std::string source;
@@ -285,6 +285,18 @@ struct RequeueResult {
     std::vector<Detail> details;
 };
 
+/// Result of upload_file() (TD-552).
+struct UploadResult {
+    std::string path;       ///< the registry's path for the file; empty when nothing was stored
+    bool replaced = false;  ///< overwrite replaced an unclaimed queued file (its entry refreshed)
+    /// Why registry_server refused (HTTP 409): "claimed", "segmented", or without overwrite
+    /// "trained" / "already_queued". Empty for any other failure.
+    std::string refused;
+    bool ok() const {
+        return !path.empty();
+    }
+};
+
 // ============================================================================
 // Abstract transport interface
 // ============================================================================
@@ -338,10 +350,9 @@ class RegistryTransport {
     virtual AcquireResponse acquire(const std::string& run_id, int max_files,
                                     const std::string& model_name = "") = 0;
 
-    /** @brief Release @p paths assigned to @p run_id back to the unassigned pool.
-     *  TD-205: @p segments, when non-empty, releases exactly those segment-targeted entries
-     *  instead — the whole-file @p paths list is ignored in that case. Use it to release a
-     *  specific segment rather than every entry sharing its physical path. */
+    /** @brief Release @p run_id's claims on the whole-file entries of @p paths and on exactly
+     *  the segment-targeted entries in @p segments (TD-205), in one call (TD-333: it used to
+     *  apply only one of the two lists). A whole-file path never releases a segment. */
     virtual void release(const std::string& run_id, const std::vector<std::string>& paths,
                          const std::vector<SegmentTarget>& segments = {}) = 0;
 
@@ -490,21 +501,24 @@ class RegistryTransport {
      * @brief Upload a local file's bytes to the registry's own data_dir and
      *        enqueue it as pending.
      * @param local_path Path to a file readable on the caller's machine.
-     * @return Registry-relative path of the newly queued file, or "" on failure.
+     * @param overwrite TD-552: replace a file of the same name that is already trained (it is
+     *        queued again) or queued unclaimed as a whole file. A claimed or segmented file is
+     *        refused either way (TD-492).
+     * @return The stored path and whether it replaced a queued file, or the refusal reason.
      */
-    virtual std::string upload_file(const std::string& local_path) = 0;
+    virtual UploadResult upload_file(const std::string& local_path, bool overwrite) = 0;
 
     /**
      * @brief Move trained registry entries back to the pending queue, so the next passes
      *        train on them again (e.g. before retraining a model from scratch).
      *
-     * Targets the trained entries for @p paths, or every trained entry when @p all is true.
-     * Each one is removed from the trained registry and queued as a whole-file pending entry
-     * (the trained registry has no segment concept), keeping its source/added time/checksum. If
-     * a pending entry for that path already exists, only the trained record is removed
-     * ("already_pending"). A non-empty @p model_name assigns the re-queued entries to that model;
-     * empty leaves them unassigned. Works against registry_server too (POST .../requeue), so it
-     * re-queues where the data actually lives.
+     * Targets the trained records of @p paths, or every trained record when @p all is true.
+     * Each one is removed from the trained registry and queued as the unit it records (the
+     * whole file, or since TD-333 that segment), keeping its source/added time/checksum. If that
+     * unit is already pending, only the trained record is removed ("already_pending"). A non-empty
+     * @p model_name assigns the re-queued entries to that model; empty leaves them unassigned.
+     * Works against registry_server too (POST .../requeue), so it re-queues where the data actually
+     * lives.
      */
     virtual RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                           const std::string& model_name = "") = 0;
@@ -515,33 +529,16 @@ class RegistryTransport {
 // ============================================================================
 
 /**
- * @brief LocalTransport implements the same flat-file format previously
- *        inlined in DatasetRegistry::load/save_registry() and
- *        load/save_pending_list().  Zero network dependency.
+ * @brief LocalTransport keeps the queue and the trained registry in two local files. Zero network
+ *        dependency; registry_server stores every group through it too.
  *
- * File formats
- * ------------
- * registry_path: one entry per line, format: <data_file> <checksum> <num_samples> <trained>
- *                Lines starting with '#' are comments and are skipped on load.
- * pending_path:  one file path per line; run_id is not persisted (always empty on load).
- */
-/**
- * @brief LocalTransport implements the same flat-file format previously
- *        inlined in DatasetRegistry::load/save_registry() and
- *        load/save_pending_list().  Zero network dependency.
+ * File formats (TD-496): JSON Lines, a header line ("# adai data registry, JSON Lines v2" /
+ * "# adai pending queue, JSON Lines v2") then one object per entry with every field named. A file
+ * without the header is read in the older space-separated (registry) or tab-separated (queue)
+ * form and is written as JSON Lines by the next save. Saves are atomic (TD-495).
  *
- * Pending-file format (Phase 9 extension)
- * ----------------------------------------
- * Each line is either:
- *   /path/to/file                 — unassigned (run_id empty)
- *   /path/to/file\trun-id         — assigned to run-id (tab separator)
- *
- * Lines written by Phase 8 (no tab) are loaded as unassigned; backward
- * compatible.
- *
- * acquire() and release() hold an advisory lock file (pending_path + ".lock")
- * via flock(2) for the duration of the read-modify-write cycle, serialising
- * concurrent callers on the same host.
+ * Every operation that changes the queue holds an advisory lock on pending_path + ".lock"
+ * (flock(2), or _locking() on Windows) for its read-modify-write, serialising callers on one host.
  */
 class LocalTransport : public RegistryTransport {
    public:
@@ -580,7 +577,7 @@ class LocalTransport : public RegistryTransport {
                                   const std::string& split, const std::string& input_field,
                                   const std::string& output_field,
                                   const std::string& model_name) override;
-    std::string upload_file(const std::string& local_path) override;
+    UploadResult upload_file(const std::string& local_path, bool overwrite) override;
     RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                   const std::string& model_name = "") override;
 
@@ -661,7 +658,7 @@ class RemoteTransport final : public RegistryTransport {
                                   const std::string& split, const std::string& input_field,
                                   const std::string& output_field,
                                   const std::string& model_name) override;
-    std::string upload_file(const std::string& local_path) override;
+    UploadResult upload_file(const std::string& local_path, bool overwrite) override;
     RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                   const std::string& model_name = "") override;
     int renew_claims(const std::string& run_id) override;  // TD-494

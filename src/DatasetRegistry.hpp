@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.11.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include <memory>
 #include <set>
@@ -373,9 +373,11 @@ class DatasetRegistry {
      * @brief Upload a local file's bytes to the registry's own data_dir and
      *        enqueue it as pending.
      * @param local_path Path to a file readable on the caller's machine.
-     * @return Registry-relative path of the newly queued file, or "" on failure.
+     * @param overwrite TD-552: replace a trained or unclaimed queued file of the same name
+     *        (RegistryTransport::upload_file()).
+     * @return The stored path and whether it replaced a queued file, or the refusal reason.
      */
-    std::string remote_upload(const std::string& local_path);
+    UploadResult remote_upload(const std::string& local_path, bool overwrite = false);
 
     // ── Persistence ────────────────────────────────────────────────────────
 

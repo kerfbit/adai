@@ -19,6 +19,8 @@ import com.adai.ops.testutil.FakeSettingsRepository
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -265,6 +267,59 @@ class RegistryRepositoryTest {
         assertEquals("my-group", group)
         assertEquals("new.jsonl", filename)
         assertTrue(bytes.contentEquals(sentBytes))
+    }
+
+    // TD-552: overwrite=true only when asked for; otherwise the parameter is left out.
+    @Test
+    fun `upload sends overwrite only when asked`() = runTest {
+        val fakeService = FakeRegistryApiService()
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        repository.upload("my-group", filename = "a.jsonl", bytes = byteArrayOf(1))
+        repository.upload("my-group", filename = "a.jsonl", bytes = byteArrayOf(1), overwrite = true)
+
+        assertEquals(listOf(null, true), fakeService.uploadOverwrites)
+    }
+
+    // TD-552: a refused upload (409) comes back with the server's reason, not as a raw-body error.
+    @Test
+    fun `upload returns a 409 refusal's reason`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            uploadResponse = { _, _ ->
+                Response.error(
+                    409,
+                    ResponseBody.create(
+                        "application/json".toMediaType(),
+                        "{\"added\":false,\"reason\":\"claimed\",\"path\":\"/data/g/uploads/a.jsonl\"}",
+                    ),
+                )
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.upload("my-group", filename = "a.jsonl", bytes = byteArrayOf(1), overwrite = true)
+
+        assertTrue(result is ApiResult.Success)
+        val data = (result as ApiResult.Success).data
+        assertEquals("claimed", data.reason)
+        assertEquals(false, data.added)
+        assertEquals(false, data.replaced)
+    }
+
+    // TD-552: a replaced queued file answers added:false, replaced:true, which is a success.
+    @Test
+    fun `upload decodes a replaced answer`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            uploadResponse = { _, _ ->
+                Response.success(PendingAddResponseDto(added = false, replaced = true, path = "/data/g/uploads/a.jsonl"))
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.upload("my-group", filename = "a.jsonl", bytes = byteArrayOf(1), overwrite = true)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(true, (result as ApiResult.Success).data.replaced)
     }
 
     @Test

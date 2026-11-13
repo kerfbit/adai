@@ -129,7 +129,7 @@ class FakeFetchTransport : public RegistryTransport {
 
     // Controllable Phase 11 behaviour:
     std::string next_fetch_result;  // returned by fetch_gutenberg/fetch_huggingface
-    std::string next_upload_result;
+    UploadResult next_upload_result;
     int fetch_gutenberg_calls = 0;
     int fetch_huggingface_calls = 0;
     int upload_calls = 0;
@@ -137,6 +137,7 @@ class FakeFetchTransport : public RegistryTransport {
     std::string last_dataset_id;
     std::string last_model_name;
     std::string last_upload_path;
+    bool last_upload_overwrite = false;
 
     std::string fetch_gutenberg(int book_id, int /*num_pairs*/,
                                 const std::string& model_name) override {
@@ -154,9 +155,10 @@ class FakeFetchTransport : public RegistryTransport {
         last_model_name = model_name;
         return next_fetch_result;
     }
-    std::string upload_file(const std::string& local_path) override {
+    UploadResult upload_file(const std::string& local_path, bool overwrite) override {
         ++upload_calls;
         last_upload_path = local_path;
+        last_upload_overwrite = overwrite;
         return next_upload_result;
     }
 
@@ -1326,22 +1328,40 @@ TEST_F(DatasetRegistryFetchTest, RemoteFetchHuggingfaceForwardsModelName) {
 TEST_F(DatasetRegistryFetchTest, RemoteUploadReturnsPathAndUpdatesPending) {
     FakeFetchTransport* fake = nullptr;
     auto reg = make_reg(&fake);
-    fake->next_upload_result = "/reg/data/uploads/my_file.jsonl";
+    fake->next_upload_result.path = "/reg/data/uploads/my_file.jsonl";
 
-    const std::string path = reg->remote_upload("/local/my_file.jsonl");
+    const std::string path = reg->remote_upload("/local/my_file.jsonl").path;
     EXPECT_EQ(path, "/reg/data/uploads/my_file.jsonl");
     EXPECT_EQ(fake->upload_calls, 1);
     EXPECT_EQ(fake->last_upload_path, "/local/my_file.jsonl");
+    EXPECT_FALSE(fake->last_upload_overwrite);
     ASSERT_EQ(reg->pending_files().size(), 1u);
     EXPECT_EQ(reg->pending_files()[0], path);
+}
+
+// TD-552: overwrite is passed through, and a replaced file isn't queued a second time (its entry is
+// already in the queue).
+TEST_F(DatasetRegistryFetchTest, RemoteUploadOverwriteReplacingAQueuedFileAddsNoEntry) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_upload_result.path = "/reg/data/uploads/my_file.jsonl";
+    fake->next_upload_result.replaced = true;
+
+    const UploadResult up = reg->remote_upload("/local/my_file.jsonl", /*overwrite=*/true);
+    EXPECT_TRUE(up.ok());
+    EXPECT_TRUE(up.replaced);
+    EXPECT_TRUE(fake->last_upload_overwrite);
+    EXPECT_TRUE(reg->pending_files().empty());
 }
 
 TEST_F(DatasetRegistryFetchTest, RemoteUploadFailureLeavesPendingEmpty) {
     FakeFetchTransport* fake = nullptr;
     auto reg = make_reg(&fake);
-    fake->next_upload_result = "";  // simulated failure
+    fake->next_upload_result.refused = "claimed";  // simulated refusal
 
-    EXPECT_EQ(reg->remote_upload("/local/missing.jsonl"), "");
+    const UploadResult up = reg->remote_upload("/local/missing.jsonl");
+    EXPECT_FALSE(up.ok());
+    EXPECT_EQ(up.refused, "claimed");
     EXPECT_TRUE(reg->pending_files().empty());
 }
 

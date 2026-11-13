@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-12
 
 
 import kotlinx.serialization.Serializable
@@ -195,13 +195,16 @@ data class PendingAddRequestDto(
 /**
  * Shared response shape for both pending/add and upload — both endpoints return
  * {"added":bool} on success (upload also echoes back "path"; pending/add doesn't) and
- * {"added":false,"reason":"..."} on failure/already-pending.
+ * {"added":false,"reason":"..."} on failure/already-pending. TD-552: an upload with overwrite=true
+ * that replaced a queued file answers {"added":false,"replaced":true,"path":...}; a refused upload
+ * (HTTP 409) has reason "claimed", "segmented", "trained" or "already_queued".
  */
 @Serializable
 data class PendingAddResponseDto(
     val added: Boolean = false,
     val path: String = "",
     val reason: String? = null,
+    val replaced: Boolean = false,
 )
 
 @Serializable

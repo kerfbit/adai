@@ -59,6 +59,7 @@ class FakeRegistryApiService(
     val deleteCalls = mutableListOf<Pair<String, DeleteRequestDto>>()
     val pendingAddCalls = mutableListOf<Pair<String, PendingAddRequestDto>>()
     val uploadCalls = mutableListOf<Triple<String, String, ByteArray>>()
+    val uploadOverwrites = mutableListOf<Boolean?>()  // TD-552: the overwrite query parameter, per call
     val fetchGutenbergCalls = mutableListOf<Pair<String, FetchGutenbergRequestDto>>()
     val fetchHuggingfaceCalls = mutableListOf<Pair<String, FetchHuggingfaceRequestDto>>()
     val putAdminConfigCalls = mutableListOf<JsonObject>()
@@ -100,10 +101,12 @@ class FakeRegistryApiService(
         group: String,
         filename: String,
         body: RequestBody,
+        overwrite: Boolean?,
     ): Response<PendingAddResponseDto> {
         val buffer = okio.Buffer()
         body.writeTo(buffer)
         uploadCalls += Triple(group, filename, buffer.readByteArray())
+        uploadOverwrites += overwrite
         return uploadResponse(group, filename)
     }
 

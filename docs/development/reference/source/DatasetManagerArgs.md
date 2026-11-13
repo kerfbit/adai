@@ -1,12 +1,12 @@
 # `DatasetManagerArgs` — Source File Reference
 
-- **Files:** [`src/DatasetManagerArgs.hpp`](../../../../src/DatasetManagerArgs.hpp), [`src/DatasetManagerArgs.cpp`](../../../../src/DatasetManagerArgs.cpp)
+- **Files:** [`src/DatasetManagerArgs.hpp`](../../../../src/DatasetManagerArgs.hpp) (134 lines), [`src/DatasetManagerArgs.cpp`](../../../../src/DatasetManagerArgs.cpp) (440)
 - **Namespace:** `adai`
-- **Built into:** `dataset_manager` (with `DatasetManagerTool.cpp`) and its test binary
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.4.0`, `@adai-reviewed: 2026-10-18`
-- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (46 tests)
+- **Built into:** `dataset_manager` (with `DatasetManagerTool.cpp` and `Config.cpp`) and `datasetManagerArgsTests`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0` (hpp and cpp), `@adai-reviewed: 2026-11-12` (promoted from `beta` that day)
+- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (60 tests)
 - **Origin:** TD-035 (parsing pulled out of `DatasetManagerTool.cpp` to make it testable); TD-202 (`migrate`, kinds); TD-205 (`segment`)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-12
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by compiling the parsers
 > into a scratch program (with UBSan) and running them.
@@ -16,19 +16,19 @@
 ## 1. What this file is
 
 The **per-command argument parsers** for the `dataset_manager` CLI. `main()` in
-`DatasetManagerTool.cpp` handles the global flags (`--config`, `--kind`, …) and strips the command
-name. It then hands the command's own argument slice to the matching `parse_*_args()`, which
-returns a small struct with either the parsed fields or `error = true` plus a usage message.
+`DatasetManagerTool.cpp` reads the global options (`--config`, `--kind`, `--help`) and strips the
+command name. It then hands the command's own argument slice to the matching `parse_*_args()`, which
+returns a small struct with either the parsed fields or `error = true` plus a message.
 
 The registry and fetcher calls stay in `main()`, so these parsers are pure functions over
-`std::vector<std::string>`, testable with no file or network I/O. `DatasetRegistry`'s behaviour has
-its own tests.
+`std::vector<std::string>`, testable with no file or network I/O.
 
 ### Why it matters
 
 These parsers decide **what `dataset_manager` does to the shared training pool**. `assign`,
-`unassign`, `delete`, `migrate` and `segment` change which data gets trained, for which model.
-A quietly mis-parsed argument changes the operation rather than failing (§4).
+`unassign`, `delete`, `migrate` and `segment` change which data gets trained, for which model, so a
+mis-parsed argument must fail rather than quietly change the operation. Until November 2026 several
+did change it (§4).
 
 ---
 
@@ -39,131 +39,106 @@ All parsers take the command's own arguments, **without** the command name, e.g.
 
 | Command | Parser | Syntax | Notes |
 |---|---|---|---|
-| `add` | `parse_add_args` | `<data_file>` | Extra arguments ignored |
-| `gutenberg` | `parse_gutenberg_args` | `<book_id> [num_pairs=500] [model]` | `model` only matters with `REGISTRY_SERVER_URL` (per-model rotating slices) |
-| `gutenberg-batch` | `parse_gutenberg_batch_args` | `<id1,id2,…> [num_pairs_each=500] [model]` | Comma-separated IDs; an empty token (`1,,2`) is an error |
-| `huggingface` | `parse_huggingface_args` | `<dataset_id> [num_pairs=500] [split=train] [input_field] [output_field] [model]` | All positional; to give `model` you must give every argument before it |
-| `remove` | `parse_remove_args` | `<data_file>` | |
-| `assign` | `parse_assign_args` | `<model> [files…] [--count N]` | No files and no `--count` → assign **all** pending; `--count` is ignored when files are given (`main()`'s help) |
-| `unassign` | `parse_unassign_args` | `<model> [files…] [--force]` | |
-| `delete` | `parse_delete_args` | `<files…> [--force] [--delete-files]` | At least one target required |
-| `migrate` | `parse_migrate_args` | `<kind> [files…] [--count N]` | `kind` validated by `is_valid_dataset_kind()`; no files and no count → migrate **all** legacy entries |
-| `segment` | `parse_segment_args` | `<path> --count N` **or** `--ranges A-B,C-D,…` | Ranges are 0-based inclusive, stored as `{start, B−A+1}`; exactly one mode required; unknown arguments rejected |
-| `requeue` | `parse_requeue_args` | `--all` **or** `<files…>`, `[--model <name>]` | TD-540 (October 18, 2026): exactly one of `--all` or files; `--model` needs a value; unknown `--` flags are errors, not file targets (unlike TD-322's other parsers) |
+| `add` | `parse_add_args` | `[--overwrite] <data_file>` | Exactly one file. `--overwrite` (TD-552) anywhere before `--` |
+| `gutenberg` | `parse_gutenberg_args` | `<book_id> [num_pairs=500] [model]` | At most 3 arguments. `model` matters only with `REGISTRY_SERVER_URL` (per-model rotating slices) |
+| `gutenberg-batch` | `parse_gutenberg_batch_args` | `<id1,id2,…> [num_pairs_each=500] [model]` | Comma-separated ids, each checked; at most 3 arguments |
+| `huggingface` | `parse_huggingface_args` | `<dataset_id> [num_pairs=500] [split=train] [input_field] [output_field] [model]`, or the four optional fields named: `--split`, `--input-field`, `--output-field`, `--model` | TD-325: named fields in any order, alongside or instead of the positional form. A field given both ways, given twice, or a flag with no value is an error; so is a seventh positional |
+| `remove` | `parse_remove_args` | `<data_file>` | Exactly one |
+| `assign` | `parse_assign_args` | `<model> [files…] [--count N]` | No files and no `--count` → every pending file. `main()` ignores `--count` when files are given. The model can't look like an option |
+| `unassign` | `parse_unassign_args` | `<model> [files…] [--force]` | No files → every file assigned to the model |
+| `delete` | `parse_delete_args` | `<files…> [--force] [--delete-files]` | At least one target |
+| `requeue` | `parse_requeue_args` | `--all` **or** `<files…>`, `[--model <name>]` | TD-540: exactly one of `--all` or files; `--model` needs a value that doesn't look like an option |
+| `migrate` | `parse_migrate_args` | `<kind> [files…] [--count N]` | `kind` checked by `is_valid_dataset_kind()`; no files and no `--count` → every legacy entry |
+| `segment` | `parse_segment_args` | `<path> --count N` **or** `--ranges A-B,C-D,…` | Ranges are 0-based inclusive, stored as `{start, B−A+1}`; exactly one mode, each at most once; any other argument is an error (§3) |
 
-`is_valid_dataset_kind(k)` accepts exactly `encoder`, `decoder`, `world_model` and `chatbot`, MNS's
-`ModelRecord::kind` vocabulary. `main()` also uses it for the global `--kind` flag.
+Every parser that takes files (`add`, `assign`, `unassign`, `delete`, `requeue`, `migrate`, and `huggingface`'s
+positionals) refuses an argument that starts with `-` and isn't one of its own flags
+(`Unknown option …`, TD-322), and treats `--` as the end of the options, so a file name may start with
+`-` after it.
 
-`make_error<T>(msg)` is the shared helper that builds a `T` with `error = true`.
+**Numbers** (TD-321, TD-323) go through `parse_strict_int()` (`Config.hpp`), which takes only a
+whole number (`3x`, `1342abc` and an empty value are errors). Book ids, pair counts and
+`segment --count` must be at least 1 (`parse_positive()`). `assign`'s and `migrate`'s `--count` must
+be at least 1 too (`parse_count()`); omitting it is the only way to mean "all", and the error says so.
 
----
+`is_valid_dataset_kind(k)` accepts exactly `encoder`, `decoder`, `world_model` and `chatbot`, through
+`adai::is_dataset_kind()`, the list the trainer uses too (TD-402). `main()` also checks the global
+`--kind` with it.
 
-## 3. How `main()` uses the results
-
-Traced in `DatasetManagerTool.cpp`:
-
-- On `error`, `main()` prints `error_message` plus command-specific help and exits 1.
-- `assign`/`unassign`/`delete` call `DatasetRegistry::assign_model`/`unassign_model`/`delete_entries`
-  with the parsed targets. Both `LocalTransport::assign()` and `registry_server`'s handler treat **no
-  targets** with `count <= 0` as `assign_all`.
-- `migrate` with no targets copies `count` entries if `count > 0`, **otherwise all** of them.
-- `segment` checks the path's pair count locally (`DatasetRegistry::count_pairs()`), then queues one
-  pending entry per range via `add_pending_path_unchecked()`. Explicit `--ranges` are **not**
-  checked against that count (§4).
-- `gutenberg`/`huggingface` pass `book_id`, `dataset_id`, `num_pairs` and the rest straight to the
-  registry (which validates `book_id > 0`, the `dataset_id`/`split` allow-list and `model_name`) or,
-  in local mode, to `DataFetcher` (which validates nothing; see TD-310, TD-312).
+`make_error<T>(msg)` builds a `T` with `error = true`; `unknown_option<T>()` and `missing_value<T>()`
+word the two common errors with the command's usage.
 
 ---
 
-## 4. Parsing pitfalls (verified)
+## 3. `segment`'s ranges
 
-Every numeric field uses bare `std::stoi`, and every list command treats any argument it doesn't
-recognize as a file target:
+`parse_segment_args()` takes the path first and then:
+- `--count N` (at least 1) or `--ranges A-B,…`, each at most once (TD-324: a second `--ranges` used to
+  add to the first), and not both;
+- each range token needs `0 ≤ A ≤ B`, both whole numbers; its size `B − A + 1` is computed in 64 bits
+  and refused above `INT_MAX` (TD-324: `0-2147483647` overflowed to a negative-count segment);
+- after sorting by start, overlapping or repeated ranges are refused (they would queue, and train,
+  the same pairs twice).
 
-| Input | Parsed as | Effect |
-|---|---|---|
-| `assign m --count -2` (or `0`) | `count = -2`, no targets | **Assigns every pending file to `m`**: `count <= 0` with no targets means "all" |
-| `migrate chatbot --count 0` | `count = 0` | **Migrates every legacy pending file** |
-| `assign m --count 3abc`, `gutenberg 1342abc 500x` | `3`; `1342`, `500` | Trailing garbage silently dropped |
-| `gutenberg -5 -10`, `huggingface x -1`, `gutenberg-batch 1342,0` | Negative/zero IDs and pair counts accepted | Fails later (registry 400, or zero pairs written locally) |
-| `assign m --count` (no value), `assign m --count=3` | Target files `--count` / `--count=3` | "No matching pending files" instead of a usage error |
-| `delete f.jsonl --delete-file` (typo) | `delete_files = false`, targets `f.jsonl`, `--delete-file` | Deletes the entry but **keeps the file**, with no warning about the unknown flag |
-| `unassign m --froce` (typo) | `force = false`, target `--froce` | Silently does nothing useful |
-| `segment p --ranges 0-2147483647` | `count = b − a + 1` **overflows** (UBSan: signed integer overflow) → `-2147483648` | Undefined behaviour; a negative-count segment |
-| `segment p --ranges 0-9,5-14`; `--ranges` given twice | Overlapping/duplicate ranges accepted | The same pairs train twice |
-| `segment p --count -5 --ranges 0-1` | Accepted (the exclusivity check uses `split_count > 0`) | `--count` silently ignored |
+Whether the ranges lie inside the file is checked by `main()` once it knows the pair count
+([DatasetManagerTool.md](DatasetManagerTool.md) §3).
 
-The "≤ 0 means all" behaviour is the dangerous one. It's documented only as "omit `--count`", so a
-mistyped or negative value quietly turns a "first N" request into "everything".
+---
 
-Other notes:
-- `huggingface`'s purely positional optional arguments make `model` awkward to give and easy to
-  shift: `huggingface ds 500 my-model` sets `split = "my-model"`.
-- `add`/`remove`/`gutenberg` ignore extra arguments rather than rejecting them.
-- `dataset_id` isn't validated here. In local mode it reaches `DataFetcher`'s shell `curl` commands
-  (TD-312); the registry path validates it server-side.
+## 4. History: what used to be mis-parsed (verified)
+
+Before November 2026 every number went through bare `std::stoi` and every list command took any
+argument it didn't recognize as a file target. These were confirmed with UBSan, and each is now an
+error:
+
+| Input | Was parsed as | Effect | Fixed |
+|---|---|---|---|
+| `assign m --count -2` (or `0`), `migrate chatbot --count 0` | "all" | Assigned or migrated the **whole pending pool** | TD-321, November 5, 2026 |
+| `assign m --count 3abc`, `gutenberg 1342abc 500x` | `3`; `1342`, `500` | Trailing garbage dropped | TD-323, November 7 |
+| `gutenberg -5 -10`, `gutenberg-batch 1342,0` | Accepted | Failed later, or wrote zero pairs locally | TD-323 |
+| `assign m --count` (no value) | File target `--count` | "No matching pending files" instead of a usage error | TD-322, November 7 |
+| `delete f.jsonl --delete-file` (typo) | Extra target | Deleted the entry, **kept the file**, no warning | TD-322 |
+| `add --foo` | File name `--foo` | "Data file not found: --foo" | TD-552, November 12 |
+| `requeue -a` | File name `-a` | "not found" instead of an unknown-option error | November 12 |
+| `segment p --ranges 0-2147483647` | Signed overflow (UB) | A negative-count segment | TD-324, November 7 |
+| `segment p --ranges 0-9,5-14`, or `--ranges` twice | Accepted | The same pairs trained twice | TD-324 |
+| `huggingface ds 500 my-model` | `split = "my-model"` | A request for a split named after the model | TD-325, November 7 (named fields) |
+| `add`/`remove`/`gutenberg`/`gutenberg-batch` with extra arguments | Ignored | Silently did less than asked | TD-325 |
+
+Below the CLI, `LocalTransport::assign()` and `registry_server`'s `assign` refuse a negative count
+(0 still means all there, as the Android dashboard sends it); see
+[RegistryTransport.md](RegistryTransport.md) and [RegistryServer.md](RegistryServer.md).
 
 ---
 
 ## 5. Tests
 
-`dataset_manager_args_test.cpp` has 46 tests (`RequeueArgs` added October 18, 2026), covering each parser's happy path, missing-argument
-errors and non-numeric values:
+`dataset_manager_args_test.cpp` has 60 tests:
 
-| Group | Tests |
-|---|---|
-| `ParseSegmentArgs` | 11 |
-| `ParseMigrateArgs` | 6 |
-| `ParseAssignArgs` | 5 |
-| `ParseGutenbergArgs`, `ParseGutenbergBatchArgs` | 4 each |
-| `ParseDeleteArgs`, `ParseUnassignArgs`, `ParseHuggingfaceArgs` | 3 each |
-| `ParseAddArgs`, `ParseRemoveArgs`, `IsValidDatasetKind` | 2 each |
+| Group | Tests | Covers |
+|---|---|---|
+| `ParseSegmentArgs` | 12 | Both modes, mutual exclusion, malformed, backward and negative ranges, unknown arguments; overflow, overlap in any order, repeated flags (`RangeValidationGaps`) |
+| `ParseMigrateArgs` | 7 | Kinds, targets, `--count` values |
+| `ParseAssignArgs` | 6 | Targets, `--count` 0/negative/partial |
+| `ParseHuggingfaceArgs` | 5 | Positional and named fields, conflicts, unknown options |
+| `ParseAddArgs` | 4 | One file, `--overwrite` before or after it, an unknown option, `--` |
+| `ParseGutenbergArgs`, `ParseGutenbergBatchArgs` | 4 each | Ids and counts |
+| `ParseDeleteArgs`, `ParseUnassignArgs` | 3 each | Flags and targets |
+| `DatasetManagerArgsOptions` | 3 | TD-322 across commands: unknown options, value-less flags, `--` |
+| `ParseRemoveArgs`, `IsValidDatasetKind`, `DatasetManagerArgsNumbers` | 2 each | |
+| `DatasetManagerArgsTest` | 2 | `requeue`, and its option rules |
+| `DatasetManagerArgsExtras` | 1 | Extra arguments refused |
 
-**Not covered:**
-- negative or zero counts and IDs;
-- partial numbers;
-- unknown or typo'd flags;
-- a flag with no value;
-- range overflow and overlap.
+The test target compiles `Config.cpp` (with `GenerationSettings.cpp` and `Logger.cpp`) for
+`parse_strict_int()` and `is_dataset_kind()`.
 
 ---
 
-## 6. Known gaps and gotchas (summary)
+## 6. Known gaps
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+None of its own. Until November 12, 2026 `requeue` treated only `--…` as an option, so `requeue -a`
+took `-a` for a file name, and it had no `--`; it now follows the same rules as every other command
+(`RequeueFollowsTheSharedOptionRules`). That was the last inconsistency, and the file moved to `stable`
+1.0.0 the same day.
 
-| Item | Impact | Basis | Tracked as |
-|---|---|---|---|
-| `--count` ≤ 0 (including typos like `-2`) means "all" for `assign` and `migrate` (§4) | One mistyped value assigns or migrates the entire pending pool (**fixed in code November 5, 2026**) | **Verified** | [TD-321](../../guides/TECHNICAL_DEBT.md#td-321-dataset_manager-treats---count--0-as-all) |
-| Unknown flags, typo'd flags and value-less `--count` become file targets (§4) | Operations silently differ from intent (e.g. `--delete-file` keeps files) (**fixed in code November 7, 2026**) | **Verified** | [TD-322](../../guides/TECHNICAL_DEBT.md#td-322-dataset_manager-treats-unknown-flags-as-file-targets) |
-| `std::stoi` accepts partial numbers; negative/zero IDs and pair counts accepted (§4) | Wrong values pass validation; errors surface late or not at all (**fixed in code November 7, 2026**) | **Verified** | [TD-323](../../guides/TECHNICAL_DEBT.md#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers) |
-| `--ranges` overflow (UB), overlaps and duplicates accepted, not checked against the file's pair count; `--count` ignored alongside `--ranges` when ≤ 0 (§3–4) | Negative-count segments; pairs queued twice or beyond EOF (**fixed in code November 7, 2026**) | **Verified** (overflow, overlap) / by inspection (EOF) | [TD-324](../../guides/TECHNICAL_DEBT.md#td-324-dataset_manager-segment-range-validation-gaps) |
-| `huggingface` optional arguments purely positional; extra arguments ignored by several commands (§4) | Easy to shift arguments into the wrong field (**fixed in code November 7, 2026**) | By inspection | [TD-325](../../guides/TECHNICAL_DEBT.md#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) |
-| `dataset_id` unvalidated before local `DataFetcher` shell commands | Already tracked | — | TD-312 |
-
-## Addendum (November 5, 2026): `--count` must be at least 1 (TD-321)
-
-`parse_assign_args()` and `parse_migrate_args()` read `--count` through a shared `parse_count()`, which uses `parse_strict_int()` and
-requires a value of at least 1. `0`, `-2`, `3x` or an empty value is an error naming the value and saying to omit `--count` to assign
-(or migrate) everything; `main()` prints it and exits 1. Omitting `--count` (`count == 0` in the result) remains the only way to say
-"all". The test target compiles `Config.cpp` for the strict parser. Below the CLI, `LocalTransport::assign()` and `registry_server`'s
-`assign` refuse a negative count (0 still means all there, as the Android dashboard sends it); see
-[RegistryTransport.md](RegistryTransport.md) and [RegistryServer.md](RegistryServer.md).
-
-## Addendum (November 7, 2026): unknown options and strict numbers (TD-322, TD-323)
-
-`assign`, `unassign`, `delete` and `migrate` refuse an argument that starts with `-` and isn't one of their flags (`Unknown option …`), and
-a model name that looks like a flag; it used to become a file target. `--count` (and `segment`'s `--count`/`--ranges`) with no value is
-`… needs a value`. `--` ends the options, for file names starting with `-`. Every number is parsed whole (`parse_strict_int()`): book ids,
-pair counts and `segment --count` must be at least 1 (`parse_positive()`), and `--ranges` ends must be whole numbers, so `1342abc`, `0`
-and `-5` are errors instead of 1342, a zero-pair fetch or a registry-side rejection.
-
-## Addendum (November 7, 2026): segment ranges and named HuggingFace fields (TD-324, TD-325)
-
-`parse_segment_args()` sizes each `--ranges` token in 64 bits (over `INT_MAX` pairs is an error), refuses overlapping or repeated ranges in
-any order, and refuses a second `--ranges` or `--count`; `segment` itself refuses a range past the file's last pair before queuing.
-`parse_huggingface_args()` accepts `--split`, `--input-field`, `--output-field` and `--model` in any order, alongside or instead of the
-positional form; a field given both ways, a repeated or value-less flag, an unknown option or a seventh positional is an error. `add`,
-`remove`, `gutenberg` and `gutenberg-batch` refuse extra arguments.
+Commands with no tests of their own are tracked in TD-331 ([DatasetManagerTool.md](DatasetManagerTool.md)).

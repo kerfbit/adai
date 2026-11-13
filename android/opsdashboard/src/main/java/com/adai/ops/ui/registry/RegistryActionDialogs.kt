@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-12
 
 // TD-205: new data-entry dialogs for the dataset management segment expansion — unassign has
 // no data to collect (goes straight to ConfirmActionDialog from GroupDetailScreen), so it has
@@ -21,6 +21,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -92,11 +93,18 @@ fun ManualAddDialog(onSubmit: (path: String) -> Unit, onDismiss: () -> Unit) {
     )
 }
 
-/** Upload a local file's bytes directly from the device. */
+/**
+ * Upload a local file's bytes directly from the device. TD-552: "Overwrite" replaces a file of the
+ * same name that is already trained or queued (the confirm step then says so).
+ */
 @Composable
-fun UploadFileDialog(onSubmit: (filename: String, bytes: ByteArray) -> Unit, onDismiss: () -> Unit) {
+fun UploadFileDialog(
+    onSubmit: (filename: String, bytes: ByteArray, overwrite: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     var filename by remember { mutableStateOf("") }
+    var overwrite by remember { mutableStateOf(false) }
     var pickedBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -124,11 +132,15 @@ fun UploadFileDialog(onSubmit: (filename: String, bytes: ByteArray) -> Unit, onD
                     label = { Text("Filename (bare name, no path separators)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = overwrite, onCheckedChange = { overwrite = it })
+                    Text("Overwrite a file of this name that is already trained or queued")
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { pickedBytes?.let { onSubmit(filename, it) } },
+                onClick = { pickedBytes?.let { onSubmit(filename, it, overwrite) } },
                 enabled = pickedBytes != null && filename.isNotBlank() && !filename.contains('/'),
             ) { Text("Upload") }
         },

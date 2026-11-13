@@ -401,7 +401,7 @@ TEST_F(LocalTransportPhase9Test, FetchHuggingfaceUnsupportedInLocalMode) {
 
 TEST_F(LocalTransportPhase9Test, UploadFileUnsupportedInLocalMode) {
     LocalTransport t(reg_path_, pend_path_);
-    EXPECT_EQ(t.upload_file("/some/local/file.jsonl"), "");
+    EXPECT_FALSE(t.upload_file("/some/local/file.jsonl", false).ok());
 }
 
 TEST_F(LocalTransportPhase9Test, CommitTrainedEmptyModelIdRoundTrips) {

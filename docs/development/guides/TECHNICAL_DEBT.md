@@ -18,6 +18,10 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 12, 2026:** Fixed [TD-552](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file) in code:
+`dataset_manager add --overwrite` and the Android upload dialog's overwrite option replace a trained or queued file on `registry_server`,
+and both clients now report a replacement as success and a refusal by its reason.
+
 **November 12, 2026:** Fixed [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens) in code: RAG
 documents longer than the encoder's `max_seq_length` are indexed as overlapping chunks that each fit, so text outside the one window the
 encoder used to embed can be retrieved.
@@ -8959,6 +8963,10 @@ Tests (`tests/dataset_manager_args_test.cpp`): `DatasetManagerArgsOptions.Unknow
 `DoubleDashEndsOptions`; all three fail on the old parsers. Checked by hand with the real binary: `delete f.jsonl --delete-file`,
 `assign m --count` and `unassign m --froce` exit 1 with the message.
 
+
+**Update (November 12, 2026):** `requeue`, added the week before this fix (TD-540), had been left out: it took any argument not
+starting with `--` as a file (`requeue -a` queued nothing and said "not found") and had no `--`. It now follows the same rules
+(`DatasetManagerArgsTest.RequeueFollowsTheSharedOptionRules`), and `DatasetManagerArgs` moved to `stable` 1.0.0.
 Location in code: `src/DatasetManagerArgs.cpp` (`looks_like_option()`, `parse_assign_args()`, `parse_unassign_args()`,
 `parse_delete_args()`, `parse_migrate_args()`, `parse_segment_args()`).
 
@@ -16282,6 +16290,12 @@ Action Items:
 - [ ] Parse `segments` in remote assign/unassign; lock registry rewrites.
 - [ ] Set and send `model_id` (or remove it and the history filter); reject `https://` until supported; encode the group; stream uploads.
 
+**Update (November 12, 2026, re-tracing `RegistryTransport` for TD-552):** part of this is done. `LocalTransport::commit_trained()` checks
+claims since TD-493 and now loads and saves the registry inside the pending lock, and `release()` logs the number actually released. Still
+open: `commit_trained()` appends without dedupe, `add_pending()`'s duplicate result, `delete_paths()`/`requeue_trained()` reading and
+saving the registry outside the lock, remote `assign`/`unassign` not reading `segments`, `model_id`, `https://`, the unencoded group and
+in-memory uploads. The code's `TODO: See TD-498` comments were updated to match.
+
 Location in code: `src/RegistryTransport.cpp` (`LocalTransport::commit_trained()`/`add_pending()`/`release()`/`delete_paths()`, `RemoteTransport::commit_trained()`/`assign()`/`unassign()`, `parse_host_port()`); tagged `TODO: See TD-498`.
 
 Files to Modify:
@@ -18601,7 +18615,7 @@ Tests: `http_listen_socket_test.cpp` (4):
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Registry clients | October 24, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 12, 2026 | Data / Registry clients | October 24, 2026 | 1-2 hours |
 
 Description:
 Filed with TD-492 at the owner's request. Since TD-492, `POST /registry/<group>[/<kind>]/upload?filename=<name>` refuses (409) to replace
@@ -18617,13 +18631,32 @@ Neither client can send `overwrite`:
 
 Action Items:
 
-- [ ] `dataset_manager`: an `--overwrite` flag on the commands that upload (`add` in remote mode), passed through
+- [x] `dataset_manager`: an `--overwrite` flag on the commands that upload (`add` in remote mode), passed through
   `RegistryTransport::upload_file()`. Report `replaced` vs `added`, and show the 409 reason (`claimed`, `segmented`) plainly when even
   overwrite is refused.
-- [ ] Android: an "Overwrite existing file" option in the upload dialog, sent as `overwrite=true`. Show the server's 409 reason, and gate
+- [x] Android: an "Overwrite existing file" option in the upload dialog, sent as `overwrite=true`. Show the server's 409 reason, and gate
   the overwrite through the same `ConfirmActionDialog` as other destructive actions, with the HTTP-call preview showing `overwrite=true`.
-- [ ] Tests: a `dataset_manager` overwrite test against a live registry, and a repository/unit test for the Android query parameter.
-- [ ] Document the flag in the `dataset_manager` operator guide and the ops dashboard docs.
+- [x] Tests: a `dataset_manager` overwrite test against a live registry, and a repository/unit test for the Android query parameter.
+- [x] Document the flag in the `dataset_manager` operator guide and the ops dashboard docs.
+
+**Fix (November 12, 2026).** Two more client bugs turned up: a replacement answers `{"added":false,"replaced":true}`, which both
+`RemoteTransport::upload_file()` and the Android view model took for a failure, and the Android app showed a 409 as its raw JSON body.
+- **C++:** `RegistryTransport::upload_file(local_path, overwrite)` returns an `UploadResult` (path, `replaced`, and `refused`, the server's
+  409 reason) and sends `&overwrite=true` when asked; `DatasetRegistry::remote_upload()` passes it through and doesn't queue a replaced
+  file twice. `dataset_manager add [--overwrite] <file>` prints `Uploaded as …` or `Replaced the queued file …` and says plainly why the
+  server refused (already trained or queued: use `--overwrite`; claimed: wait or release; segmented: delete the segments). In local mode
+  `--overwrite` is an error. `parse_add_args()` also refuses unknown options (TD-322; `add --foo` used to queue a file named `--foo`) and
+  takes `--` to end them.
+- **Android:** the upload dialog's "Overwrite a file of this name that is already trained or queued" checkbox; the confirm step's title,
+  effect and HTTP preview (`&overwrite=true`) say so. `RegistryRepository.upload(…, overwrite)` sends the parameter only when set and
+  returns a 409's reason as data, and the screen words each outcome (`uploadOutcomeMessage()`).
+- **Tests:** `registryFtpConfinementTests` runs the real `dataset_manager` against a real `registry_server`: queued (refused, then replaced
+  with its entry refreshed to the new pair count), trained (refused, then queued again), claimed (refused even with `--overwrite`, the claim
+  untouched), and local mode. Sending no overwrite, reading `added:false` as failure, or dropping the reason each fails it. Parser tests,
+  `DatasetRegistryTests` for the pass-through, and Android `RegistryRepositoryTest`/`GroupDetailViewModelTest` cases.
+- **Docs:** `dataset-manager-guide.md`'s `add` section (also out of date on formats and paths), `OPERATIONS_MANUAL.md`, and the
+  `RegistryTransport`, `DatasetRegistry`, `DatasetManagerTool` and `DatasetManagerArgs` references. There is no ops dashboard document
+  to update; the guide mentions the dashboard's option.
 
 Location in code: `src/DatasetManagerTool.cpp`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/RegistryTransport.{hpp,cpp}`
 (`upload_file()`); `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`,

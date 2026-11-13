@@ -1,8 +1,8 @@
 package com.adai.ops.network
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-12
 
 import com.adai.ops.network.dto.AssignRequestDto
 import com.adai.ops.network.dto.AssignResponseDto
@@ -103,12 +103,15 @@ interface RegistryApiService {
      * TD-205: upload a local file's raw bytes directly from the device — the upload half of
      * "Manual add + Upload". [body] must be a raw (non-JSON) RequestBody; see
      * RegistryRepository.upload() for how the caller builds one from a picked file's bytes.
+     * TD-552: [overwrite] true sends overwrite=true, replacing a trained or unclaimed queued file of
+     * the same name; null (the default) leaves the parameter out.
      */
     @POST("registry/{groupPath}/upload")
     suspend fun upload(
         @Path(value = "groupPath", encoded = true) groupPath: String,
         @Query("filename") filename: String,
         @Body body: RequestBody,
+        @Query("overwrite") overwrite: Boolean? = null,
     ): Response<PendingAddResponseDto>
 
     @POST("registry/{groupPath}/fetch/gutenberg")
