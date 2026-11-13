@@ -18,6 +18,11 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 12, 2026:** Filed [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): no Android file is `stable`, and
+TD-047/TD-048 cap them without saying what `stable` would take. It sets that bar for `app` and `opsdashboard` (a first release, the
+`opsdashboard` instrumented tests actually run, each file covered, a decision on documentation) and lists what each `experimental`
+file needs. The wear modules are set aside as optional future work.
+
 **November 12, 2026:** Fixed [TD-552](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file) in code:
 `dataset_manager add --overwrite` and the Android upload dialog's overwrite option replace a trained or queued file on `registry_server`,
 and both clients now report a replacement as success and a refusal by its reason.
@@ -2671,6 +2676,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-569: `trainer_service` Has No Time Limit for a Pass That Stops Making Progress](#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress)
   - [TD-570: `BPETokenizer::load_vocab()` Takes Header Syntax Inside the Token and Merge Sections](#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections)
   - [TD-571: Findings From the November 11, 2026 Trace of the Files TD-569 Touched](#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched)
+  - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3928,6 +3934,7 @@ Action Items:
   everywhere it was flagged.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
+  **Note (November 12, 2026):** `androidx.biometric` 1.1.0 has no test authenticator; TD-573's setup step 3 lists the real options.
 - [x] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps) and `Activity`/
   `Application` entry points — done, see the "DI containers and entry points" update above
   (`app` module verified live on a real device; `opsdashboard` compile-verified only, per the
@@ -3938,8 +3945,10 @@ Files to Modify:
 
 - ~33 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
-  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list (all of it
-  now `wearcomplications`, the one area this pass didn't touch).
+  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
+  **Correction (November 12, 2026):** that list is not all `wearcomplications`. Of 36 `experimental` Android files, 4 are in
+  `wearcomplications`, 2 in `opsdashboard`'s `data/wearsync/`, 25 elsewhere in `opsdashboard` and 5 in `app`; TD-573 lists what
+  each needs.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt`, `ChatbotApp.kt`,
   `MainActivity.kt`, `AppContainer.kt`, `AppViewModelProvider.kt` (`app` module), and
@@ -19610,6 +19619,89 @@ Each new test fails with its fix reverted. Versions: `IncrementalTrainerArgs` 0.
 
 Location in code: `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTrainingTool.cpp`, `src/TrainerServiceProxy.{hpp,cpp}`,
 `src/ChatbotTrainer.cpp`, `src/Config.cpp`, `src/CMakeLists.txt`.
+
+---
+
+### TD-573: What the Android Apps Need to Reach `stable`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Android / `app`, `opsdashboard` | November 12, 2026 | 2-4 days, plus device access and a release |
+
+Description:
+No Android file is `stable` (0 of 118 on November 12, 2026). TD-047 (no release history) and TD-048 (UI never run on a device) cap
+them, but neither says what `stable` would take. This item sets that bar for the two phone apps and lists what stands between each
+file and it. **Scope:** `android/app` (34 files: 29 `beta`, 5 `experimental`) and `android/opsdashboard` (74: 49 `beta`, 25
+`experimental`), 108 files in all. **Out of scope, set aside as optional future work (owner decision, November 12, 2026):** the wear
+modules (`wearcomplications`, `wearsync`, `wearface`) and `opsdashboard`'s `data/wearsync/` package (5 files), which only syncs to the
+watch; see the last section.
+
+**The bar.** `file-status-standard.md`'s `stable` means tested, documented, no known correctness gap that would surprise a caller, and
+in use. For these apps that means:
+1. **Released** (TD-047): a first real release of each app under [`android-release.md`](android-release.md), so the files are in
+   use at a known version rather than `0.1.0`/`versionCode 1`; and the Android CI running on `origin` (rjv717/adai), whose GitHub
+   billing stops it today (it runs on the kerfbit mirror).
+2. **Tests run, not just compiled** (TD-048): every `opsdashboard` instrumented test (12 screens, the confirm-action dialogs, the DI
+   container and `MainActivity`) has only been compiled. It needs at least one full `connectedDebugAndroidTest` run on a device or
+   emulator, recorded in TD-048. The `app` module's instrumented tests have run on the `Medium_Phone_API_35` AVD. `opsdashboard` can't
+   be installed on an ordinary phone or emulator yet (setup step 1 below).
+3. **Each file covered** by a test that exercises it (named, or drawn inside a tested screen), with no open item against it.
+4. **Documented**: the Android files have no code-traced reference documents (`docs/development/reference/source/` covers C++ and
+   scripts). Decide what "documented" means for them, for example one reference document per screen or package rather than per file,
+   and write it.
+
+**`experimental` files and what each needs** (none of these is named by a test):
+
+| Files | Needs |
+|---|---|
+| `opsdashboard` `ui/common/BiometricAdminAuthGate.kt` | A real-prompt test (setup step 3); today `FakeAdminAuthGate` replaces it in every screen test |
+| `opsdashboard` `ui/registry/RegistryActionDialogs.kt`, `ui/models/LinkWorldModelDialog.kt`, `ui/models/RegisterModelDialogs.kt` | Compose tests of each dialog's validation and submit (`CreateSegmentsDialog`'s range parsing, registration fields; the upload dialog's file picker and overwrite checkbox need setup step 2) |
+| `opsdashboard` `network/SafeCall.kt`, `network/dto/CommonDtos.kt`, both apps' `network/CloudflareAccessInterceptor.kt`, `app` `data/db/Converters.kt` | Unit tests: the HTTP-status mapping (404/409/other, error-body parsing), header injection, the Room converters |
+| `opsdashboard` `polling/FixedIntervalPoller.kt`, `ui/navigation/OpsNavHost.kt`, `ui/scaffold/OpsAppScaffold.kt`, `ui/common/ConfirmActionDialog.kt` | Already exercised by tests that name them (poller unit tests; navigation and confirm-dialog instrumented tests): `beta` once those tests have run (bar 2) |
+| `opsdashboard` `ui/common/{AdminActionButton,LoadingErrorState,MetricHistoryChart,ModelPickerDropdown,SettingsAction,StaleBadge}.kt`, `ui/navigation/OpsDestinations.kt`, the `*Route.kt` files (`AdminRoute`, `SessionsRoute`, `ModelsRoute`, `RegistryRoute`, `TrainerRoute`), `app` `ui/chat/TypingIndicator.kt` | Drawn inside screens the Compose tests cover, but not checked themselves: either assertions about them in those tests, or a short test each |
+| Both apps' `ui/theme/Theme.kt` and `Type.kt` | Styling with no behaviour to test; decide whether theme files are in scope for `stable` or exempt, and record it in the standard |
+
+**Test setup.** Each app already has what most of the above needs: JUnit 4 and `kotlinx-coroutines-test` for unit tests; fakes in
+`src/sharedTest` shared by unit and instrumented tests (`opsdashboard`: fake metrics, MNS, registry and trainer API services, API
+client provider, settings repository, watch-face push repository, `FakeAdminAuthGate`; `app`: fake DAOs, API client provider, settings
+repository), used instead of a mocking library; and `androidx.test.ext.junit`, `compose-ui-test-junit4` and `AndroidJUnitRunner` for
+instrumented and Compose tests, with `ConfirmDialogTestActivity` as the host for admin confirm dialogs. The network helpers and
+converters are plain JVM code (a fake OkHttp `Interceptor.Chain` covers the interceptors). Three things are missing:
+1. **`opsdashboard` requires the `wear-sdk` library to install.** Its merged manifest declares
+   `<uses-library android:name="wear-sdk" android:required="true"/>`, brought in by a wear dependency (the app's own manifest doesn't
+   name it), so the APK won't install on a phone or emulator without that library. That is why its instrumented tests have never run.
+   Override it to `required="false"` in `opsdashboard`'s manifest (`tools:node`/`tools:replace`), after checking that the watch-face
+   push code (`WatchFacePushRepository`, `WearWatchFacePushRepository`) copes when the library is absent. **Do this first:** it blocks
+   bar 2 for every `opsdashboard` file.
+2. **No way to drive the system file picker.** The upload dialog launches `ActivityResultContracts.GetContent()`, which a Compose test
+   can't operate. Add `androidx.test.espresso:espresso-intents` (androidTest) and stub the picker's result with `intending(...)`.
+3. **No test path for a real `BiometricPrompt`.** `androidx.biometric` 1.1.0 has no test authenticator (TD-048's item assumed one).
+   Options: an emulator with an enrolled fingerprint, driven with `adb emu finger touch` from the test (needs the emulator, not a
+   physical device), or keeping the real prompt as a documented manual check while `FakeAdminAuthGate` covers every screen. Decide which.
+
+**`beta` files:** 35 are capped by TD-047 (15 `app`, 20 `opsdashboard`) and 42 by TD-048 (14 `app`, 28 `opsdashboard`);
+`GroupDetailScreen.kt`'s note cites TD-205 and TD-048. They need bars 1, 2 and 4, and a check that nothing else is open against them.
+
+Action Items:
+
+- [ ] Setup 1: make `wear-sdk` optional for `opsdashboard` (checking the watch-face push code without it).
+- [ ] Setup 2: add `espresso-intents` for the file picker.
+- [ ] Setup 3: decide how `BiometricAdminAuthGate` is checked (emulator fingerprint, or a documented manual check).
+- [ ] Cut the first release of each app (TD-047), and get the Android CI running on `origin`.
+- [ ] Run `opsdashboard`'s instrumented tests on an emulator, and fix what fails.
+- [ ] Add the tests in the `experimental` table above.
+- [ ] Decide what "documented" means for the Android files, and whether theme files are exempt; write the documents.
+- [ ] Then review the files for promotion, a module at a time.
+
+**Future optional work: the wear modules.** `wearcomplications` (4 `experimental` services, untested, TD-048), `wearsync` (1 `beta`),
+`wearface` (no in-scope files) and `opsdashboard`'s `data/wearsync/` (3 `beta`, 2 `experimental`: `WatchSyncRepository.kt`,
+`WatchSyncWorker.kt`) are left as they are, at the owner's decision (November 12, 2026). If they are taken up, the same bar applies,
+plus tests of the `wearcomplications` services (TD-048).
+
+Location in code: `android/app/src/main`, `android/opsdashboard/src/main` (see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
+for the current list).
+
+Related: TD-047, TD-048.
 
 ---
 
