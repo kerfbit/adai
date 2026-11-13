@@ -72,6 +72,27 @@ run bash "$RUNNER" --help
 assert_exit 0
 assert_contains "--lejepa-only"
 
+t "runner --bisect-passes needs a whole number"
+run bash "$RUNNER" --bisect-passes abc
+assert_exit 2
+assert_contains "whole number"
+
+t "runner --help lists the engine-reset bisection options (TD-574)"
+run bash "$RUNNER" --help
+assert_exit 0
+assert_contains "--bisect-only"
+assert_contains "--skip-bisect"
+assert_contains "--engine-tuning"
+
+KERNEL_EVENTS_PATTERN=$(sed -n "s/^KERNEL_EVENTS='\(.*\)'$/\1/p" "$RUNNER")
+t "the kernel-event pattern counts a new crash dump, not its deletion (TD-574)"
+run bash -c 'printf "%s\n" \
+    "xe 0000:2d:00.0: [drm] GT0: Engine reset: engine_class=ccs, logical_mask: 0x1, guc_id=38" \
+    "xe 0000:2d:00.0: [drm] Xe device coredump has been created" \
+    "xe 0000:2d:00.0: [drm] Xe device coredump has been deleted." | grep -c -E "$1"' _ "$KERNEL_EVENTS_PATTERN"
+assert_exit 0
+assert_contains "2"
+
 t "lejepa_pass.sh without arguments prints its usage"
 run bash "$LEJEPA_PASS"
 assert_exit 2

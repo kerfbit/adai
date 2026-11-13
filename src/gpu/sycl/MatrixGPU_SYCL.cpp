@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-386, TD-394, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-13
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -29,6 +29,7 @@ namespace gpu {
 // ============================================================================
 
 void matrix_add_gpu(const float* a, const float* b, float* c, int size) {
+    GPUManager::trace_kernel("matrix_add_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const int n4 = size / 4;
     const int tail = size % 4;
@@ -47,6 +48,7 @@ void matrix_add_gpu(const float* a, const float* b, float* c, int size) {
 }
 
 void matrix_add_scalar_gpu(const float* a, float scalar, float* c, int size) {
+    GPUManager::trace_kernel("matrix_add_scalar_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const int n4 = size / 4;
     const int tail = size % 4;
@@ -63,6 +65,7 @@ void matrix_add_scalar_gpu(const float* a, float scalar, float* c, int size) {
 }
 
 void matrix_multiply_elementwise_gpu(const float* a, const float* b, float* c, int size) {
+    GPUManager::trace_kernel("matrix_multiply_elementwise_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const int n4 = size / 4;
     const int tail = size % 4;
@@ -81,6 +84,7 @@ void matrix_multiply_elementwise_gpu(const float* a, const float* b, float* c, i
 }
 
 void matrix_multiply_scalar_gpu(const float* a, float scalar, float* c, int size) {
+    GPUManager::trace_kernel("matrix_multiply_scalar_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const int n4 = size / 4;
     const int tail = size % 4;
@@ -101,6 +105,7 @@ void matrix_multiply_scalar_gpu(const float* a, float scalar, float* c, int size
 // ============================================================================
 
 void matrix_transpose_gpu(const float* input, float* output, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_transpose_gpu");  // TD-574
     constexpr int TILE = 32;
     constexpr int TILE_PAD = 33;  // +1 to avoid bank conflicts
     auto& q = GPUManager::get_queue();
@@ -140,6 +145,7 @@ void matrix_transpose_gpu(const float* input, float* output, int rows, int cols)
 // ============================================================================
 
 void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k, int n) {
+    GPUManager::trace_kernel("matrix_multiply_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const float alpha = 1.0f;
     const float beta = 0.0f;
@@ -154,6 +160,7 @@ void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k,
 // C^T = op(B)^T * op(A)^T, as matrix_multiply_gpu() does.
 void matrix_gemm_strided_gpu(bool trans_a, bool trans_b, int m, int n, int k, float alpha,
                              const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
+    GPUManager::trace_kernel("matrix_gemm_strided_gpu");  // TD-574
     if (m <= 0 || n <= 0) {
         return;
     }
@@ -188,6 +195,7 @@ static inline float apply_activation_sycl(float x, int act) {
 }
 
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
+    GPUManager::trace_kernel("matrix_apply_activation_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const int act = static_cast<int>(type);
     const int n4 = size / 4;
@@ -315,6 +323,7 @@ static float finish_reduction(sycl::queue& q, float* levels, int groups) {
 }
 
 float matrix_sum_gpu(const float* data, int size) {
+    GPUManager::trace_kernel("matrix_sum_gpu");  // TD-574
     // TD-088: an empty tensor has no group to reduce to.
     if (size <= 0) {
         return 0.0f;
@@ -333,6 +342,7 @@ float matrix_sum_gpu(const float* data, int size) {
 // on, so a temporary array could be read after it's freed (same in matrix_batch_multiply_gpu)
 void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** c_batch,
                           int batch_size, int size) {
+    GPUManager::trace_kernel("matrix_batch_add_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const size_t ptr_bytes = static_cast<size_t>(batch_size) * sizeof(float*);
 
@@ -383,6 +393,7 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** 
 
 void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch, float** c_batch,
                                int batch_size, int m, int k, int n) {
+    GPUManager::trace_kernel("matrix_batch_multiply_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     const float alpha = 1.0f;
     const float beta = 0.0f;
@@ -426,6 +437,7 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch, flo
 // ============================================================================
 
 void matrix_add_inplace_gpu(const float* src, float* dst, int size) {
+    GPUManager::trace_kernel("matrix_add_inplace_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) { dst[idx] += src[idx]; });
 }
@@ -435,6 +447,7 @@ void matrix_add_inplace_gpu(const float* src, float* dst, int size) {
 // ============================================================================
 
 void matrix_softmax_rows_gpu(float* data, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_softmax_rows_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     q.submit([&](sycl::handler& cgh) {
@@ -491,6 +504,7 @@ void matrix_softmax_rows_gpu(float* data, int rows, int cols) {
 
 void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din, int rows,
                                  int cols) {
+    GPUManager::trace_kernel("matrix_softmax_backward_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     q.submit([&](sycl::handler& cgh) {
@@ -528,6 +542,7 @@ void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din, 
 // ============================================================================
 
 void matrix_gelu_backward_gpu(const float* pre_act, const float* dout, float* din, int size) {
+    GPUManager::trace_kernel("matrix_gelu_backward_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) {
         const float x = pre_act[idx];
@@ -551,6 +566,7 @@ void matrix_gelu_backward_gpu(const float* pre_act, const float* dout, float* di
 void matrix_layer_norm_fwd_gpu(const float* input, float* output, float* out_normed,
                                const float* gamma, const float* beta, float* out_mean,
                                float* out_rstd, int rows, int cols, float eps) {
+    GPUManager::trace_kernel("matrix_layer_norm_fwd_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     const float inv_cols = 1.0f / static_cast<float>(cols);
@@ -619,6 +635,7 @@ void matrix_layer_norm_fwd_gpu(const float* input, float* output, float* out_nor
 void matrix_layer_norm_bwd_gpu(const float* dout, const float* input_norm, const float* gamma,
                                const float* mean, const float* rstd, float* dx, float* dgamma,
                                float* dbeta, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_layer_norm_bwd_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     const float inv_N = 1.0f / static_cast<float>(cols);
@@ -688,6 +705,7 @@ void matrix_layer_norm_bwd_gpu(const float* dout, const float* input_norm, const
 // ============================================================================
 
 void matrix_add_row_bias_gpu(const float* mat, const float* bias, float* out, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_add_row_bias_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<2>(rows, cols), [=](sycl::id<2> idx) {
         out[idx[0] * cols + idx[1]] = mat[idx[0] * cols + idx[1]] + bias[idx[1]];
@@ -699,6 +717,7 @@ void matrix_add_row_bias_gpu(const float* mat, const float* bias, float* out, in
 // ============================================================================
 
 void matrix_sum_rows_gpu(const float* mat, float* out, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_sum_rows_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<1>(cols), [=](sycl::id<1> j) {
         float s = 0.0f;
@@ -713,6 +732,7 @@ void matrix_sum_rows_gpu(const float* mat, float* out, int rows, int cols) {
 // ============================================================================
 
 void matrix_masked_fill_gpu(float* data, const float* mask, float fill_val, int size) {
+    GPUManager::trace_kernel("matrix_masked_fill_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) {
         if (mask[idx] == 0.0f)
@@ -727,6 +747,7 @@ void matrix_masked_fill_gpu(float* data, const float* mask, float fill_val, int 
 
 float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int seq_len,
                                     int vocab_size) {
+    GPUManager::trace_kernel("matrix_cross_entropy_loss_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     GPUMemory<float> d_losses(seq_len);
     constexpr int WG = 256;
@@ -786,6 +807,7 @@ float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int
 // ============================================================================
 
 int matrix_token_correct_gpu(const float* logits, const int* targets, int seq_len, int vocab_size) {
+    GPUManager::trace_kernel("matrix_token_correct_gpu");  // TD-574
     if (seq_len <= 0) {
         return 0;
     }
@@ -842,6 +864,7 @@ int matrix_token_correct_gpu(const float* logits, const int* targets, int seq_le
 
 void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, float* grad,
                                    int seq_len, int vocab_size) {
+    GPUManager::trace_kernel("matrix_cross_entropy_grad_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     const float inv_seq = 1.0f / static_cast<float>(seq_len);
@@ -903,6 +926,7 @@ void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, floa
 // with the per-thread load replaced by a thresholded predicate; finish_reduction()
 // does the final multi-group reduce.
 float matrix_count_below_threshold_gpu(const float* data, int size, float threshold) {
+    GPUManager::trace_kernel("matrix_count_below_threshold_gpu");  // TD-574
     if (size <= 0) {
         return 0.0f;
     }
@@ -937,6 +961,7 @@ float matrix_count_below_threshold_gpu(const float* data, int size, float thresh
 // per-row shape; out_row_entropy is a [rows]-sized buffer the caller reduces
 // separately (via matrix_sum_gpu) to get a single scalar average.
 void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows, int cols) {
+    GPUManager::trace_kernel("matrix_row_entropy_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     constexpr int WG = 256;
     q.submit([&](sycl::handler& cgh) {
@@ -974,6 +999,7 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 // ============================================================================
 
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
+    GPUManager::trace_kernel("matrix_copy_device_to_device_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     // In-order queue: no .wait() needed, ordering with subsequent kernels on
     // the same queue is guaranteed.
@@ -981,6 +1007,7 @@ void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
 }
 
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
+    GPUManager::trace_kernel("matrix_download_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
     q.memcpy(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float)).wait();
 }
@@ -989,9 +1016,51 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
 // TD-468: device-resident optimizer
 // ============================================================================
 
+// ============================================================================
+// TD-574: host versions of the kernel families ADAI_GPU_HOST_KERNELS names, for finding which
+// kernels an engine reset interrupts. Each downloads its inputs, computes on the host with the same
+// formulas, and uploads the results, waiting for every copy. Diagnostics only: slow, and against
+// the rule that GPU training keeps its math on the device.
+// ============================================================================
+
+namespace {
+
+template <typename T>
+std::vector<T> host_copy_of(const T* device, size_t count) {
+    std::vector<T> host(count);
+    if (count > 0) {
+        GPUManager::get_queue().memcpy(host.data(), device, count * sizeof(T)).wait_and_throw();
+    }
+    return host;
+}
+
+template <typename T>
+void device_copy_of(T* device, const std::vector<T>& host) {
+    if (!host.empty()) {
+        GPUManager::get_queue()
+            .memcpy(device, host.data(), host.size() * sizeof(T))
+            .wait_and_throw();
+    }
+}
+
+}  // namespace
+
 // TD-344: inverted dropout, mask generated on the device from the seed. In-order queue: no .wait().
 void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
                          unsigned long long seed) {
+    GPUManager::trace_kernel("dropout_forward_gpu");  // TD-574
+    if (size > 0 && host_kernel(kHostDropout)) {
+        note_host_kernel_run();
+        std::vector<float> h = host_copy_of(data, static_cast<size_t>(size));
+        std::vector<float> hm(h.size());
+        for (size_t i = 0; i < h.size(); ++i) {
+            hm[i] = adai::dropout_mask_value(seed, static_cast<std::uint64_t>(i), keep_prob);
+            h[i] *= hm[i];
+        }
+        device_copy_of(mask, hm);
+        device_copy_of(data, h);
+        return;
+    }
     if (size <= 0) {
         return;
     }
@@ -1007,6 +1076,7 @@ void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
 
 // TD-342: DecoderBlock's gated residual, the gate read on the device. In-order queue: no .wait().
 void gated_residual_add_gpu(float* residual, const float* attn, const float* gate, int size) {
+    GPUManager::trace_kernel("gated_residual_add_gpu");  // TD-574
     if (size <= 0) {
         return;
     }
@@ -1019,6 +1089,7 @@ void gated_residual_add_gpu(float* residual, const float* attn, const float* gat
 
 void gated_residual_backward_gpu(const float* d_res, const float* attn, const float* gate,
                                  float* d_attn, float* gate_grad, int size) {
+    GPUManager::trace_kernel("gated_residual_backward_gpu");  // TD-574
     if (size <= 0) {
         return;
     }
@@ -1047,6 +1118,19 @@ void gated_residual_backward_gpu(const float* d_res, const float* attn, const fl
 }
 
 void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device) {
+    GPUManager::trace_kernel("matrix_sum_squares_accumulate_gpu");  // TD-574
+    if (size > 0 && host_kernel(kHostOptimizer)) {
+        note_host_kernel_run();
+        const std::vector<float> h = host_copy_of(data, static_cast<size_t>(size));
+        float acc = 0.0f;
+        for (float x : h) {
+            acc += x * x;
+        }
+        std::vector<float> out = host_copy_of(out_device, 1);
+        out[0] += acc;
+        device_copy_of(out_device, out);
+        return;
+    }
     if (size <= 0) {
         return;
     }
@@ -1078,6 +1162,31 @@ void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_d
 
 void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
                           const GPUOptimizerUpdate& update) {
+    GPUManager::trace_kernel("optimizer_update_gpu");  // TD-574
+    if (size > 0 && host_kernel(kHostOptimizer)) {
+        note_host_kernel_run();
+        const size_t n = static_cast<size_t>(size);
+        std::vector<float> hw = host_copy_of(weights, n);
+        const std::vector<float> hg = host_copy_of(grads, n);
+        std::vector<float> hm = m ? host_copy_of(m, n) : std::vector<float>();
+        std::vector<float> hv = v ? host_copy_of(v, n) : std::vector<float>();
+        for (size_t i = 0; i < n; ++i) {
+            float mi = m ? hm[i] : 0.0f;
+            float vi = v ? hv[i] : 0.0f;
+            hw[i] = optimizer_update_element(update, hw[i], hg[i], mi, vi,
+                                             [](float x) { return std::sqrt(x); });
+            if (m)
+                hm[i] = mi;
+            if (v)
+                hv[i] = vi;
+        }
+        device_copy_of(weights, hw);
+        if (m)
+            device_copy_of(m, hm);
+        if (v)
+            device_copy_of(v, hv);
+        return;
+    }
     if (size <= 0) {
         return;
     }
@@ -1090,49 +1199,14 @@ void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v
         if (i >= size) {
             return;
         }
-        float g = grads[i] * u.grad_scale;
-        float w = weights[i];
-        // Same formulas, in the same order, as Optimizer::step_sgd/step_sgd_momentum/
-        // step_adam/step_adamw.
-        switch (u.rule) {
-            case GPUOptimizerRule::SGD:
-                if (u.weight_decay > 0.0f)
-                    g += u.weight_decay * w;
-                w -= u.learning_rate * g;
-                break;
-            case GPUOptimizerRule::SGD_MOMENTUM: {
-                if (u.weight_decay > 0.0f)
-                    g += u.weight_decay * w;
-                const float mi = u.momentum_beta * m[i] + g;
-                m[i] = mi;
-                w -= u.learning_rate * mi;
-                break;
-            }
-            case GPUOptimizerRule::ADAM: {
-                if (u.weight_decay > 0.0f)
-                    g += u.weight_decay * w;
-                const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
-                const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
-                m[i] = mi;
-                v[i] = vi;
-                const float m_hat = mi / u.bias_correction1;
-                const float v_hat = vi / u.bias_correction2;
-                w -= u.learning_rate * m_hat / (sycl::sqrt(v_hat) + u.epsilon);
-                break;
-            }
-            case GPUOptimizerRule::ADAMW: {
-                const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
-                const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
-                m[i] = mi;
-                v[i] = vi;
-                const float m_hat = mi / u.bias_correction1;
-                const float v_hat = vi / u.bias_correction2;
-                w -= u.learning_rate * (m_hat / (sycl::sqrt(v_hat) + u.epsilon) +
-                                        u.weight_decay * w);
-                break;
-            }
-        }
-        weights[i] = w;
+        float mi = m ? m[i] : 0.0f;
+        float vi = v ? v[i] : 0.0f;
+        weights[i] = optimizer_update_element(u, weights[i], grads[i], mi, vi,
+                                              [](float x) { return sycl::sqrt(x); });
+        if (m)
+            m[i] = mi;
+        if (v)
+            v[i] = vi;
     });
 }
 
@@ -1142,6 +1216,26 @@ void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v
 
 void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float* pe, int pe_rows,
                                  int pos_offset, float* out, int n, int d) {
+    GPUManager::trace_kernel("embedding_gather_add_pe_gpu");  // TD-574
+    if (n > 0 && d > 0 && host_kernel(kHostEmbedding)) {
+        note_host_kernel_run();
+        const std::vector<int> hid = host_copy_of(ids, static_cast<size_t>(n));
+        std::vector<float> h(static_cast<size_t>(n) * d);
+        for (int i = 0; i < n; ++i) {
+            const std::vector<float> row =
+                host_copy_of(table + static_cast<size_t>(hid[i]) * d, static_cast<size_t>(d));
+            const int pos = pos_offset + i;
+            std::vector<float> pe_row;
+            if (pe && pos < pe_rows) {
+                pe_row = host_copy_of(pe + static_cast<size_t>(pos) * d, static_cast<size_t>(d));
+            }
+            for (int j = 0; j < d; ++j) {
+                h[static_cast<size_t>(i) * d + j] = row[j] + (pe_row.empty() ? 0.0f : pe_row[j]);
+            }
+        }
+        device_copy_of(out, h);
+        return;
+    }
     const int total = n * d;
     if (total <= 0) {
         return;
@@ -1166,6 +1260,21 @@ void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float
 }
 
 void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d) {
+    GPUManager::trace_kernel("embedding_scatter_add_gpu");  // TD-574
+    if (n > 0 && d > 0 && host_kernel(kHostEmbedding)) {
+        note_host_kernel_run();
+        const std::vector<int> hid = host_copy_of(ids, static_cast<size_t>(n));
+        const std::vector<float> hd = host_copy_of(dout, static_cast<size_t>(n) * d);
+        for (int i = 0; i < n; ++i) {
+            float* row_ptr = grad_table + static_cast<size_t>(hid[i]) * d;
+            std::vector<float> row = host_copy_of(row_ptr, static_cast<size_t>(d));
+            for (int j = 0; j < d; ++j) {
+                row[j] += hd[static_cast<size_t>(i) * d + j];
+            }
+            device_copy_of(row_ptr, row);
+        }
+        return;
+    }
     const int total = n * d;
     if (total <= 0) {
         return;

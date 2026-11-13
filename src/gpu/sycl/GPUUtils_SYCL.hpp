@@ -2,20 +2,20 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-383, TD-392 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-11-10
-
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-13
 
 #include <cstddef>
+#include <cstdlib>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <sycl/ext/oneapi/properties/properties.hpp>
+#include <sycl/sycl.hpp>
 #include <unordered_map>
 #include <vector>
-#include <sycl/ext/oneapi/properties/properties.hpp>
-#include <cstdlib>
-#include <sycl/sycl.hpp>
 #include "../DeviceSelection.hpp"
+#include "../GPUDebugSync.hpp"  // TD-574
 
 namespace adai {
 namespace gpu {
@@ -283,6 +283,26 @@ class GPUManager {
         return *queue_;
     }
 
+    /// TD-574: called at the start of every kernel entry point. Records @p kernel as the latest GPU
+    /// work; with ADAI_GPU_SYNC=kernel (or before every Nth operation with kernel:N) it first
+    /// waits for the queue, so an error surfaces here, still attributed to the kernel before
+    /// (describe_last_gpu_work()).
+    static void trace_kernel(const char* kernel) {
+        if (queue_ && wait_before_gpu_operation()) {
+            queue_->wait_and_throw();
+        }
+        note_gpu_kernel(kernel);
+    }
+
+    /// TD-574: called where a training phase starts queuing work. With ADAI_GPU_SYNC=step or kernel
+    /// it first waits for the previous phase's work, so an error is attributed to that phase.
+    static void debug_sync_point(const char* phase) {
+        if (gpu_debug_settings().sync != DebugSyncMode::Off && queue_) {
+            queue_->wait_and_throw();
+        }
+        note_gpu_phase(phase);
+    }
+
     static size_t get_memory_limit_bytes() {
         std::lock_guard<std::mutex> lock(memory_mutex_);
         return max_memory_bytes_;
@@ -537,6 +557,7 @@ class GPUMemory {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");
         }
+        GPUManager::trace_kernel("upload");  // TD-574
         GPUManager::get_queue().memcpy(device_ptr_, host_ptr, count * sizeof(T)).wait();
     }
 
@@ -544,6 +565,7 @@ class GPUMemory {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");
         }
+        GPUManager::trace_kernel("download");  // TD-574
         GPUManager::get_queue().memcpy(host_ptr, device_ptr_, count * sizeof(T)).wait();
     }
 };

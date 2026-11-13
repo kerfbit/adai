@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.2
-// @adai-reviewed: 2026-11-11
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-11-13
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -53,6 +53,10 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
 void ChatbotTrainer::stop_if_device_lost(const char* sample_error) {
     if (device_usable_ && !device_usable_()) {
         device_lost_ = true;
+#ifdef ADAI_ENABLE_GPU
+        // TD-574: what the GPU was doing; exact with ADAI_GPU_SYNC=kernel.
+        adai::Logger::error("  Last GPU work: {}", adai::gpu::describe_last_gpu_work());
+#endif
         throw GPUDeviceLostError(std::string("the GPU stopped running work (") + sample_error +
                                  "); stopping the pass");
     }
@@ -1180,6 +1184,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // is attributed to in logs and callbacks.
     int dropped_samples = 0;  // samples that contributed no gradient this epoch
     auto apply_update = [&](int i) {
+#ifdef ADAI_ENABLE_GPU
+        adai::gpu::GPUManager::debug_sync_point("optimizer");  // TD-574
+#endif
         // Compute padding efficiency for this accumulation window
         if (pad_win_count > 0 && (pad_win_max_input + pad_win_max_target) > 0) {
             int padded = (pad_win_max_input + pad_win_max_target) * pad_win_count;
@@ -1502,6 +1509,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 #ifdef ADAI_ENABLE_GPU
             // GPU path: forward + cross-entropy loss entirely on device
             // TD-358: gpu_forward() teacher-forces with [BOS] + target[:-1], like the CPU forward().
+            adai::gpu::GPUManager::debug_sync_point("forward");  // TD-574
             loss = model->gpu_forward(pair.input_tokens, pair.target_tokens);
 
             // Backfill quality from loss
@@ -1513,6 +1521,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // GPU backward with accumulation scale baked in
             backward_started = true;
+            adai::gpu::GPUManager::debug_sync_point("backward");  // TD-574
             model->gpu_backward(grad_scale);
             // No per-sample gpu_synchronize(): it drained deferred frees, which the SYCL memory
             // pool no longer has (TD-390). The next sample's upload waits for the queue anyway.
@@ -1839,6 +1848,7 @@ float ChatbotTrainer::validate() {
             // what training ever allocates for the same dataset.
             TokenAccuracy accuracy;
 #ifdef ADAI_ENABLE_GPU
+            adai::gpu::GPUManager::debug_sync_point("validation");  // TD-574
             float loss =
                 model->gpu_evaluate_tokenized(pair.input_tokens, pair.target_tokens, &accuracy);
 #else
@@ -2223,6 +2233,10 @@ bool ChatbotTrainer::train(int num_epochs) {
         // TD-468: from here until sync_host_from_device() at the end, the device weights are
         // the live copy.
         bind_gpu_optimizer();
+        const bool gpu_debug = !adai::gpu::gpu_debug_summary().empty();
+        if (gpu_debug) {
+            adai::Logger::warn("[GPU] {}", adai::gpu::gpu_debug_summary());  // TD-574
+        }
 #endif
 
         // Train for specified epochs
@@ -2306,6 +2320,11 @@ bool ChatbotTrainer::train(int num_epochs) {
         sync_host_from_device();
 #ifdef ADAI_ENABLE_GPU
         gpu_optimizer_.reset();
+        if (gpu_debug) {
+            adai::Logger::warn(
+                "[GPU] TD-574: {} kernel calls ran on the host so far in this process",
+                adai::gpu::host_kernel_runs());
+        }
 #endif
 
         // validate() saves best_model_path whenever a new best validation loss is

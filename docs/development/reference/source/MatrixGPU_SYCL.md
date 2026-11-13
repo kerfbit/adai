@@ -4,8 +4,8 @@
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, the SYCL `GPUMatrix`)
 - **Built into:** SYCL builds; included by `gpu/MatrixGPU.hpp` in place of its CUDA section. Kernels in [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md); queue and memory in [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** the CUDA section of [MatrixGPU.md](MatrixGPU.md) (`gpu/MatrixGPU.hpp`), which also holds the shared `GPUKVCache`/`GPUDecoderKVCache`
-- **Status tag:** `@adai-status: beta` ("capped by TD-050"), `@adai-version: 0.9.0`, `@adai-reviewed: 2026-09-10`
-- **Last traced against the code:** 2026-10-12
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.16.0`, `@adai-reviewed: 2026-11-13`
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
 
 > Code-traced reference. The `GPUMatrix` here, and the shared `GPUKVCache`/`GPUDecoderKVCache`
 > built on it, were **run** on the oneAPI CPU device through the scratch harness described in
@@ -85,3 +85,8 @@ CPU's first maximum) by a strided scan and a tree reduction in local memory, and
 outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
 Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
 and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.
+
+## Addendum (November 13, 2026): `copy()` and `zero()` traced (TD-574)
+
+`GPUMatrix::copy()` and `zero()`, the two operations that use the queue directly, call `GPUManager::trace_kernel()`
+(`gpu_matrix_copy`, `gpu_matrix_zero`), like every kernel entry point; see [GPUDebugSync.md](GPUDebugSync.md).

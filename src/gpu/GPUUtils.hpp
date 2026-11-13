@@ -2,9 +2,8 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (capped by TD-383; CUDA paths never run on a device — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-11-10
-
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-11-13
 
 #include <cstddef>
 #include <stdexcept>
@@ -48,6 +47,7 @@ class ScopedCpuOnly {
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <mutex>
+#include "GPUDebugSync.hpp"  // TD-574
 
 // CUDA error checking macro
 #define CUDA_CHECK(call)                                                                       \
@@ -480,6 +480,15 @@ class GPUManager {
         if (stream_) {
             CUDA_CHECK(cudaStreamSynchronize(stream_));
         }
+    }
+
+    /// TD-574: records the training phase; with ADAI_GPU_SYNC=step or kernel it first synchronizes,
+    /// so an error is attributed to the previous phase. The CUDA kernels don't trace themselves.
+    static void debug_sync_point(const char* phase) {
+        if (gpu_debug_settings().sync != DebugSyncMode::Off) {
+            synchronize();
+        }
+        note_gpu_phase(phase);
     }
 
     /// TD-566: whether the device still runs work: one small allocation, a fill, a copy back and a

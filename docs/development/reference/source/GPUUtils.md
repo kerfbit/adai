@@ -3,10 +3,10 @@
 - **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 492 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`), plus the `CUDA_CHECK`/`CUBLAS_CHECK` macros
 - **Built into:** every GPU-enabled target via `adai_gpu`; the no-GPU stub is used by every other build
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.0`, `@adai-reviewed: 2026-10-17`
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-13`
 - **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (19 tests; 9 need a CUDA device and skip without one)
 - **SYCL counterpart:** `src/gpu/sycl/GPUUtils_SYCL.hpp` (documented separately)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
 
 > Code-traced reference. No CUDA device is available in this environment, so nothing here was run on
 > real hardware. The CUDA test build (`build/cuda-gputest`) was run: its 9 host-side tests pass and
@@ -158,3 +158,9 @@ stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost devic
 `chatbot_api_server` now calls `gpu_try_initialize()` with `GPU_STRATEGY` mapped as in `incremental_trainer`: `background` →
 low priority, `full` → high. Its startup log now names the strategy. On the oneAPI CPU device the old server created a
 low-priority queue under both strategies; the fixed server's queue is high priority under `full`, read from `SYCL_UR_TRACE=2`.
+
+## Addendum (November 13, 2026): `debug_sync_point()` (TD-574)
+
+The CUDA `GPUManager` has `debug_sync_point(phase)`, which `ChatbotTrainer` calls where each training phase starts: it records the
+phase and, with `ADAI_GPU_SYNC=step` or `kernel`, synchronizes the stream first ([GPUDebugSync.md](GPUDebugSync.md)). The CUDA
+kernels don't trace themselves and have no host versions; the investigation is on the SYCL backend.

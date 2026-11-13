@@ -2,8 +2,8 @@
 #define MATRIX_GPU_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-13
 
 #include "../GPUOptimizerKernels.hpp"
 #include "GPUUtils_SYCL.hpp"
@@ -130,6 +130,7 @@ class GPUMatrix {
     // TODO: See TD-395 in TECHNICAL_DEBT.md - the .wait() below drains the in-order queue unnecessarily
     GPUMatrix copy() const {
         GPUMatrix result(rows, cols);
+        GPUManager::trace_kernel("gpu_matrix_copy");  // TD-574
         auto& q = GPUManager::get_queue();
         q.memcpy(result.data_.get(), data_.get(), static_cast<size_t>(rows * cols) * sizeof(float))
             .wait();
@@ -197,6 +198,7 @@ class GPUMatrix {
     // ---- TD-003 persistent-training operations ----------------------------
 
     void zero() {
+        GPUManager::trace_kernel("gpu_matrix_zero");  // TD-574
         auto& q = GPUManager::get_queue();
         q.memset(data_.get(), 0, static_cast<size_t>(rows * cols) * sizeof(float));
     }

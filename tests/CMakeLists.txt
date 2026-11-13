@@ -1221,6 +1221,17 @@ add_executable(deviceSelectionTests device_selection_test.cpp)
 target_link_libraries(deviceSelectionTests GTest::gtest_main)
 add_test(NAME DeviceSelectionTests COMMAND deviceSelectionTests)
 
+# TD-574: GPU reset diagnostics. A GPU build has GPUDebugSync.cpp in adai_gpu (through adai_core)
+# and also checks the host kernel versions against the device; other builds compile it directly.
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(gpuDebugSyncTests gpu_debug_sync_test.cpp)
+    target_link_libraries(gpuDebugSyncTests adai_core GTest::gtest_main)
+else()
+    add_executable(gpuDebugSyncTests gpu_debug_sync_test.cpp ${CMAKE_SOURCE_DIR}/src/gpu/GPUDebugSync.cpp)
+    target_link_libraries(gpuDebugSyncTests GTest::gtest_main)
+endif()
+add_test(NAME GPUDebugSyncTests COMMAND gpuDebugSyncTests)
+
 # TD-041: GPUManager/GPUMemory tests. Two files, not one, because
 # GPUUtils.hpp compiles to genuinely different code depending on
 # ADAI_ENABLE_GPU — a real device backend (CUDA or SYCL, sharing an identical

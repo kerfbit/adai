@@ -1,11 +1,11 @@
 # `gpu/sycl/GPUUtils_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 420 lines)
+- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 575 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.6.3`, `@adai-reviewed: 2026-09-13`
+- **Status tag:** `@adai-status: beta` (capped by TD-383, TD-392), `@adai-version: 0.11.0`, `@adai-reviewed: 2026-11-13`
 - **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (19 tests; 9 skip without a GPU, as they do in `build/sycl-gputest` here)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
 
 > Code-traced reference. There's no Intel GPU here, and `GPUManager` deliberately ignores the oneAPI
 > CPU device this machine does have. The SYCL behaviours marked **verified** were measured with a
@@ -52,6 +52,8 @@ ordering") is about this queue.
 | Budget: `get_*_bytes()`, `reserve_memory()`, `release_memory()` | All under `memory_mutex_`. `reserve_memory()` first tries; on failure it **drains the queue** (so pending deferred frees run) and retries before throwing |
 | `get_device_info(d)` | Name, global memory, compute units, max work-group size, and the ADAI budget. Throws `out_of_range` for an invalid device |
 | `synchronize()` | `queue_->wait()` |
+| `trace_kernel(name)` | TD-574: records `name` as the latest GPU work; with `ADAI_GPU_SYNC=kernel` waits for the queue first (`wait_and_throw()`), with `kernel:N` before every Nth call (`wait_before_gpu_operation()`). Called by every kernel entry point and by `GPUMemory`'s copies |
+| `debug_sync_point(phase)` | TD-574: records the training phase; with `ADAI_GPU_SYNC=step` or `kernel` waits for the queue first |
 
 ---
 
@@ -137,3 +139,9 @@ dropped when a better backend has an unmatched device of the same vendor and nam
 `GPUManager::device_usable()` reports whether the device still runs work: one small allocation outside the pool and the budget, a
 fill, a copy back and a wait. It returns false before `initialize()` and after a lost or reset device (and always in the no-GPU
 stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost device from a bad sample.
+
+## Addendum (November 13, 2026): engine-reset diagnostics (TD-574)
+
+`GPUManager::trace_kernel()` and `debug_sync_point()` (table in §2) connect the kernels and the trainer to
+[GPUDebugSync.md](GPUDebugSync.md). `GPUMemory::copy_from_host()`/`copy_to_host()` trace themselves as `upload`/`download`.
+`device_usable()` uses the queue directly and isn't traced, so the probe after a failure doesn't overwrite the record of what failed.

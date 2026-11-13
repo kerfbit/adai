@@ -1,11 +1,11 @@
 # `ChatbotTrainer` — Source File Reference
 
-- **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp) (709 lines), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp) (2,607 lines)
+- **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp) (709 lines), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp) (2,627 lines)
 - **Built into:** compiled directly into `incremental_trainer`, `training_metrics_example` and `chatbottrainerTests`; it isn't part of a static library
-- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.22.2` (2026-11-11)
+- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.23.0` (2026-11-13)
 - **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (99; `friend class ChatbotTrainerCacheTest` for the cache and internals); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md)
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (its only production caller), [GPUOptimizer.md](GPUOptimizer.md), [PassHeartbeat.md](PassHeartbeat.md)
-- **Last traced against the code:** 2026-11-11
+- **Last traced against the code:** 2026-11-13
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by a real training pass (a tiny model and the debug libraries, or a real
 > `incremental_trainer` pass); the rest is from the code and its callers.
@@ -83,7 +83,8 @@ split_data() when there's no validation data and validation_split > 0          (
 preprocess_data()                                                              (§6)
 no training pairs → false (TD-412)
 total steps = epochs × ceil(pairs / accumulation); fix the run's warmup on its first call (TD-269)
-GPU: bind_gpu_optimizer()  (upload the host weights, bind a GPUOptimizer to the device mirrors, TD-468)
+GPU: bind_gpu_optimizer()  (upload the host weights, bind a GPUOptimizer to the device mirrors, TD-468);
+     log the TD-574 diagnostics when any is set
 for each epoch:
     train_epoch(e)                                                             (§7)
     aborted → stop
@@ -92,7 +93,8 @@ for each epoch:
     report_sample_quality(epoch, "loss") with the loss backfill on (TD-273)
     metrics_tracker_.record_epoch(...), epoch callback
     early stop (validation data only) → break   (after the callback, TD-571)
-GPU: copy device weights and moments back (sync_host_from_device())
+GPU: copy device weights and moments back (sync_host_from_device()); with diagnostics set, log how many
+     kernel calls ran on the host (TD-574)
 restore the best weights when early stopping and restore_best_weights are on; remove the copy
 generation backfill: join the quality thread, score every pair, report "generation"
 return true
@@ -142,7 +144,12 @@ diagnostic hooks (activation saturation, attention entropy; device-reduced in GP
      callback, `update_sample_metrics()`;
 5. **a sample that throws:** in a GPU build, `device_usable()` checks the device first; an unusable one throws `GPUDeviceLostError` (TD-566).
    Otherwise a failure before backward keeps the window's gradients, one during backward drops the window, and the last window still steps
-   (TD-272).
+   (TD-272). On a lost device it also logs `Last GPU work: …` (TD-574, [GPUDebugSync.md](GPUDebugSync.md)).
+
+**GPU sync points (TD-574).** `GPUManager::debug_sync_point()` is called where each phase starts queuing work: `forward` before
+`gpu_forward()`, `backward` before `gpu_backward()`, `optimizer` at the start of `apply_update()`, and `validation` before each
+`gpu_evaluate_tokenized()`. It records the phase, and with `ADAI_GPU_SYNC=step` or `kernel` first waits for the previous phase's work,
+so a failure is attributed to it. Off by default, when it only records.
 
 At epoch end: no update at all throws `EpochTrainedNothingError` (unless aborted, TD-566); otherwise the average loss and gradient norm over the
 updates, perplexity, the history vectors, and the advanced metrics, saturation, entropy, per-layer gradient norms (LayerNorms included, TD-356),
@@ -194,6 +201,7 @@ fails with the check moved back.
 | Skipped pairs biasing validation; `end_epoch()` only with validation; optimizer state and LR schedule per pass; adaptive clipping per epoch; split vs cache; mid-window losses; unread backfills; the best-weights file; `<eos>` lost; hygiene | — | **Fixed** October 17 – November 4, 2026 | TD-267–TD-276 |
 | Device-resident optimizer and embeddings | — | **Fixed** October 19, 2026 | TD-468, TD-547 |
 | A lost GPU retried every sample; an epoch with no update recorded as loss 0 | — | **Fixed November 10, 2026** | TD-566 |
+| TD-574 diagnostics: phase sync points and the last GPU work on a lost device (§7) | Off by default | Added November 13, 2026 | [TD-574](../../guides/TECHNICAL_DEBT.md#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) |
 | The whole class below `stable` | Still changing shape (it changed again today) | — | TD-039 |
 
 ## 12. History
@@ -205,5 +213,6 @@ fails with the check moved back.
   (TD-274), validation accuracy and clean-ups (TD-276).
 - **November 8, 2026:** dropout (TD-344), turn tokens and history (TD-295).
 - **November 10, 2026:** a lost GPU stops the pass (TD-566).
+- **November 13, 2026:** TD-574's engine-reset diagnostics (§7).
 - **November 11, 2026:** progress notes (TD-569); the early-stop check after the epoch callback (TD-571). This document was re-traced against the code, replacing its October sections and folding in
   its addenda.

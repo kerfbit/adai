@@ -18,6 +18,12 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 13, 2026:** Filed [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
+(MEDIUM) from the November 12 GPU run: Arc engine resets happen only when training runs our own device kernels (the LeJEPA pass, which
+sends the GPU one waited-for GEMM at a time, ran 220 passes without one). Added diagnostics to find the work they interrupt:
+`ADAI_GPU_SYNC`, `ADAI_GPU_HOST_KERNELS`, `ADAI_GPU_TRACE_FILE`, a forward-only `gpu_encode_soak`, crash-dump capture and an
+engine-reset bisection in the GPU test package. Needs a run on ai-machine.
+
 **November 12, 2026:** Fixed [TD-465](#td-465-safetensors-round-trip-replaces-the-decoder-embedding) in code: SafeTensors export
 writes the decoder's own token embedding (`model.decoder.embed_tokens.weight`) next to the encoder's, and import loads each into its
 own embedding, so a round trip no longer changes the model's outputs. Files written before the fix still load.
@@ -2681,6 +2687,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-570: `BPETokenizer::load_vocab()` Takes Header Syntax Inside the Token and Merge Sections](#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections)
   - [TD-571: Findings From the November 11, 2026 Trace of the Files TD-569 Touched](#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
+  - [TD-574: Arc Engine Resets During Device-Resident Training: Find the GPU Work They Interrupt](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -19716,6 +19723,92 @@ Related: TD-047, TD-048.
 
 ---
 
+### TD-574: Arc Engine Resets During Device-Resident Training: Find the GPU Work They Interrupt
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — first bisection run November 13, 2026; second round packaged | GPU / Testing | November 13, 2026 | 1 day of tooling (done), then runs on ai-machine |
+
+Description:
+ai-machine's Arc Pro B60 has engine resets (`GT0: Engine reset: engine_class=ccs`) during chatbot training, which end a pass with a
+lost device (TD-566) or, on the Level Zero v1 adapter, a hang (TD-569). The soaks of November 10, 11 and 12, 2026 saw them in about one
+pass in eight, on both adapters and with either GuC firmware. **The LeJEPA world-model pass ran 220 passes on the same card the same day
+without one** (TD-572). The difference is what reaches the GPU:
+- The LeJEPA pass has no device training path. Its only GPU work comes from `Matrix::operator*` → `multiply_gpu()`: an upload, one
+  oneMKL GEMM and a download it waits for. Attention, softmax, LayerNorm, SIGReg, backward and the optimizer run on the CPU, and the
+  GPU is idle in between.
+- The chatbot pass (`ChatbotTrainer` with `GPUOptimizer`, TD-468/TD-547) keeps the whole step on the device: our own SYCL kernels for
+  softmax, LayerNorm and cross-entropy (scratch reductions), the embedding gather and a float-atomic scatter-add, device dropout masks
+  (TD-344) and the optimizer update and norms (float atomics), queued in long in-order chains with no host waits.
+
+The compute engine's job timeout on ai-machine is 5000 ms, and at the soak's size (d_model 64, 16 tokens) no correct kernel takes more
+than milliseconds, so a reset means a job stopped making progress or faulted, not a slow job. On November 12 the resets also came in
+bursts (22:28–22:30, 22:45–22:46, 23:01); the last two began within about 30 s of the harness killing a hung v1 pass. This is not proof
+the cause is in our code (the driver remains a suspect), but resets appeared only with our device-resident kernels.
+
+**Diagnostics (November 13, 2026).** All off by default, set through the environment
+([GPUDebugSync.md](../reference/source/GPUDebugSync.md)):
+- `ADAI_GPU_SYNC=step|kernel`: wait for the GPU where each training phase starts (`forward`, `backward`, `optimizer`, `validation`), or
+  also before every kernel, upload and download. A failure is then attributed to its phase, or to the exact kernel; a lost device logs
+  `Last GPU work: kernel <k> in phase <p>`. Every SYCL kernel entry point records its name whatever the setting.
+- `ADAI_GPU_HOST_KERNELS=embedding,optimizer,dropout`: those kernel families run on the host instead (download, same formulas, upload),
+  taking out the float atomics and the device masks one family at a time. The optimizer's per-parameter update is now one function
+  shared by the kernel and the host version (`optimizer_update_element()`). A pass logs how many kernel calls ran on the host.
+- `ADAI_GPU_TRACE_FILE=<path>`: one record of the last GPU work, rewritten in place, so a pass killed in a hang leaves it behind.
+- `gpu_encode_soak`: a forward-only soak through `LeJEPAEncoder::gpu_encode()` (our forward kernels, chained, no backward, atomics or
+  optimizer).
+- The GPU test package's `run_gpu_tests.sh` copies the xe driver's crash dump after every step (`coredumps/`; one per reset, freed after
+  copying so the next reset can write one), and its new engine-reset bisection (`--bisect-only`, `--bisect-passes N`) runs eight
+  variants round-robin: `control`, `sync_step`, `sync_kernel`, `no_dropout`, `host_embedding`, `host_optimizer`, `host_all`,
+  `encode_soak`. Results in `bisect_report.txt`.
+
+How to read it: resets that stop under `sync_kernel`/`sync_step` point at the long un-waited chains; resets that stop under one
+`host_*` variant point at that family; resets in `encode_soak` mean forward kernels alone are enough; `sync_kernel`'s `Last GPU work`
+names the kernel whenever a reset still happens, and the crash dumps show the engine state.
+
+**First run on ai-machine (November 13, 2026, 20 rounds of the eight variants, Level Zero v2, GuC 70.72.1).** Device losses per
+variant: `control` 1, `sync_step` 1, `sync_kernel` **0**, `no_dropout` 3, `host_embedding` 3, `host_optimizer` 1, `host_all` 4,
+`encode_soak` 7. Per minute on the GPU, the other variants lost the device about 1.5 times, so `sync_kernel`'s 189 s would have expected
+about 4.7 losses (0 is about a 1% chance); counted per pass (each does the same work but `sync_kernel` takes 3× longer) it is only about
+10%. Taking our dropout, embedding atomics and optimizer kernels out changed nothing, and the forward-only soak had resets too, so no
+single kernel family of ours is the cause. All 27 crash dumps (bisection and soak, both adapters) have one signature: `Reason: LR job
+cleanup`, a GuC-captured reset of the process's long-running compute context (job timeout infinite, so the 5 s job timeout did not
+fire; preempt timeout 640 ms, time slice 1 ms), the command streamer parked at the same `MI_STORE_DATA_IMM` (`IPEHR 0x10400002`) with
+`RING_ESR`/`RING_EIR` clear, and no page fault or CAT error in the kernel log. That reads as the firmware resetting the engine because a
+context switch didn't finish within 640 ms (an inference about GuC behaviour, not stated in the dump), which fits a busy context being
+switched out and the resets stopping only when the queue is nearly always empty. Every pass so far used the low-priority queue
+(`GPU_STRATEGY=background`). The run's "kernel events" counted the `coredump has been deleted` line that freeing the previous pass's
+dump writes; fixed in the package.
+
+**Second round (packaged November 13, 2026).** `ADAI_GPU_SYNC=kernel:N` waits before every Nth GPU operation only. The bisection adds
+`sync_every_8`, `sync_every_64`, `sync_every_512` (how deep a chain the resets need, and whether a cheap periodic wait is enough),
+`full_priority` (`GPU_STRATEGY=full`), runs `control` and `sync_kernel` twice per round (40 passes each by default), reports seconds on
+the GPU and losses per minute per variant, and with `--engine-tuning` (opt-in, sudo) adds `long_preempt` (the compute engine's
+`preempt_timeout_us` raised to 5 s) and `long_timeslice` (`timeslice_duration_us` raised to 100 ms), set in sysfs before each such pass
+(the driver copies them into each new exec queue), capped at the driver's maxima and restored after every pass and on exit. A sharp drop
+under either would confirm the context-switch reading.
+
+Tests: `gpuDebugSyncTests` (11 on the oneAPI CPU device, 7 of them in every build: parsing including `kernel:N`, which operations wait under it, the record and trace file, each host family against its device kernel
+with the host path's run count checked, and kernel mode naming the kernel);
+`package_sycl_gpu_tests_test.sh` (the new options and the kernel-event pattern).
+
+Action items:
+- [x] Diagnostics, the forward-only soak, crash-dump capture and the bisection in the GPU test package (November 13, 2026).
+- [x] Run `run_gpu_tests.sh --bisect-only` on ai-machine and read `bisect_report.txt` and `coredumps/` (November 13, 2026; results
+  above).
+- [x] Second round: `kernel:N`, priority, engine-setting variants, more control/`sync_kernel` passes, event-count fix (November 13,
+  2026).
+- [ ] Run `run_gpu_tests.sh --bisect-only --engine-tuning` on ai-machine.
+- [ ] From the result: fix the kernel or pattern involved, or, if every variant resets alike, report it upstream with the dumps.
+
+Location in code: `src/gpu/GPUDebugSync.{hpp,cpp}`, `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`trace_kernel()` calls, host versions),
+`src/gpu/sycl/GPUUtils_SYCL.hpp` (`trace_kernel()`, `debug_sync_point()`), `src/ChatbotTrainer.cpp` (sync points),
+`benchmarks/GpuEncodeSoak.cpp`, `scripts/sycl_gpu_tests/run_gpu_tests.sh`.
+
+Related: TD-566, TD-569, TD-572, TD-468, TD-547, TD-344.
+
+---
+
 ---
 
 ## Resolved Items
@@ -20234,15 +20327,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 334 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 335 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|36|11%|
-|Medium|144|43%|
+|Medium|145|43%|
 |Low|154|46%|
 
-**Total Active Items:** 334
+**Total Active Items:** 335
 
 ### By Component
 
@@ -20296,7 +20389,7 @@ Recomputed directly from the 334 `### TD-NNN` entries under [Active Technical De
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|6|
 |GPU / Kernels|4|
-|GPU / Testing|1|
+|GPU / Testing|2|
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
 |Training / CLI|4|

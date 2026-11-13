@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.3.0
-# @adai-reviewed: 2026-11-12
+# @adai-version: 0.4.0
+# @adai-reviewed: 2026-11-13
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
 # archive to copy back. Built into a package by scripts/package_sycl_gpu_tests.sh; see README.md
 # beside this script. Run ./prepare_host.sh first. This script changes nothing outside this
 # directory: it stops no services, and every trainer run uses a private config with no MNS,
-# registry or metrics. It uses sudo only to read the kernel log and the GPU firmware version and to
-# see other users' GPU processes.
+# registry or metrics. It uses sudo only to read the kernel log, the GPU firmware version and the
+# driver's crash dumps (freeing each one it copies, so the next engine reset can write a new one)
+# and to see other users' GPU processes. With --engine-tuning it also changes the compute engine's
+# preempt timeout and time slice in sysfs for some bisection passes, restoring them after each pass
+# and when the script exits.
 #
 #   ./run_gpu_tests.sh [--quick] [--skip-tests] [--skip-benchmark] [--skip-training] [--skip-soak]
 #                      [--soak-passes N] [--soak-epochs N] [--lejepa-only] [--skip-lejepa]
-#                      [--lejepa-soak-passes N] [--lejepa-soak-epochs N] [--runtime-dir DIR]
+#                      [--lejepa-soak-passes N] [--lejepa-soak-epochs N] [--bisect-passes N]
+#                      [--skip-bisect] [--bisect-only] [--engine-tuning] [--runtime-dir DIR]
 #                      [--allow-shared-gpu] [--allow-runtime-mismatch] [--no-sudo]
 #                      [--allow-cpu-device]
 #
@@ -27,6 +31,14 @@
 #                     LeJEPA soak passes (default 20, --quick 3; 0 = lifecycle checks only)
 # --lejepa-soak-epochs N
 #                     epochs per LeJEPA soak pass (default 5)
+# --bisect-passes N   passes per variant in the engine-reset bisection (TD-574; default 20,
+#                     --quick 3; 0 = none)
+# --skip-bisect       no engine-reset bisection
+# --bisect-only       only the device check and the engine-reset bisection
+# --engine-tuning     add two bisection variants that change a compute engine setting in sysfs
+#                     for their passes only (needs sudo): long_preempt (preempt timeout 5 s) and
+#                     long_timeslice (time slice 100 ms); the original values are restored after
+#                     every pass and when the script exits
 # --runtime-dir DIR   the oneAPI runtime every binary must load (default /opt/intel/oneapi/redist/lib,
 #                     where Intel's intel-oneapi-runtime-* packages install it)
 # --allow-shared-gpu  run even while other processes have the GPU open
@@ -54,6 +66,9 @@ RUN_LEJEPA=1
 LEJEPA_SOAK_PASSES=20
 LEJEPA_SOAK_EPOCHS=5
 LEJEPA_SOAK_SET=0
+BISECT_PASSES=20
+BISECT_SET=0
+ENGINE_TUNING=0
 RUNTIME_DIR=/opt/intel/oneapi/redist/lib
 ALLOW_SHARED=0
 ALLOW_MISMATCH=0
@@ -104,8 +119,27 @@ while [[ $# -gt 0 ]]; do
             RUN_TESTS=0
             RUN_BENCHMARK=0
             RUN_TRAINING=0
+            BISECT_PASSES=0
+            BISECT_SET=1
             ;;
         --skip-lejepa) RUN_LEJEPA=0 ;;
+        --bisect-passes)
+            need_number "$1" "${2:-}"
+            BISECT_PASSES="$2"
+            BISECT_SET=1
+            shift
+            ;;
+        --skip-bisect)
+            BISECT_PASSES=0
+            BISECT_SET=1
+            ;;
+        --engine-tuning) ENGINE_TUNING=1 ;;
+        --bisect-only)
+            RUN_LEJEPA=0
+            RUN_TESTS=0
+            RUN_BENCHMARK=0
+            RUN_TRAINING=0
+            ;;
         --lejepa-soak-passes)
             need_number "$1" "${2:-}"
             LEJEPA_SOAK_PASSES="$2"
@@ -135,6 +169,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ $QUICK == 1 && $SOAK_PASSES_SET == 0 ]] && SOAK_PASSES=3
 [[ $QUICK == 1 && $LEJEPA_SOAK_SET == 0 ]] && LEJEPA_SOAK_PASSES=3
+[[ $QUICK == 1 && $BISECT_SET == 0 ]] && BISECT_PASSES=3
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_START=$(date +%s)
@@ -162,7 +197,7 @@ export GTEST_COLOR=no
 
 SUDO=""
 if [[ $USE_SUDO == 1 ]]; then
-    echo "sudo is used to read the kernel log and GPU firmware version and to see other GPU users."
+    echo "sudo is used to read the kernel log and GPU firmware version, to see other GPU users and (with --engine-tuning) to change the compute engine settings."
     if sudo -v; then
         SUDO="sudo -n"
         # Keep the sudo timestamp fresh for the length of the run.
@@ -187,7 +222,9 @@ kernel_log() {
     fi
 }
 # What the xe driver logs around a GPU hang or device loss.
-KERNEL_EVENTS='Engine reset|Timedout job|wedged|coredump|Fault response|CAT error|GT[0-9]+: .*(reset|hang)'
+# Not "coredump has been deleted": capture_coredumps() causes that line itself when it frees a dump,
+# so it lands in the next pass's window (TD-574).
+KERNEL_EVENTS='Engine reset|Timedout job|wedged|coredump has been created|Fault response|CAT error|GT[0-9]+: .*(reset|hang)'
 
 BUILD_ONEAPI=$(sed -n 's/^oneapi: //p' "$HERE/MANIFEST.txt" 2>/dev/null)
 if [[ -z "$BUILD_ONEAPI" ]]; then
@@ -336,6 +373,24 @@ fi
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# capture_coredumps NAME: copies each xe crash dump the driver wrote (one per engine reset, held
+# until read and freed, or for 5 minutes) to coredumps/NAME_<card>.txt, then frees it so the next
+# reset can write one. TD-574: the dump records the engine and context state of the hung job.
+COREDUMP_MAX_BYTES=$((64 * 1024 * 1024))
+capture_coredumps() {
+    [[ -n "$SUDO" ]] || return 0
+    local f card out
+    for f in /sys/class/drm/card*/device/devcoredump/data; do
+        [[ -e "$f" ]] || continue
+        card=$(basename "$(dirname "$(dirname "$(dirname "$f")")")")
+        mkdir -p "$RESULTS/coredumps"
+        out="$RESULTS/coredumps/${1}_${card}.txt"
+        $SUDO head -c "$COREDUMP_MAX_BYTES" "$f" >"$out" 2>/dev/null
+        $SUDO sh -c "echo 1 > '$f'" 2>/dev/null
+        echo "$1 ${card}: $(wc -c <"$out") bytes" >>"$RESULTS/coredumps/index.txt"
+    done
+}
+
 FAILURES=0
 declare -a ROWS
 
@@ -356,6 +411,7 @@ step_expect() {
     (cd "$dir" && timeout -k 30 "$limit" "$@") >"$RESULTS/$name.log" 2>&1
     rc=$?
     end=$(date +%s)
+    capture_coredumps "$name"
     local note=""
     [[ $rc -eq 124 || $rc -eq 137 ]] && note=" (timed out after ${limit}s)"
     local skipped
@@ -394,11 +450,12 @@ if [[ $RUN_TESTS == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     log ""
     log "Test binaries"
     if [[ $QUICK == 1 ]]; then
-        TESTS=(gpuutilsTests matrixgpuTd003Tests gpuOptimizerTests deviceSelectionTests)
+        TESTS=(gpuutilsTests matrixgpuTd003Tests gpuOptimizerTests deviceSelectionTests gpuDebugSyncTests)
     else
         TESTS=(deviceSelectionTests gpuutilsTests matrixgpuTd003Tests gpuOptimizerTests matrixTests
             feedforwardTests multiheadattentionTests encoderdecoderTests initRngTests
-            generationQualityAsyncTests chatbottrainerTests incrementaltrainerTests chatbotapiTests)
+            generationQualityAsyncTests chatbottrainerTests incrementaltrainerTests chatbotapiTests
+            gpuDebugSyncTests)
     fi
     for test in "${TESTS[@]}"; do
         [[ -x "$BIN/$test" ]] || {
@@ -683,11 +740,175 @@ if [[ $RUN_TRAINING == 1 && $SOAK_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -
     sed -n '/^Per variant/,$p' "$RESULTS/soak_report.txt" | sed 's/^/  /' | tee -a "$SUMMARY"
 fi
 
-# ── 8. Pack the results ───────────────────────────────────────────────────────
+# ── 8. Engine-reset bisection (TD-574) ────────────────────────────────────────
+
+# Training passes like the soak's, on the default Level Zero v2 adapter, in variants that each
+# change one thing, run round-robin (the starting variant rotates each round) so a burst of resets
+# lands on every variant alike:
+#   control         as the soak (twice per round)
+#   sync_step       ADAI_GPU_SYNC=step: wait for the GPU at each training phase
+#   sync_kernel     ADAI_GPU_SYNC=kernel: wait before every kernel; a failure names its kernel
+#                   (twice per round: November 13 it was the only variant with no resets)
+#   sync_every_N    ADAI_GPU_SYNC=kernel:N for N = 8, 64, 512: at most N operations queued
+#   full_priority   GPU_STRATEGY=full: the normal-priority queue instead of the low-priority one
+#   no_dropout      DROPOUT=0: no dropout kernel
+#   host_embedding  the embedding gather and scatter-add (float atomics) on the host
+#   host_optimizer  the optimizer update and gradient norms (float atomics) on the host
+#   host_all        embedding, optimizer and dropout on the host
+#   encode_soak     forward only: LeJEPAEncoder::gpu_encode() for 10 s, no backward or optimizer
+#   long_preempt    --engine-tuning: the compute engine's preempt timeout raised to 5 s
+#   long_timeslice  --engine-tuning: the compute engine's time slice raised to 100 ms
+# Every pass keeps its last GPU work in gpu_trace.txt (ADAI_GPU_TRACE_FILE), so even a hung pass
+# that is killed leaves what it was running.
+
+# The compute engine settings --engine-tuning changes. The xe driver copies them into each exec
+# queue when the queue is made, so a value set before a pass starts applies to that whole pass.
+declare -A ENGINE_ORIG=()
+engine_files() {
+    ls /sys/class/drm/card*/device/tile*/gt*/engines/ccs/"$1" 2>/dev/null
+}
+# engine_set FILE VALUE: writes VALUE (capped at the driver's <setting>_max) to every compute
+# engine's FILE; false if a value didn't read back.
+engine_set() {
+    local f max v ok=0
+    for f in $(engine_files "$1"); do
+        max=$(cat "${f%_us}_max" 2>/dev/null)
+        v=$2
+        [[ -n "$max" && "$max" =~ ^[0-9]+$ && $v -gt $max ]] && v=$max
+        $SUDO sh -c "echo $v > '$f'" 2>/dev/null
+        [[ "$(cat "$f" 2>/dev/null)" == "$v" ]] || ok=1
+    done
+    return $ok
+}
+engine_restore() {
+    local f
+    for f in "${!ENGINE_ORIG[@]}"; do
+        $SUDO sh -c "echo ${ENGINE_ORIG[$f]} > '$f'" 2>/dev/null
+    done
+}
+
+if [[ $BISECT_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}" ]]; then
+    VARIANTS=(control sync_kernel sync_step sync_every_8 sync_every_64 sync_every_512 full_priority
+        control sync_kernel no_dropout host_embedding host_optimizer host_all encode_soak)
+    if [[ $ENGINE_TUNING == 1 ]]; then
+        if [[ -z "$SUDO" ]]; then
+            log "--engine-tuning needs sudo: long_preempt and long_timeslice left out."
+        elif [[ -z "$(engine_files preempt_timeout_us)" || -z "$(engine_files timeslice_duration_us)" ]]; then
+            log "--engine-tuning: no compute engine preempt_timeout_us/timeslice_duration_us in sysfs: left out."
+        else
+            for f in $(engine_files preempt_timeout_us) $(engine_files timeslice_duration_us); do
+                ENGINE_ORIG[$f]=$(cat "$f")
+            done
+            trap 'engine_restore; kill "${KEEPALIVE:-}" 2>/dev/null' EXIT
+            {
+                echo "Compute engine settings before the bisection (restored after each tuned pass):"
+                for f in "${!ENGINE_ORIG[@]}"; do echo "  $f: ${ENGINE_ORIG[$f]}"; done
+                for f in $(engine_files preempt_timeout_max) $(engine_files timeslice_duration_max); do
+                    echo "  $f: $(cat "$f")"
+                done
+            } >"$RESULTS/engine_tuning.txt"
+            VARIANTS+=(long_preempt long_timeslice)
+        fi
+    fi
+    log ""
+    log "Engine-reset bisection: $BISECT_PASSES rounds of ${#VARIANTS[@]} passes ($SOAK_EPOCHS epochs each), round-robin (bisect_report.txt)"
+    BISECT_TSV="$RESULTS/bisect.tsv"
+    printf 'pass\tvariant\trc\tseconds\toutcome\tkernel_events\tcoredump\tlast_gpu_work\n' >"$BISECT_TSV"
+    declare -A VARIANT_RUNS=()
+    for ((i = 1; i <= BISECT_PASSES; i++)); do
+        for ((k = 0; k < ${#VARIANTS[@]}; k++)); do
+            variant=${VARIANTS[$(((k + i - 1) % ${#VARIANTS[@]}))]}
+            VARIANT_RUNS[$variant]=$((${VARIANT_RUNS[$variant]:-0} + 1))
+            run=${VARIANT_RUNS[$variant]}
+            name=$(printf 'bisect_%s_%02d' "$variant" "$run")
+            dir="$RESULTS/work/$name"
+            envs=(ADAI_GPU_TRACE_FILE="$dir/gpu_trace.txt")
+            tuned=""
+            case $variant in
+                sync_step) envs+=(ADAI_GPU_SYNC=step) ;;
+                sync_kernel) envs+=(ADAI_GPU_SYNC=kernel) ;;
+                sync_every_*) envs+=(ADAI_GPU_SYNC="kernel:${variant#sync_every_}") ;;
+                full_priority) envs+=(GPU_STRATEGY=full) ;;
+                no_dropout) envs+=(DROPOUT=0) ;;
+                host_embedding) envs+=(ADAI_GPU_HOST_KERNELS=embedding) ;;
+                host_optimizer) envs+=(ADAI_GPU_HOST_KERNELS=optimizer) ;;
+                host_all) envs+=(ADAI_GPU_HOST_KERNELS=embedding,optimizer,dropout) ;;
+                long_preempt) tuned=preempt_timeout_us:5000000 ;;
+                long_timeslice) tuned=timeslice_duration_us:100000 ;;
+            esac
+            if [[ -n "$tuned" ]] && ! engine_set "${tuned%%:*}" "${tuned#*:}"; then
+                log "  $name: ${tuned%%:*} could not be set to ${tuned#*:}; pass skipped"
+                engine_restore
+                continue
+            fi
+            t0=$(date +%s)
+            if [[ $variant == encode_soak ]]; then
+                step "$name" 600 env "${envs[@]}" "$BIN/gpu_encode_soak" "$HERE/data/pairs.jsonl" 10
+            else
+                step "$name" 600 env "${envs[@]}" "$HERE/train_pass.sh" "$dir" "$((300 + run))" "$SOAK_EPOCHS"
+            fi
+            rc=$?
+            t1=$(date +%s)
+            [[ -n "$tuned" ]] && engine_restore
+            events=$(kernel_log "$t0" "$((t1 + 2))" | grep -E "$KERNEL_EVENTS")
+            [[ -n "$events" ]] && { echo "== $name"; echo "$events"; } >>"$RESULTS/bisect_kernel_events.txt"
+            if [[ $rc -eq 0 ]]; then
+                outcome=ok
+            elif [[ $rc -eq 124 || $rc -eq 137 ]]; then
+                outcome=hung
+            elif grep -q -E 'DEVICE_LOST|stopped running work' "$RESULTS/$name.log" "$dir/trainer.log"* 2>/dev/null; then
+                outcome=device_lost
+            else
+                outcome=failed
+            fi
+            last=$(grep -h -m1 -o 'Last GPU work: kernel [^;]*' "$RESULTS/$name.log" "$dir/trainer.log"* 2>/dev/null |
+                head -1 | sed 's/Last GPU work: //')
+            if [[ -z "$last" && $outcome != ok && -s "$dir/gpu_trace.txt" ]]; then
+                last="trace: $(head -1 "$dir/gpu_trace.txt" | sed 's/ *$//')"
+            fi
+            dump=no
+            grep -q "^$name " "$RESULTS/coredumps/index.txt" 2>/dev/null && dump=yes
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$variant" "$rc" "$((t1 - t0))" "$outcome" \
+                "$(grep -c . <<<"$events")" "$dump" "${last:--}" >>"$BISECT_TSV"
+            if [[ $outcome == device_lost || $outcome == hung ]] && ! probe_device "probe_after_$name"; then
+                log "  the GPU no longer runs work after $name: bisection stopped. Reboot before using the GPU again."
+                DEVICE_GONE=1
+                break 2
+            fi
+        done
+    done
+    [[ ${#ENGINE_ORIG[@]} -gt 0 ]] && engine_restore
+    {
+        echo "Engine-reset bisection ($BISECT_PASSES rounds, round-robin, Level Zero v2)"
+        echo
+        column -t -s $'\t' "$BISECT_TSV" 2>/dev/null || cat "$BISECT_TSV"
+        echo
+        echo "Per variant (passes, ok, device lost, hung, other failures, passes with kernel GPU events,"
+        echo "seconds on the GPU, device losses and hangs per minute of it):"
+        for v in $(printf '%s\n' "${VARIANTS[@]}" | awk '!seen[$0]++'); do
+            awk -F'\t' -v v="$v" 'NR > 1 && $2 == v {n++; o += ($5 == "ok"); d += ($5 == "device_lost");
+                h += ($5 == "hung"); f += ($5 == "failed"); k += ($6 > 0); t += $4}
+                END {printf "  %-15s %3d passes, %3d ok, %3d device lost, %3d hung, %3d other failures, %3d with kernel events, %5ds, %.2f/min\n",
+                     v, n, o, d, h, f, k, t, (t > 0 ? 60 * (d + h) / t : 0)}' "$BISECT_TSV"
+        done
+        echo
+        echo "Last GPU work of each failed pass (exact with sync_kernel, within the last N with sync_every_N):"
+        awk -F'\t' 'NR > 1 && $5 != "ok" {print "  " $1 ": " $8}' "$BISECT_TSV"
+        echo
+        echo "Crash dumps: coredumps/ (index.txt lists which step each came after)."
+        [[ -s "$RESULTS/engine_tuning.txt" ]] && echo "Engine settings used by --engine-tuning: engine_tuning.txt."
+        [[ -n "${DEVICE_GONE:-}" ]] && echo "The bisection stopped early: the GPU no longer ran work."
+    } >"$RESULTS/bisect_report.txt"
+    sed -n '/^Per variant/,$p' "$RESULTS/bisect_report.txt" | sed 's/^/  /' | tee -a "$SUMMARY"
+fi
+
+# ── 9. Pack the results ───────────────────────────────────────────────────────
 
 log ""
 log "Steps that failed: $FAILURES"
 kernel_log "$RUN_START" >"$RESULTS/kernel_log.txt"
+capture_coredumps end_of_run
+[[ -s "$RESULTS/coredumps/index.txt" ]] && log "Driver crash dumps: $(grep -c . "$RESULTS/coredumps/index.txt") (coredumps/)"
 EVENTS=$(grep -c -E "$KERNEL_EVENTS" "$RESULTS/kernel_log.txt")
 log "Kernel GPU events during the run (engine resets, job timeouts, faults): ${EVENTS:-0} (kernel_log.txt)"
 [[ -s "$RESULTS/kernel_log.txt" ]] || log "  (kernel log empty: needs sudo or the systemd-journal group)"

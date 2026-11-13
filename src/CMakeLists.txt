@@ -219,6 +219,7 @@ endif()
 if(ENABLE_GPU)
     add_library(adai_gpu STATIC
         gpu/MatrixGPU.cu
+        gpu/GPUDebugSync.cpp  # TD-574
     )
 
     set_target_properties(adai_gpu PROPERTIES
@@ -244,6 +245,7 @@ if(ENABLE_GPU)
 elseif(ENABLE_SYCL)
     add_library(adai_gpu STATIC
         gpu/sycl/MatrixGPU_SYCL.cpp
+        gpu/GPUDebugSync.cpp  # TD-574
     )
 
     # PUBLIC (not PRIVATE): GPUUtils.hpp unconditionally includes
@@ -1023,3 +1025,10 @@ message(STATUS "  Build Tests: ${BUILD_TESTING}")
 # TD-171, phase B0 of the real-batching plan: stacked vs separate multiplies, in every build (GPU too).
 add_executable(stacked_gemm_benchmark ../benchmarks/StackedGemmBenchmark.cpp)
 target_link_libraries(stacked_gemm_benchmark adai_core)
+
+# TD-574: forward-only GPU soak (LeJEPAEncoder::gpu_encode()) for the GPU test package.
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(gpu_encode_soak ../benchmarks/GpuEncodeSoak.cpp)
+    target_link_libraries(gpu_encode_soak adai_lejepa adai_nlp adai_core)
+    target_include_directories(gpu_encode_soak PRIVATE ${CMAKE_SOURCE_DIR}/external)  # nlohmann/json
+endif()

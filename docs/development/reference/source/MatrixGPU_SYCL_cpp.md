@@ -1,12 +1,12 @@
 # `gpu/sycl/MatrixGPU_SYCL.cpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (894 lines, SYCL/oneMKL)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,302 lines, SYCL/oneMKL)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.1`, `@adai-reviewed: 2026-10-17` (TD-384 barriers, TD-393 reduction)
-- **Last traced against the code:** 2026-10-19
+- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-394, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-13` (TD-574 diagnostics)
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum; §2–§5 describe the October 17–19 state, since amended by the addenda below)
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
 > `.cpp`, linked against a copy of `GPUUtils_SYCL.hpp` patched to also accept the oneAPI **CPU**
@@ -135,6 +135,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `workgroup_reduce_sum()` assumes sub-group size ≥ 16; at 8 it drops ¾ of the partials per level (§3) | Wrong sums, saturation fractions and (for `seq_len > 64`) losses on Alchemist-class GPUs and CPU devices; probably latent on ai-machine's Xe2 | **Verified** (CPU device, `S = 8`); **fixed in code October 17, 2026** | [TD-393](../../guides/TECHNICAL_DEBT.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) |
 | TD-384 race reproduces deterministically on the CPU device and disappears with the barrier fix (§4) | Confirms TD-384; its "can't reproduce on CPU" note is wrong | **Verified**; **fixed in code October 17, 2026** | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
 | No way to run the GPU kernel tests without a GPU (§6) | Both bugs above went undetected | **Verified** (harness) | [TD-394](../../guides/TECHNICAL_DEBT.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) |
+| Every entry point records itself for TD-574's diagnostics, and three kernel families have host versions (addendum below) | Diagnostics only; off by default | Tested (`gpuDebugSyncTests`, oneAPI CPU device) | TD-574 |
 | Batch helpers read host pointer arrays asynchronously; per-call allocation/waits in reductions; unchecked inputs (§5) | Latent use-after-free in dead code; stalls; out-of-bounds on bad input | By inspection (overlaps TD-385, TD-386, TD-390) | TD-385, TD-386 (amended), TD-390 |
 
 ## Addendum (October 19, 2026): optimizer kernels (TD-468)
@@ -178,3 +179,18 @@ CPU's first maximum) by a strided scan and a tree reduction in local memory, and
 outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
 Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
 and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.
+
+## Addendum (November 13, 2026): engine-reset diagnostics (TD-574)
+
+- **Every public entry point** (the 34 `*_gpu` functions) starts with `GPUManager::trace_kernel("<name>")`. That records the name as
+  the latest GPU work (one atomic store) and, with `ADAI_GPU_SYNC=kernel`, first waits for the queue, so an error surfaces at the
+  next kernel still attributed to the one that ran. See [GPUDebugSync.md](GPUDebugSync.md).
+- **Host versions** of three kernel families, taken when `ADAI_GPU_HOST_KERNELS` names them: `embedding`
+  (`embedding_gather_add_pe_gpu()`, `embedding_scatter_add_gpu()`), `optimizer` (`optimizer_update_gpu()`,
+  `matrix_sum_squares_accumulate_gpu()`) and `dropout` (`dropout_forward_gpu()`). Each downloads what it reads (only the rows it
+  needs, for the embedding), computes on the host and uploads the result, waiting for every copy (`host_copy_of()`,
+  `device_copy_of()`); each call counts itself (`note_host_kernel_run()`). The scatter-add reads and writes one row at a time, so a
+  repeated id adds onto the previous write. Diagnostics only: they move data across PCIe on every call.
+- `optimizer_update_gpu()`'s kernel now calls `optimizer_update_element()` ([GPUOptimizerKernels.hpp](../../../../src/gpu/GPUOptimizerKernels.hpp)),
+  the per-parameter update its host version shares, instead of its own copy of the four rules. The formulas and their order are
+  unchanged; a null `m`/`v` is read as 0 and not written.

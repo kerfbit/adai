@@ -49,6 +49,11 @@ Kernels (identical in both backends):
 
 ---
 
+**Shared update formula (TD-574, November 13, 2026).** `GPUOptimizerKernels.hpp` (0.2.0) also has
+`optimizer_update_element()`, the four update rules for one parameter, which the SYCL kernel and its host version
+(`ADAI_GPU_HOST_KERNELS=optimizer`, [GPUDebugSync.md](GPUDebugSync.md)) both call with their own `sqrt`. The CUDA kernel keeps its
+own copy of the same formulas.
+
 ## 2. Gaps
 
 - **Host groups:** only the gated world-model/hippocampal sub-layers (TD-342) have no device mirror, so their updates still run on the
