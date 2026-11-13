@@ -705,3 +705,20 @@ TEST_F(LLMEncoderTest, EncodeWithMaskRejectsOverLongInput) {
     ids.push_back(5);
     EXPECT_THROW(encoder.encode_with_mask(ids, ones(17)), std::invalid_argument);
 }
+
+// TD-349: count_tokens() is the length encode() tokenizes to before truncation, which DocumentStore
+// sizes its chunks with; whitespace alone counts 0.
+TEST_F(LLMEncoderTest, CountTokensIsTheUntruncatedEncodeLength) {
+    create_test_vocabulary();
+    LLMEncoder encoder(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, /*max_seq_length=*/8);
+    encoder.load_tokenizer_vocab(vocab_file);
+    BPETokenizer tok;
+    tok.load_vocab(vocab_file);
+    const std::string text = "hello world the test hello world the test hello world";
+    const std::size_t full = tok.encode(text, false).size();
+    ASSERT_GT(full, 8u);
+    EXPECT_EQ(encoder.count_tokens(text), full) << "not cut to max_seq_length";
+    EXPECT_EQ(encoder.count_tokens("hello"), tok.encode("hello", false).size());
+    EXPECT_EQ(encoder.count_tokens(""), 0u);
+    EXPECT_EQ(encoder.count_tokens(" \n\t "), 0u);
+}

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-27
-
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include <algorithm>
 #include <cmath>
@@ -20,15 +19,18 @@
 /**
  * @brief Document structure for RAG (Retrieval-Augmented Generation)
  *
- * Contains text content and its corresponding dense embedding vector
- * produced by the encoder model for semantic similarity search.
+ * One indexed entry: a whole document, or (TD-349) one chunk of a document longer than the
+ * encoder's max_seq_length, with its text and its dense embedding for similarity search.
  */
 struct Document {
-    std::string id;                                         // Unique document identifier
-    std::string text;                                       // Document text content
+    std::string id;    // Entry id: the document's, or <id>#<chunk>
+    std::string text;  // The entry's text (a chunk's own text)
     Matrix embedding;                                       // Dense embedding vector [d_model]
     // TODO: See TD-351 in TECHNICAL_DEBT.md - stored but never read (no metadata filtering)
     std::unordered_map<std::string, std::string> metadata;  // Optional metadata
+    std::string parent_id;  // TD-349: the document this entry belongs to (its own id if unchunked)
+    int chunk_index{1};     // 1-based position among the document's chunks
+    int chunk_count{1};     // the document's number of chunks
 
     Document() = default;
     Document(std::string id_, std::string text_) : id(std::move(id_)), text(std::move(text_)) {}
@@ -41,7 +43,8 @@ struct Document {
  * efficient semantic similarity search and retrieval.
  *
  * Features:
- * - Document indexing with encoder-based embeddings
+ * - Document indexing with encoder-based embeddings; a document longer than the encoder's
+ *   max_seq_length is indexed as overlapping chunks that each fit (TD-349)
  * - Cosine similarity search for top-k retrieval
  * - Document management (add, remove, update)
  * - Metadata storage for each document
@@ -80,6 +83,13 @@ class DocumentStore {
      */
     static Matrix getSentenceEmbedding(const Matrix& encoder_output);
 
+    /// TD-349: [begin, end) byte ranges of `text`'s chunks, each at most `window` tokens (one piece
+    /// longer than that stays whole), consecutive chunks sharing about a quarter of a window (at
+    /// least one piece).
+    std::vector<std::pair<std::size_t, std::size_t>> chunkRanges(const std::string& text,
+                                                                 std::size_t window) const;
+    void removeEntryLocked(const std::string& entry_id);
+
    public:
     /**
      * @brief Constructor for DocumentStore
@@ -91,13 +101,16 @@ class DocumentStore {
     /**
      * @brief Add a document to the store
      *
-     * Generates embedding for the document text using the encoder
-     * and stores it for later retrieval.
+     * Embeds the document with the encoder and stores it for retrieval. TD-349: a document of
+     * more than the encoder's max_seq_length tokens is split at whitespace into overlapping chunks
+     * that each fit, stored as entries "<id>#1" ... "<id>#N" (parent_id = id, the metadata copied
+     * to each); the encoder used to embed only one window of it, so the rest couldn't be retrieved.
+     * A document that fits is one entry under its own id.
      *
      * @param id Unique document identifier
      * @param text Document text content
      * @param metadata Optional key-value metadata
-     * @throws std::invalid_argument if id already exists
+     * @throws std::invalid_argument if the id, or one of its chunk ids, already exists
      */
     void addDocument(const std::string& id, const std::string& text,
                      const std::unordered_map<std::string, std::string>& metadata = {});
@@ -113,7 +126,8 @@ class DocumentStore {
      * that got moved into the freed slot) — do not hold such pointers across
      * a removeDocument() call.
      *
-     * @param id Document identifier to remove
+     * @param id Document identifier to remove: removes every chunk of a chunked document (TD-349),
+     *        or the one entry with that id
      * @return bool True if document was removed, false if not found
      */
     bool removeDocument(const std::string& id);
@@ -130,8 +144,8 @@ class DocumentStore {
      *
      * @param query Query text
      * @param k Number of documents to retrieve
-     * @return std::vector<std::pair<float, const Document*>> Pairs of (similarity_score, document)
-     *         sorted by descending similarity
+     * @return std::vector<std::pair<float, const Document*>> Pairs of (similarity_score, entry)
+     *         sorted by descending similarity; a chunked document's entries are its chunks
      */
     std::vector<std::pair<float, const Document*>> retrieve(const std::string& query,
                                                             int k = 3) const;
@@ -142,15 +156,15 @@ class DocumentStore {
      * The returned pointer is valid only until the next call to
      * addDocument()/removeDocument()/clear() — see removeDocument()'s note.
      *
-     * @param id Document identifier
+     * @param id Entry identifier: a chunked document's entries are "<id>#1" ... (TD-349)
      * @return const Document* Pointer to document, or nullptr if not found
      */
     const Document* getDocument(const std::string& id) const;
 
     /**
-     * @brief Get total number of documents in store
+     * @brief Get total number of entries in store
      *
-     * @return size_t Number of documents
+     * @return size_t Number of entries: one per unchunked document, one per chunk (TD-349)
      */
     size_t size() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -173,9 +187,9 @@ class DocumentStore {
     void clear();
 
     /**
-     * @brief Get all document IDs
+     * @brief Get all entry IDs
      *
-     * @return std::vector<std::string> List of all document IDs
+     * @return std::vector<std::string> List of all entry IDs (chunk ids for a chunked document)
      */
     std::vector<std::string> getAllDocumentIds() const;
 };

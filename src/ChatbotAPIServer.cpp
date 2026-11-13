@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.10.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 2.10.2
+// @adai-reviewed: 2026-11-12
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -673,15 +673,16 @@ int main(int argc, char* argv[]) {
                                     std::string text((std::istreambuf_iterator<char>(file)),
                                                      std::istreambuf_iterator<char>());
                                     if (!text.empty()) {
-                                        // TODO: See TD-349 in TECHNICAL_DEBT.md - whole file as one document; only its first max_seq_length tokens are embedded
+                                        // TD-349: a file longer than max_seq_length tokens is
+                                        // indexed as overlapping chunks (DocumentStore).
                                         doc_store->addDocument(entry.path().stem().string(), text);
                                         doc_count++;
                                     }
                                 }
                             }
                         }
-                        adai::Logger::info("  Indexed {} documents from: {}", doc_count,
-                                           config.rag_docs_path);
+                        adai::Logger::info("  Indexed {} documents ({} entries) from: {}",
+                                           doc_count, doc_store->size(), config.rag_docs_path);
                     } else {
                         adai::Logger::warn("  RAG docs path not found or not a directory: {}",
                                            config.rag_docs_path);
@@ -731,7 +732,7 @@ int main(int argc, char* argv[]) {
                                disabled ? " [not enabled]" : "");
         }
         if (config.rag_enabled && rag_engine) {
-            adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",
+            adai::Logger::info("  RAG:   enabled ({} entries indexed, retrieving top-{})",
                                rag_engine->getNumDocuments(), config.rag_num_docs);
         }
         if (draft_model) {

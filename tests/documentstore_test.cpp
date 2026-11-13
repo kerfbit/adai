@@ -598,3 +598,156 @@ TEST_F(DocumentStoreTest, AddDocumentWhileRetrieving) {
     reader.join();
     EXPECT_EQ(store->size(), 3u);
 }
+
+// ============================================================================
+// TD-349: documents longer than the encoder's window are indexed as chunks
+// ============================================================================
+
+namespace {
+
+// `count` words from the test vocabulary, starting at `offset` in it.
+std::string vocab_words(std::size_t count, std::size_t offset) {
+    static const std::vector<std::string> words = {
+        "the",     "machine", "learning",    "is",       "artificial", "intelligence", "algorithm",
+        "data",    "neural",  "network",     "model",    "train",      "test",         "computer",
+        "science", "python",  "programming", "language", "deep",       "framework",    "tensor"};
+    std::string text;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (i > 0)
+            text += ' ';
+        text += words[(offset + i) % words.size()];
+    }
+    return text;
+}
+
+}  // namespace
+
+class DocumentStoreChunkTest : public DocumentStoreTest {
+   protected:
+    std::shared_ptr<LLMEncoder> small;  // a 16-token window
+    std::unique_ptr<DocumentStore> chunked;
+
+    void SetUp() override {
+        DocumentStoreTest::SetUp();
+        small = std::make_shared<LLMEncoder>(1000, 64, 1, 4, 128, 16);
+        // A vocabulary with merges, so words are one or two tokens (the fixture's has none, and
+        // every word is spelled out a character at a time).
+        std::vector<std::string> corpus;
+        for (std::size_t i = 0; i < 40; ++i)
+            corpus.push_back(vocab_words(21, i));
+        small->build_tokenizer(corpus, 300);
+        chunked = std::make_unique<DocumentStore>(small);
+    }
+};
+
+TEST_F(DocumentStoreChunkTest, ALongDocumentIsSplitIntoOverlappingChunksThatFit) {
+    const std::string text = vocab_words(60, 0);
+    ASSERT_GT(small->count_tokens(text), 16u);
+    chunked->addDocument("long", text, {{"source", "test"}});
+
+    EXPECT_EQ(chunked->getDocument("long"), nullptr) << "the entries are its chunks";
+    const std::size_t n = chunked->size();
+    ASSERT_GE(n, 3u);
+    std::size_t previous_begin = 0, previous_end = 0;
+    for (std::size_t k = 1; k <= n; ++k) {
+        const Document* chunk = chunked->getDocument("long#" + std::to_string(k));
+        ASSERT_NE(chunk, nullptr) << k;
+        EXPECT_EQ(chunk->parent_id, "long");
+        EXPECT_EQ(chunk->chunk_index, static_cast<int>(k));
+        EXPECT_EQ(chunk->chunk_count, static_cast<int>(n));
+        EXPECT_EQ(chunk->metadata.at("source"), "test");
+        EXPECT_LE(small->count_tokens(chunk->text), 16u) << "chunk " << k << " fits the window";
+        const std::size_t begin = text.find(chunk->text, k == 1 ? 0 : previous_begin + 1);
+        ASSERT_NE(begin, std::string::npos) << "chunk " << k << " is the document's own text";
+        if (k == 1) {
+            EXPECT_EQ(begin, 0u) << "the first chunk starts the document";
+        } else {
+            EXPECT_LT(begin, previous_end) << "chunk " << k << " overlaps the one before";
+        }
+        previous_begin = begin;
+        previous_end = begin + chunk->text.size();
+    }
+    EXPECT_EQ(previous_end, text.size()) << "the last chunk ends the document";
+}
+
+// The encoder embeds at most its window (the last max_seq_length tokens), so two documents with
+// the same long ending used to get identical embeddings and the openings couldn't be retrieved.
+TEST_F(DocumentStoreChunkTest, AnOpeningOutsideTheEncodersWindowIsRetrievable) {
+    const std::string shared_tail = vocab_words(40, 5);
+    chunked->addDocument("a", "python programming language deep framework " + shared_tail);
+    chunked->addDocument("b", "neural network model train test computer " + shared_tail);
+
+    const Document* opening = chunked->getDocument("a#1");
+    ASSERT_NE(opening, nullptr);
+    ASSERT_EQ(opening->text.rfind("python programming language", 0), 0u);
+    const auto hits = chunked->retrieve(opening->text, static_cast<int>(chunked->size()));
+    ASSERT_FALSE(hits.empty());
+    EXPECT_EQ(hits[0].second->id, "a#1");
+    EXPECT_GT(hits[0].first, 0.999f);
+    for (const auto& [score, doc] : hits)
+        if (doc->parent_id == "b") {
+            EXPECT_LT(score, hits[0].first) << doc->id;
+        }
+}
+
+TEST_F(DocumentStoreChunkTest, RemovingAChunkedDocumentRemovesEveryChunk) {
+    chunked->addDocument("long", vocab_words(60, 0));
+    chunked->addDocument("short", "machine learning");
+    ASSERT_GT(chunked->size(), 2u);
+    EXPECT_TRUE(chunked->removeDocument("long"));
+    EXPECT_EQ(chunked->size(), 1u);
+    EXPECT_EQ(chunked->getAllDocumentIds(), std::vector<std::string>{"short"});
+    EXPECT_FALSE(chunked->removeDocument("long"));
+}
+
+TEST_F(DocumentStoreChunkTest, AChunkedDocumentsIdCantBeAddedAgain) {
+    chunked->addDocument("long", vocab_words(60, 0));
+    const std::size_t entries = chunked->size();
+    EXPECT_THROW(chunked->addDocument("long", "machine learning"), std::invalid_argument);
+    EXPECT_THROW(chunked->addDocument("long#1", "machine learning"), std::invalid_argument);
+    EXPECT_EQ(chunked->size(), entries);
+}
+
+TEST_F(DocumentStoreChunkTest, ADocumentThatFitsKeepsItsOwnId) {
+    chunked->addDocument("short", vocab_words(10, 0));
+    ASSERT_EQ(chunked->size(), 1u);
+    const Document* doc = chunked->getDocument("short");
+    ASSERT_NE(doc, nullptr);
+    EXPECT_EQ(doc->parent_id, "short");
+    EXPECT_EQ(doc->chunk_count, 1);
+    EXPECT_EQ(doc->text, vocab_words(10, 0));
+}
+
+// Each word here is longer than a quarter of the window (the fixture's vocabulary has no merges, so
+// a word is a token per character); consecutive chunks still share their boundary word.
+TEST_F(DocumentStoreChunkTest, ChunksOverlapEvenWhenEveryWordIsLongerThanAQuarterWindow) {
+    auto spelled = std::make_shared<LLMEncoder>(1000, 64, 1, 4, 128, 20);
+    spelled->load_tokenizer_vocab(vocab_file.string());
+    DocumentStore store_spelled(spelled);
+    const std::string text =
+        "machine learning artificial intelligence algorithm network computer science "
+        "programming language framework machine learning network";
+    ASSERT_GT(spelled->count_tokens("machine"), 5u) << "words are longer than a quarter window";
+    store_spelled.addDocument("doc", text);
+    const std::size_t n = store_spelled.size();
+    ASSERT_GE(n, 2u);
+    std::size_t previous_begin = 0, previous_end = 0;
+    bool previous_one_word = false;
+    int overlaps = 0;
+    for (std::size_t k = 1; k <= n; ++k) {
+        const Document* chunk = store_spelled.getDocument("doc#" + std::to_string(k));
+        ASSERT_NE(chunk, nullptr);
+        const std::size_t begin = text.find(chunk->text, k == 1 ? 0 : previous_begin + 1);
+        ASSERT_NE(begin, std::string::npos);
+        // A one-word chunk has nothing to share: the next one starts past it.
+        if (k > 1 && !previous_one_word) {
+            EXPECT_LT(begin, previous_end) << "chunk " << k << " overlaps the one before";
+            ++overlaps;
+        }
+        previous_one_word = chunk->text.find(' ') == std::string::npos;
+        previous_begin = begin;
+        previous_end = begin + chunk->text.size();
+    }
+    EXPECT_EQ(previous_end, text.size());
+    EXPECT_GE(overlaps, 2) << "the text has chunks of more than one word";
+}

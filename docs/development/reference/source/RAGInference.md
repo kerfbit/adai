@@ -1,10 +1,10 @@
 # `RAGInference` — Source File Reference
 
-- **Files:** [`src/RAGInference.hpp`](../../../../src/RAGInference.hpp), [`src/RAGInference.cpp`](../../../../src/RAGInference.cpp) (366 lines together)
+- **Files:** [`src/RAGInference.hpp`](../../../../src/RAGInference.hpp), [`src/RAGInference.cpp`](../../../../src/RAGInference.cpp) (573 lines together)
 - **Namespace:** global (`RAGInference`, `RAGInference::RAGConfig`)
 - **Built into:** `adai_api` (with `ChatbotAPI` and [`DocumentStore`](DocumentStore.md)), linked by `chatbot_api_server`; also used by `rag_example`
 - **Used by:** `chatbot_api_server` when `RAG_ENABLED=true` (built in `ChatbotAPIServer.cpp`, handed to `ChatbotAPI::enableRAG()`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0` (hpp) / `1.0.1` (cpp), `@adai-reviewed: 2026-09-10`
+- **Status tag:** `@adai-status: stable`; `RAGInference.hpp` `@adai-version: 3.0.0`, `@adai-reviewed: 2026-11-12` (MAJOR, TD-349: `addDocument()`, `getDocument()`, `removeDocument()`, `getNumDocuments()` and `retrieveOnly()` pass through to `DocumentStore`, which now stores a long document as chunks); `RAGInference.cpp` `1.5.0`, `2026-10-28`
 - **Tests:** [`tests/raginference_test.cpp`](../../../../tests/raginference_test.cpp) (37 tests)
 - **Last traced against the code:** 2026-10-17
 
@@ -39,8 +39,8 @@ shared pointers.
 | `formatContext(docs)` | Concatenates document texts with `context_separator`, optionally prefixed by `[Doc i (similarity: s)]: `. Empty list → `""` |
 | `buildAugmentedPrompt(query, context)` | `context_prefix + context` (only if non-empty) `+ query_prefix + query` |
 | `truncateContext(context, max_tokens)` (private, static) | Keeps the first `max_tokens × 4` **characters**, replacing the last 3 with `...`; `max_tokens ≤ 0` → `""`; a 1–3 character budget hard-truncates (an earlier underflow fix, tested) |
-| `addDocument`, `removeDocument`, `getDocument`, `getNumDocuments` | Forward to the store. Returned `const Document*` pointers follow `DocumentStore`'s rules: invalidated or silently retargeted by the next mutation |
-| `retrieveOnly(query, k = -1)` | Retrieval without generation; `k ≤ 0` uses `num_retrieved_docs` |
+| `addDocument`, `removeDocument`, `getDocument`, `getNumDocuments` | Forward to the store. Returned `const Document*` pointers follow `DocumentStore`'s rules: invalidated or silently retargeted by the next mutation. TD-349: a document longer than `max_seq_length` is stored as chunks `<id>#1` …, so `getDocument(<id>)` finds nothing, `getNumDocuments()` counts chunks and `removeDocument(<id>)` removes them all ([DocumentStore.md](DocumentStore.md) §2–3) |
+| `retrieveOnly(query, k = -1)` | Retrieval without generation; `k ≤ 0` uses `num_retrieved_docs`. Returns entries, so chunks of a chunked document |
 | `getConfig()`, `setConfig()` | Unsynchronized; `setConfig()` has no production caller |
 
 ### How the server uses it
@@ -98,11 +98,11 @@ budgeting the history separately) is the usual approach.
 
 | Item | Tracked as |
 |---|---|
-| Retrieval encoder has random weights (never loaded) | TD-247 |
-| Each `.txt` file is one document; only its first `max_seq_length` tokens are embedded | TD-349 |
-| `DocumentStore::retrieve()` isn't safe to call concurrently | TD-350 |
-| Generation runs while holding `ChatbotAPI::config_mutex_` | TD-230 |
-| Encoder input not truncated to `max_seq_length` | TD-365 |
+| Retrieval encoder has random weights (never loaded) | TD-247 (fixed in code October 26, 2026: a copy of the trained encoder) |
+| Each `.txt` file is one document, of which one `max_seq_length` window is embedded | TD-349 (fixed in code November 12, 2026: longer documents are indexed as overlapping chunks, which retrieval returns) |
+| `DocumentStore::retrieve()` isn't safe to call concurrently | TD-350 (fixed in code October 27, 2026: the store's mutex) |
+| Generation runs while holding `ChatbotAPI::config_mutex_` | TD-230 (fixed in code October 27, 2026) |
+| Encoder input not truncated to `max_seq_length` | TD-365 (fixed in code October 26, 2026) |
 
 ---
 
@@ -130,7 +130,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `/chat/session` retrieves with the conversation's first `max_seq_length` tokens and uses the whole conversation as the question (§2) | Retrieval ignores the latest question in long conversations | By inspection | [TD-485](../../guides/TECHNICAL_DEBT.md#td-485-rag-session-retrieval-uses-the-start-of-the-conversation) |
 | `strategy = ""` always; settings copied once at startup; CPU-only generation (§2) | `STRATEGY`/`BEAM_WIDTH`, reloads and the GPU path are lost while RAG is on | By inspection | [TD-486](../../guides/TECHNICAL_DEBT.md#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation) |
 | `RAG_NUM_DOCS ≤ 0` fails every request; threshold can silently empty the context; no retrieval logging (§2) | Misconfiguration is hard to see | By inspection | [TD-487](../../guides/TECHNICAL_DEBT.md#td-487-raginference-misconfiguration-and-observability-gaps) |
-| Random retrieval encoder, whole-file documents, concurrency, `config_mutex_`, untruncated input | Already tracked | — | TD-247, TD-349, TD-350, TD-230, TD-365 |
+| Random retrieval encoder, whole-file documents, concurrency, `config_mutex_`, untruncated input | All fixed in code since (October 26 to November 12, 2026) | — | TD-247, TD-349, TD-350, TD-230, TD-365 |
 
 ---
 

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-11-08
-
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-12
 
 #include <algorithm>
 #include <cassert>
@@ -113,6 +112,10 @@ class LLMEncoder {
     int get_max_seq_length() const {
         return max_seq_length;
     }
+
+    /// TD-349: tokens in `text` as encode() tokenizes it, without special tokens and before any
+    /// truncation (0 for empty or all-whitespace text). DocumentStore sizes its chunks with it.
+    std::size_t count_tokens(const std::string& text) const;
 
     /**
      * Encode with attention mask for padding
@@ -282,17 +285,16 @@ class LLMEncoder {
     /** Zero GPU gradient accumulators. */
     void gpu_zero_grads();
     /**
-     * GPU encode: embed + positional encode on CPU, then run all encoder blocks on GPU.
+     * GPU encode: token embedding and positional encoding on the device (TD-547: only the token
+     * IDs cross), then every encoder block and the final norm.
      * @param token_ids  Input token IDs, at most max_seq_length of them (TD-365; throws
      *                   std::invalid_argument otherwise)
      * @return GPU matrix [seq_len, d_model]
      */
     adai::gpu::GPUMatrix gpu_encode(const std::vector<int>& token_ids);
     /**
-     * GPU backward: final_norm and encoder_blocks (reverse order) run on device;
-     * the resulting gradient is then downloaded to host and finished via the
-     * existing CPU token_embedding->backward() (embedding lookup has no GPU
-     * backward, mirroring the CPU embed step already done inside gpu_encode()).
+     * GPU backward: final_norm and encoder_blocks (reverse order), then the token embedding's
+     * scatter-add into its device gradient (TD-547), all on the device.
      * No-op if requires_grad is false.
      * @param dout Gradient w.r.t. this encoder's final output [seq_len, d_model]
      */

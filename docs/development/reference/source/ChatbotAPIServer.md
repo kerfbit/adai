@@ -2,11 +2,11 @@
 
 - **File:** [`src/ChatbotAPIServer.cpp`](../../../../src/ChatbotAPIServer.cpp) (the `main()` of `chatbot_api_server`; no header)
 - **Built into:** `chatbot_api_server` (with `Config.cpp` and `ChatbotApiServerArgs.cpp`; links `adai_api` and the model libraries); only when `BUILD_API_SERVER` is on
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.7.1`, `@adai-reviewed: 2026-09-19`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 2.10.2`, `@adai-reviewed: 2026-11-12`
 - **Tests:** none directly. The argv layer is tested by `chatbotApiServerArgsTests` and the HTTP layer by `chatbotapiTests`; `main()` itself is untested
 - **Related references:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (its CLI parsing), [ChatbotAPI.md](ChatbotAPI.md) (the HTTP class it runs), [BPETokenizer.md](BPETokenizer.md)
 - **Operator docs:** [chatbot-guide.md](../../../operations/guides/chatbot-guide.md), [SYSTEMD_DEPLOYMENT.md](../../../operations/deployment/SYSTEMD_DEPLOYMENT.md), [configuration_guide.md](../../configuration_guide.md)
-- **Last traced against the code:** 2026-10-08
+- **Last traced against the code:** 2026-10-08; §6's RAG paragraph and step 10 re-traced 2026-11-12 (TD-349). The other sections predate later fixes, recorded in the addenda below
 
 > Code-traced reference. The shutdown-race finding was confirmed against the vendored cpp-httplib
 > source (`external/cpp-httplib/httplib.h`); the rest is from reading `main()` and the code it calls.
@@ -54,7 +54,7 @@ something other than what the operator asked for (§9).
  9. [3/4] ChatbotAPI(model, tokenizer, port, timeout, draft, K)
              ─► --profile / --batched-inference (--pipeline-/--integrated-inference: removed Oct 2026)
              ─► set_generation_config(max_gen_length, temperature, top_p, strategy)
-10. RAG (if RAG_ENABLED): new LLMEncoder + DocumentStore over RAG_DOCS_PATH/*.txt ─► enableRAG()
+10. RAG (if RAG_ENABLED and a trained model is loaded): copy_encoder() + DocumentStore over RAG_DOCS_PATH/*.txt (chunked) ─► enableRAG()
 11. Signals: SIGINT/SIGTERM → shutdown flag; SIGHUP → reload flag
 12. [4/4] server thread: api->start()   (bind failure → server_error, shutdown)
 13. main loop: every 100 ms, handle reload; exit on shutdown/server error
@@ -146,18 +146,20 @@ TD-223 for the tokenizer state that can leave behind). The generation config is 
 `max_gen_length`, `temperature`, `top_p` and `strategy`; `top_k` and `beam_width` are never copied
 (TD-244).
 
-**RAG** (`RAG_ENABLED`): builds a **new `LLMEncoder`** from the model's architecture and loads the
-vocab into it. It indexes every non-empty `*.txt` directly in `RAG_DOCS_PATH` (not recursively,
-with the file stem as document ID), then creates `RAGInference` over the **trained** model, with
-generation settings from config (including `top_k`, unlike the main path).
+**RAG** (`RAG_ENABLED`; this paragraph re-traced November 12, 2026). Without a trained model loaded
+(`ALLOW_UNTRAINED_MODEL`), it logs `[RAG] Not enabled: no trained model is loaded` and goes on without
+RAG (TD-247). Otherwise it takes `model->copy_encoder()`, a copy of the trained encoder with the
+model's tokenizer in inference mode (not the model's own, which generation uses), and wraps it in a
+`DocumentStore`. It adds every non-empty `*.txt` directly in `RAG_DOCS_PATH` (not recursively, file
+stem as the document id); the store splits a file longer than `max_seq_length` tokens into
+overlapping chunks that each fit (TD-349, [DocumentStore.md](DocumentStore.md) §3), and the log line
+is `Indexed N documents (M entries) from: <path>`. It then creates `RAGInference` over the model with
+`rag_config_from(config, max_seq_length)` and enables it on the API. Any exception during this setup
+is logged and RAG stays off.
 
-> **The RAG retrieval encoder is never given trained weights.** `LLMEncoder::load_weights()`
-> exists, but step 10 never calls it. Its random initialization is used to embed every document
-> and query (`DocumentStore::addDocument()`/`retrieve()` → `encoder->encode()`), so retrieval ranks
-> documents by **untrained** embeddings: at best crude token overlap through random projections,
-> not learned similarity. Generation then uses the trained model, so answers look plausible while
-> the retrieved context is poorly chosen. The model's own trained encoder
-> (`model->get_encoder()`) is available and has the same architecture.
+Before TD-247 (October 26, 2026) the retrieval encoder was a fresh `LLMEncoder` that was never given
+trained weights, so documents were ranked by random embeddings; before TD-349 each file was one
+document, of which the encoder embedded a single `max_seq_length` window.
 
 ---
 

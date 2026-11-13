@@ -1,25 +1,26 @@
 // @adai-status: stable
-// @adai-version: 1.6.1
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-12
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
+#include "BinaryIO.hpp"
 #include "EncoderBlock.hpp"
-#include "gpu/GPUParamSync.hpp"
-#include "Logger.hpp"
 #include "FeedForward.hpp"
+#include "Logger.hpp"
 #include "MultiHeadAttention.hpp"
 #include "TokenEmbedding.hpp"
 #include "encoder.hpp"
-#include "BinaryIO.hpp"
-#include <stdexcept>
+#include "gpu/GPUParamSync.hpp"
 
 // LLMEncoder Implementation
 LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
@@ -57,6 +58,12 @@ std::vector<int> LLMEncoder::keep_last_positions(std::vector<int> token_ids) con
         token_ids.erase(token_ids.begin(),
                         token_ids.end() - static_cast<std::ptrdiff_t>(limit));
     return token_ids;
+}
+
+std::size_t LLMEncoder::count_tokens(const std::string& text) const {
+    if (std::all_of(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c); }))
+        return 0;
+    return tokenizer->encode(text, false).size();
 }
 
 Matrix LLMEncoder::encode(const std::string& text, bool add_special_tokens) {

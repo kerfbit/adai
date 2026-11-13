@@ -1,11 +1,28 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-12
 
 #include "DocumentStore.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <stdexcept>
+
+namespace {
+
+bool is_space(char c) {
+    return std::isspace(static_cast<unsigned char>(c)) != 0;
+}
+
+// [begin, end) of `text` without its leading whitespace.
+std::pair<std::size_t, std::size_t> trim_front(const std::string& text, std::size_t begin,
+                                               std::size_t end) {
+    while (begin < end && is_space(text[begin]))
+        ++begin;
+    return {begin, end};
+}
+
+}  // namespace
 
 DocumentStore::DocumentStore(std::shared_ptr<LLMEncoder> encoder) : encoder(encoder) {
     if (!encoder) {
@@ -67,11 +84,60 @@ Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) {
     return sentence_emb;
 }
 
+// TD-349: the text is cut into pieces (a whitespace run and the word after it), so a chunk ends
+// where the tokenizer's own pre-tokens do. Each piece's token count is taken alone; a chunk is
+// filled to the window by those counts, then its real count is checked and pieces dropped until it
+// fits.
+std::vector<std::pair<std::size_t, std::size_t>> DocumentStore::chunkRanges(
+    const std::string& text, std::size_t window) const {
+    std::vector<std::pair<std::size_t, std::size_t>> pieces;
+    for (std::size_t i = 0; i < text.size();) {
+        const std::size_t begin = i;
+        while (i < text.size() && is_space(text[i]))
+            ++i;
+        while (i < text.size() && !is_space(text[i]))
+            ++i;
+        pieces.emplace_back(begin, i);
+    }
+    std::vector<std::size_t> counts;
+    counts.reserve(pieces.size());
+    for (const auto& [b, e] : pieces)
+        counts.push_back(encoder->count_tokens(text.substr(b, e - b)));
+
+    const std::size_t overlap = window / 4;
+    std::vector<std::pair<std::size_t, std::size_t>> chunks;
+    for (std::size_t first = 0; first < pieces.size();) {
+        std::size_t last = first;  // one past the chunk's last piece
+        std::size_t estimate = 0;
+        while (last < pieces.size() && (last == first || estimate + counts[last] <= window))
+            estimate += counts[last++];
+        auto range = trim_front(text, pieces[first].first, pieces[last - 1].second);
+        while (last > first + 1 && encoder->count_tokens(text.substr(
+                                       range.first, range.second - range.first)) > window) {
+            --last;
+            range = trim_front(text, pieces[first].first, pieces[last - 1].second);
+        }
+        if (range.first < range.second)
+            chunks.push_back(range);
+        if (last == pieces.size())
+            break;
+        // The next chunk starts about `overlap` tokens back (at least one piece, so a sentence cut
+        // at the boundary appears whole in one of them), but always past this one's start.
+        std::size_t next = last;
+        std::size_t shared = 0;
+        while (next - 1 > first && (next == last || shared + counts[next - 1] <= overlap))
+            shared += counts[--next];
+        first = next;
+    }
+    return chunks;
+}
+
 void DocumentStore::addDocument(const std::string& id, const std::string& text,
                                 const std::unordered_map<std::string, std::string>& metadata) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Check if document with this ID already exists
-    if (id_to_index.find(id) != id_to_index.end()) {
+    if (id_to_index.find(id) != id_to_index.end() ||
+        std::any_of(documents.begin(), documents.end(),
+                    [&](const Document& d) { return d.parent_id == id; })) {
         throw std::invalid_argument("Document with ID '" + id + "' already exists");
     }
 
@@ -79,29 +145,44 @@ void DocumentStore::addDocument(const std::string& id, const std::string& text,
         throw std::invalid_argument("Document text cannot be empty");
     }
 
-    // Create document
-    Document doc(id, text);
-    doc.metadata = metadata;
+    const auto window = static_cast<std::size_t>(std::max(1, encoder->get_max_seq_length()));
+    std::vector<std::pair<std::size_t, std::size_t>> ranges;
+    if (encoder->count_tokens(text) > window)
+        ranges = chunkRanges(text, window);
 
-    // Generate embedding using encoder
-    // TODO: See TD-349 in TECHNICAL_DEBT.md - encode() truncates to max_seq_length tokens; no chunking, so later text is never embedded
-    Matrix encoder_output = encoder->encode(text);
-    doc.embedding = getSentenceEmbedding(encoder_output);
-
-    // Store document
-    size_t index = documents.size();
-    documents.push_back(std::move(doc));
-    id_to_index[id] = index;
+    std::vector<Document> entries;
+    if (ranges.size() <= 1) {
+        // Fits (or is one unbreakable piece): one entry, embedded as encode() truncates it.
+        entries.emplace_back(id, text);
+    } else {
+        for (std::size_t c = 0; c < ranges.size(); ++c) {
+            const std::string chunk_id = id + "#" + std::to_string(c + 1);
+            if (id_to_index.count(chunk_id) != 0)
+                throw std::invalid_argument("Document with ID '" + chunk_id + "' already exists");
+            entries.emplace_back(chunk_id,
+                                 text.substr(ranges[c].first, ranges[c].second - ranges[c].first));
+            entries.back().chunk_index = static_cast<int>(c + 1);
+        }
+    }
+    // Embed every entry before storing any, so a failure leaves the store unchanged.
+    for (auto& entry : entries) {
+        entry.metadata = metadata;
+        entry.parent_id = id;
+        entry.chunk_count = static_cast<int>(entries.size());
+        entry.embedding = getSentenceEmbedding(encoder->encode(entry.text));
+    }
+    for (auto& entry : entries) {
+        id_to_index[entry.id] = documents.size();
+        documents.push_back(std::move(entry));
+    }
 }
 
-bool DocumentStore::removeDocument(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = id_to_index.find(id);
-    if (it == id_to_index.end()) {
-        return false;  // Document not found
-    }
-
-    size_t index = it->second;
+void DocumentStore::removeEntryLocked(const std::string& entry_id) {
+    auto it = id_to_index.find(entry_id);
+    if (it == id_to_index.end())
+        return;
+    const size_t index = it->second;
+    id_to_index.erase(it);
 
     // Remove from vector (swap with last element for efficiency)
     if (index != documents.size() - 1) {
@@ -110,11 +191,21 @@ bool DocumentStore::removeDocument(const std::string& id) {
         id_to_index[documents[index].id] = index;
     }
     documents.pop_back();
+}
 
-    // Remove from index map
-    id_to_index.erase(it);
-
-    return true;
+bool DocumentStore::removeDocument(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // TD-349: every entry of the document (its chunks, or the one entry of an unchunked one), else
+    // the one entry with this id (a single chunk).
+    std::vector<std::string> entry_ids;
+    for (const auto& doc : documents)
+        if (doc.parent_id == id)
+            entry_ids.push_back(doc.id);
+    if (entry_ids.empty() && id_to_index.count(id) != 0)
+        entry_ids.push_back(id);
+    for (const auto& entry_id : entry_ids)
+        removeEntryLocked(entry_id);
+    return !entry_ids.empty();
 }
 
 // TD-350: encode() writes the encoder's layer caches, so the query is encoded and scored under the

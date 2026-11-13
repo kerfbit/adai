@@ -18,6 +18,10 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 12, 2026:** Fixed [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens) in code: RAG
+documents longer than the encoder's `max_seq_length` are indexed as overlapping chunks that each fit, so text outside the one window the
+encoder used to embed can be retrieved.
+
 **November 12, 2026:** Closed [TD-572](../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable):
 both pairs have direct tests, and the LeJEPA pass ran on ai-machine's Arc B60 (lifecycle, then 220 soak passes with no engine reset);
 `LeJEPATrainingPass` and `TrainingPassFiles` are `stable` 1.0.0.
@@ -10129,7 +10133,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | RAG / DocumentStore | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 12, 2026 | RAG / DocumentStore | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [DocumentStore.md](../reference/source/DocumentStore.md) and confirmed by running the real class.
@@ -10143,10 +10147,24 @@ content past roughly the first page of each file is unretrievable, yet the whole
 
 Action Items:
 
-- [ ] Chunk documents at index time (e.g. overlapping windows within `max_seq_length` tokens), each chunk its own entry with a parent-document reference, and return chunks rather than whole files.
-- [ ] Test: content past the first window is retrievable.
+- [x] Chunk documents at index time (e.g. overlapping windows within `max_seq_length` tokens), each chunk its own entry with a parent-document reference, and return chunks rather than whole files.
+- [x] Test: content past the first window is retrievable.
 
-Location in code: `src/DocumentStore.cpp` (`addDocument()`), `src/ChatbotAPIServer.cpp` (RAG indexing loop); tagged `TODO: See TD-349`.
+**Fix (November 12, 2026).** Since TD-365, `encode()` keeps an over-long input's *last* `max_seq_length` tokens, so a long
+document was represented by its ending rather than its opening; either way only one window of each file was embedded.
+`DocumentStore::addDocument()` now compares `LLMEncoder::count_tokens()` (new: the untruncated token count) with the encoder's
+`max_seq_length` and splits a longer document at whitespace into chunks that each fit: pieces of a whitespace run plus a word (the
+tokenizer's pre-tokens don't cross them), filled to the window by their token counts and checked against the real count, the next chunk
+starting about a quarter window back and sharing at least one piece. Each chunk is an entry `<id>#<n>` with `parent_id`, `chunk_index`,
+`chunk_count` and the document's metadata; `removeDocument(id)` removes every chunk, and an id or chunk id can't be added twice. A document
+that fits stays one entry under its own id. Retrieval returns chunks, and `RAGInference` puts their text in the prompt unchanged.
+`chatbot_api_server` logs `Indexed N documents (M entries)`. Tests (`DocumentStoreChunkTest`, 6): chunks fit, overlap, start and end the
+document; an opening outside the encoder's window is retrievable (two documents with the same long ending used to embed identically);
+chunks still overlap when every word is longer than a quarter window; removal, duplicate ids, and a short document keeping its id; plus
+`LLMEncoderTest.CountTokensIsTheUntruncatedEncodeLength`. Removing the chunking, either overlap rule, removal by parent or the parent
+duplicate check each fails a test; the exact-fit check never changes a chunk with this tokenizer, so no test reaches it.
+
+Location in code: `src/DocumentStore.cpp` (`addDocument()`, `chunkRanges()`), `src/LLMEncoder.cpp` (`count_tokens()`), `src/ChatbotAPIServer.cpp` (RAG indexing loop); tagged `TD-349`.
 
 Files to Modify:
 
@@ -10211,6 +10229,10 @@ Found alongside TD-349, by inspection:
 Action Items:
 
 - [ ] Pool over content tokens only; add metadata filtering or drop the field; optionally cache embeddings on disk keyed by file checksum; treat NaN scores as lowest.
+
+**Update (November 12, 2026, while fixing TD-349):** the first item no longer applies. Since TD-364 `LLMEncoder::encode()` adds no
+special tokens by default and `DocumentStore` never asks for them, so nothing pools BOS/EOS rows. The metadata, persistence and NaN items
+remain (the metadata is now copied to every chunk, still unread).
 
 Location in code: `src/DocumentStore.cpp` (`getSentenceEmbedding()`, `retrieve()`); tagged `TODO: See TD-351`.
 

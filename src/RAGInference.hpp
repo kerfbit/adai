@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.2.0
-// @adai-reviewed: 2026-10-27
-
+// @adai-version: 3.0.0
+// @adai-reviewed: 2026-11-12
 
 #include <memory>
 #include <sstream>
@@ -185,7 +184,8 @@ class RAGInference {
     /**
      * @brief Add document to the knowledge base
      *
-     * Convenience method that forwards to DocumentStore.
+     * Convenience method that forwards to DocumentStore. TD-349: a document longer than the
+     * encoder's max_seq_length is stored as overlapping chunks, entries "<id>#1" ... "<id>#N".
      *
      * @param id Document ID
      * @param text Document text
@@ -197,23 +197,24 @@ class RAGInference {
     /**
      * @brief Remove document from knowledge base
      *
-     * @param id Document ID
+     * @param id Document ID: removes every chunk of a chunked document
      * @return bool True if removed, false if not found
      */
     bool removeDocument(const std::string& id);
 
     /**
-     * @brief Get document by ID
+     * @brief Get an entry by ID
      *
-     * @param id Document ID
+     * @param id Entry ID: a chunked document's entries are "<id>#1" ... (TD-349), so its own id
+     *        finds nothing
      * @return const Document* Pointer to document or nullptr
      */
     const Document* getDocument(const std::string& id) const;
 
     /**
-     * @brief Get number of documents in knowledge base
+     * @brief Get number of entries in knowledge base
      *
-     * @return size_t Number of documents
+     * @return size_t Number of entries: one per unchunked document, one per chunk (TD-349)
      */
     size_t getNumDocuments() const;
 
@@ -240,7 +241,8 @@ class RAGInference {
      *
      * @param query Query string
      * @param k Number of documents to retrieve
-     * @return std::vector<std::pair<float, const Document*>> Retrieved documents with scores
+     * @return std::vector<std::pair<float, const Document*>> Retrieved entries (chunks of a chunked
+     *         document) with scores
      */
     std::vector<std::pair<float, const Document*>> retrieveOnly(const std::string& query,
                                                                 int k = -1) const;
