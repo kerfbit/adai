@@ -602,22 +602,22 @@ Broken into small, independently reviewable chunks. IDs (`LJ-*`) are referenced 
 [docs/proposals/README.md](README.md)'s cross-proposal recommended order — keep them stable if
 this section is edited further.
 
-- **LJ-1a — `SIGReg`.** [TD-175](../development/guides/TECHNICAL_DEBT.md#td-175-sigreg-sketched-isotropic-gaussian-regularization).
+- **LJ-1a — `SIGReg`.** [TD-175](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization).
   Standalone, no dependency on anything else in this plan. Unit tests:
   loss on a synthetic isotropic-Gaussian batch should be near zero; on a degenerate
   (collapsed/constant) batch it should be large.
-- **LJ-1b — `Predictor`.** [TD-176](../development/guides/TECHNICAL_DEBT.md#td-176-predictor-embedding-space-predictor).
+- **LJ-1b — `Predictor`.** [TD-176](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor).
   Standalone (reuses `FeedForward`). Unit test: gradient check on a
   toy embedding pair.
-- **LJ-2a — `LeJEPAEncoder` construction.** [TD-177](../development/guides/TECHNICAL_DEBT.md#td-177-lejepaencoder-construction).
+- **LJ-2a — `LeJEPAEncoder` construction.** [TD-177](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction).
   Wraps the existing `EncoderBlock` stack +
   `TokenEmbedding`/`PositionalEncoding`, mirroring `LLMEncoder`'s own composition. No training
   logic yet — just `encode()` and save/load.
-- **LJ-2b — `LeJEPAEncoder::train_step`.** [TD-178](../development/guides/TECHNICAL_DEBT.md#td-178-lejepaencodertrain_step-self-supervised-training-loop).
+- **LJ-2b — `LeJEPAEncoder::train_step`.** [TD-178](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop).
   The self-supervised loop: view construction (span
   masking), `Predictor`, `SIGReg`, combined via `sigreg_lambda`. Verify both loss terms trend
   downward on a small synthetic corpus before touching the decoder at all.
-- **LJ-3a — Gated `DecoderBlock` extension.** [TD-180](../development/guides/TECHNICAL_DEBT.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
+- **LJ-3a — Gated `DecoderBlock` extension.** [TD-180](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   (filed jointly with `HM-3` — one TD, one change, see that entry). Add the nullable `world_model_cross_attention` /
   `norm_world` / gate path. Critical test is the no-op guarantee
   (`world_model_output == nullptr` ⇒ output identical to current `DecoderBlock::forward`, and
@@ -627,29 +627,29 @@ this section is edited further.
   the phase-conditioned `gate_reasoning`/`gate_answer` pair from that plan's "Interaction"
   section instead of a single global gate — see the recommended order in
   [README.md](README.md) for why that avoids rework.
-- **LJ-3b — Sparse injection knob.** [TD-181](../development/guides/TECHNICAL_DEBT.md#td-181-sparse-world-model-injection-knob).
+- **LJ-3b — Sparse injection knob.** [TD-181](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob).
   `world_model_inject_every_n_layers` in `LLMDecoder`; only
   every Nth `DecoderBlock` gets the gated path populated.
-- **LJ-4a — `EncoderDecoderModel::set_world_model()`.** [TD-182](../development/guides/TECHNICAL_DEBT.md#td-182-encoderdecodermodelset_world_model).
+- **LJ-4a — `EncoderDecoderModel::set_world_model()`.** [TD-182](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model).
   Wiring + accessor, no training-loop
   changes yet.
-- **LJ-4b — `incremental_trainer --objective=lejepa` mode + config keys.** [TD-183](../development/guides/TECHNICAL_DEBT.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys).
+- **LJ-4b — `incremental_trainer --objective=lejepa` mode + config keys.** [TD-183](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys).
   The new
   `WORLD_MODEL_*` block in `config.trainer.conf`.
-- **LJ-4c — MNS registration + checkpointing.** [TD-184](../development/guides/TECHNICAL_DEBT.md#td-184-world-model-mns-registration--checkpointing).
+- **LJ-4c — MNS registration + checkpointing.** [TD-184](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-184-world-model-mns-registration--checkpointing).
   Independent `ModelRecord` for the world model;
   `LeJEPAEncoder::save()`/`load()` under `training_sessions/`.
-- **HM-1 — `HippocampalMemory` buffer.** [TD-179](../development/guides/TECHNICAL_DEBT.md#td-179-hippocampalmemory-buffer).
+- **HM-1 — `HippocampalMemory` buffer.** [TD-179](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer).
   Write/evict (FIFO)/`read_all()`, standalone and
   testable without touching the decoder. Depends only on `LJ-2a` (`LeJEPAEncoder::encode()` as
   the key source) — not on `LJ-3a`/`LJ-3b`.
-- **HM-2 — `CrossAttention::forward_with_scores`.** [TD-174](../development/guides/TECHNICAL_DEBT.md#td-174-crossattentionforward_with_scores-score-bias-entry-point).
+- **HM-2 — `CrossAttention::forward_with_scores`.** [TD-174](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point).
   The score-bias entry point Component 6
   needs; a small, additive extension to the existing class (projections/softmax/backward
   unchanged). Standalone unit test: passing an all-zero bias reproduces `forward()`'s existing
   output exactly.
 - **HM-3 — Repetition-penalized gated cross-attention in `DecoderBlock`.** Filed jointly with
-  `LJ-3a` as [TD-180](../development/guides/TECHNICAL_DEBT.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized) — see that entry, not a separate TD. The
+  `LJ-3a` as [TD-180](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized) — see that entry, not a separate TD. The
   `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h` path, coverage accumulation +
   decay, score penalty. **Do this in the same change as `LJ-3a`** if both are in scope — they
   touch the same class, and (per the note in the header of this document) may also need to
@@ -658,11 +658,11 @@ this section is edited further.
   tests: no-op guarantee (both `memory == nullptr` and `gate_h == 0` ⇒ identical output, matching
   `LJ-3a`'s standard); coverage growth is bounded (`coverage[i] <= 1/(1-repetition_decay)` for
   any input, by construction — verify with a stress test that hammers one slot for many steps).
-- **HM-4 — Wiring + config.** [TD-185](../development/guides/TECHNICAL_DEBT.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site).
+- **HM-4 — Wiring + config.** [TD-185](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site).
   `EncoderDecoderModel::set_hippocampal_memory()`, the
   `HIPPOCAMPAL_*` config block, and the write-policy call site (where `EncoderDecoderModel`/
   `ChatbotAPIServer` calls `HippocampalMemory::write()` — v1: once per generated response).
-- **LJ-5 / HM-5 — Pilot run.** [TD-186](../development/guides/TECHNICAL_DEBT.md#td-186-lejepa--hippocampal-memory-pilot-run).
+- **LJ-5 / HM-5 — Pilot run.** [TD-186](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-186-lejepa--hippocampal-memory-pilot-run).
   Small `d_model`/`num_layers` (e.g. the toy sizes used in
   `EncoderDecoderExample.cpp`), on a subset of existing training data, to produce both the
   world-model gate-magnitude signal (Phase 1's evaluation standard) and the hippocampal

@@ -126,10 +126,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Context budget = `max_seq_length` at the shipped values; query and prefixes outside the budget; 4-chars-per-token estimate (§2) | The question falls past the model's positional range; prompt ≈ 2.3× `max_seq_length` in the probe | **Verified** (token counts); by inspection | [TD-484](../../guides/TECHNICAL_DEBT.md#td-484-rag-prompt-budget-lets-the-question-fall-past-max_seq_length) |
-| `/chat/session` retrieves with the conversation's first `max_seq_length` tokens and uses the whole conversation as the question (§2) | Retrieval ignores the latest question in long conversations | By inspection | [TD-485](../../guides/TECHNICAL_DEBT.md#td-485-rag-session-retrieval-uses-the-start-of-the-conversation) |
-| `strategy = ""` always; settings copied once at startup; CPU-only generation (§2) | `STRATEGY`/`BEAM_WIDTH`, reloads and the GPU path are lost while RAG is on | By inspection | [TD-486](../../guides/TECHNICAL_DEBT.md#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation) |
-| `RAG_NUM_DOCS ≤ 0` fails every request; threshold can silently empty the context; no retrieval logging (§2) | Misconfiguration is hard to see | By inspection | [TD-487](../../guides/TECHNICAL_DEBT.md#td-487-raginference-misconfiguration-and-observability-gaps) |
+| Context budget = `max_seq_length` at the shipped values; query and prefixes outside the budget; 4-chars-per-token estimate (§2) | The question falls past the model's positional range; prompt ≈ 2.3× `max_seq_length` in the probe | **Verified** (token counts); by inspection | [TD-484](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-484-rag-prompt-budget-lets-the-question-fall-past-max_seq_length) |
+| `/chat/session` retrieves with the conversation's first `max_seq_length` tokens and uses the whole conversation as the question (§2) | Retrieval ignores the latest question in long conversations | By inspection | [TD-485](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-485-rag-session-retrieval-uses-the-start-of-the-conversation) |
+| `strategy = ""` always; settings copied once at startup; CPU-only generation (§2) | `STRATEGY`/`BEAM_WIDTH`, reloads and the GPU path are lost while RAG is on | By inspection | [TD-486](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation) |
+| `RAG_NUM_DOCS ≤ 0` fails every request; threshold can silently empty the context; no retrieval logging (§2) | Misconfiguration is hard to see | By inspection | [TD-487](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-487-raginference-misconfiguration-and-observability-gaps) |
 | Random retrieval encoder, whole-file documents, concurrency, `config_mutex_`, untruncated input | All fixed in code since (October 26 to November 12, 2026) | — | TD-247, TD-349, TD-350, TD-230, TD-365 |
 
 ---

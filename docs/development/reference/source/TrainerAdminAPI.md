@@ -81,9 +81,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `json_bool()` reads `"key": true` (with a space) as false; persisted (§2) | A normal JSON request silently disabled auto-save for every later pass | **Fixed October 19, 2026** (was verified) | [TD-519](../../guides/TECHNICAL_DEBT.md#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) |
-| NaN `last_loss` streamed as `nan` (§2) | Invalid status JSON during divergence | **Verified** | [TD-520](../../guides/TECHNICAL_DEBT.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
-| Stale "serve" header; unbounded `wait_ms`; counter-based completion; unchecked persisted values (§2) | Misleading docs; admin API can be tied up | By inspection | [TD-521](../../guides/TECHNICAL_DEBT.md#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) |
+| `json_bool()` reads `"key": true` (with a space) as false; persisted (§2) | A normal JSON request silently disabled auto-save for every later pass | **Fixed October 19, 2026** (was verified) | [TD-519](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) |
+| NaN `last_loss` streamed as `nan` (§2) | Invalid status JSON during divergence | **Verified** | [TD-520](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
+| Stale "serve" header; unbounded `wait_ms`; counter-based completion; unchecked persisted values (§2) | Misleading docs; admin API can be tied up | By inspection | [TD-521](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) |
 | Hand-written JSON responses; non-atomic multi-key persistence | Already tracked | — | TD-453, TD-305 (its validate-first half fixed here October 19, 2026) |
 
 ## Addendum (October 19, 2026): JSON request parsing (TD-519)

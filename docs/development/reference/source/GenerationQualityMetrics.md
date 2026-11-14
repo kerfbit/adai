@@ -136,10 +136,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Add-1 smoothing on every order (including unigrams) and a fixed `-20` for missing orders; the "Lin & Och method 1" label is wrong (§2) | Unrelated answers get positive BLEU (0.23 BLEU-4 for 5 words), scrambled answers score high, correct short answers score ~0; per-epoch BLEU-4 is biased and can rank outputs backwards | **Verified** | [TD-378](../../guides/TECHNICAL_DEBT.md#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) |
-| `bleu1`/`bleu2` computed but dropped by `TrainingMetricsService`; the DB columns always hold `-1` (§3) | Dead columns that look like data | By inspection | [TD-379](../../guides/TECHNICAL_DEBT.md#td-379-bleu1bleu2-are-computed-but-never-stored) |
+| Add-1 smoothing on every order (including unigrams) and a fixed `-20` for missing orders; the "Lin & Och method 1" label is wrong (§2) | Unrelated answers get positive BLEU (0.23 BLEU-4 for 5 words), scrambled answers score high, correct short answers score ~0; per-epoch BLEU-4 is biased and can rank outputs backwards | **Verified** | [TD-378](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) |
+| `bleu1`/`bleu2` computed but dropped by `TrainingMetricsService`; the DB columns always hold `-1` (§3) | Dead columns that look like data | By inspection | [TD-379](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-379-bleu1bleu2-are-computed-but-never-stored) |
 | Tokenization differs from sacreBLEU/`rouge-score`; 0–1 scale vs. the lesson's 0–100 ranges; a 10-sample default (§2–3) | Numbers can't be compared with published scores or read against the lesson's ranges; a 10-sample BLEU-4 is very noisy | By inspection | [TD-380](../../guides/TECHNICAL_DEBT.md#td-380-generation-quality-scores-arent-comparable-or-well-sampled) |
-| Tests don't catch the smoothing distortion (§4) | The bug passed review as `stable` | By inspection | [TD-378](../../guides/TECHNICAL_DEBT.md#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) (tests) |
+| Tests don't catch the smoothing distortion (§4) | The bug passed review as `stable` | By inspection | [TD-378](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) (tests) |
 | `generation_quality_max_tokens` ignored; backfill results unread | Already tracked | — | TD-359, TD-273 |
 
 ---

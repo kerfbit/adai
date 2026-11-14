@@ -101,10 +101,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `ChatbotAPI`'s CPU `model_fn` (plain, speculative, batched, `/chat/batch`) uses the training forward, so the last row predicts the last context token (§2) | Correctly trained models answer wrongly on CPU servers (0/12 vs 12/12) | **Verified** | [TD-506](../../guides/TECHNICAL_DEBT.md#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward) |
-| Wrong rejection residual; random acceptance in greedy mode; sequential verification with no bonus token; overshoot; same-size draft; temperature mismatch (§2) | Not target-distributed, not greedy, never faster | **Verified** (except temperature) | [TD-507](../../guides/TECHNICAL_DEBT.md#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster) |
-| `K·α/(K+1)` "speedup" < 1 always; "2–3×" claims (§2) | Misleading statistics | **Verified** | [TD-508](../../guides/TECHNICAL_DEBT.md#td-508-speculative-decoding-speedup-statistic-and-hygiene) |
-| Unused `acceptance_threshold`, console output, `goto`, unseeded RNG (§2) | Hygiene | By inspection | [TD-508](../../guides/TECHNICAL_DEBT.md#td-508-speculative-decoding-speedup-statistic-and-hygiene) |
+| `ChatbotAPI`'s CPU `model_fn` (plain, speculative, batched, `/chat/batch`) uses the training forward, so the last row predicts the last context token (§2) | Correctly trained models answer wrongly on CPU servers (0/12 vs 12/12) | **Verified** | [TD-506](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward) |
+| Wrong rejection residual; random acceptance in greedy mode; sequential verification with no bonus token; overshoot; same-size draft; temperature mismatch (§2) | Not target-distributed, not greedy, never faster | **Verified** (except temperature) | [TD-507](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster) |
+| `K·α/(K+1)` "speedup" < 1 always; "2–3×" claims (§2) | Misleading statistics | **Verified** | [TD-508](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-508-speculative-decoding-speedup-statistic-and-hygiene) |
+| Unused `acceptance_threshold`, console output, `goto`, unseeded RNG (§2) | Hygiene | By inspection | [TD-508](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-508-speculative-decoding-speedup-statistic-and-hygiene) |
 
 ---
 

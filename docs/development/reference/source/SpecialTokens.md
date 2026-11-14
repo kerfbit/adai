@@ -85,8 +85,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Non-standard or duplicate special-token IDs load; `validate()` is never called; several components use the constants instead of the tokenizer's IDs (§2) | A custom vocabulary silently mis-pads, mis-starts and mis-stops generation | **Verified** (loading); by inspection (consumers) | [TD-505](../../guides/TECHNICAL_DEBT.md#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) |
-| Most helpers unused; strings duplicated as literals; format example incomplete (§2) | Misleading "single source of truth" | By inspection | [TD-505](../../guides/TECHNICAL_DEBT.md#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) |
+| Non-standard or duplicate special-token IDs load; `validate()` is never called; several components use the constants instead of the tokenizer's IDs (§2) | A custom vocabulary silently mis-pads, mis-starts and mis-stops generation | **Verified** (loading); by inspection (consumers) | [TD-505](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) |
+| Most helpers unused; strings duplicated as literals; format example incomplete (§2) | Misleading "single source of truth" | By inspection | [TD-505](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) |
 
 ---
 

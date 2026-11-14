@@ -74,7 +74,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Unopenable `models.db` → in-memory mode, `/health` ok, data lost on restart (§2) | MNS silently stops persisting what it's authoritative for | **Verified**; **fixed in code November 9, 2026**: `start()` returns false and the server exits 1 when `models.db` can't be opened, isn't a database, or is read-only | [TD-463](../../guides/TECHNICAL_DEBT.md#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) |
+| Unopenable `models.db` → in-memory mode, `/health` ok, data lost on restart (§2) | MNS silently stops persisting what it's authoritative for | **Verified**; **fixed in code November 9, 2026**: `start()` returns false and the server exits 1 when `models.db` can't be opened, isn't a database, or is read-only | [TD-463](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) |
 | `SIGTERM` before `listen()` hangs the process; `stop()` from a signal handler (§2) | Occasional stop hangs until SIGKILL | **Verified** (1/30) | [TD-464](../../guides/TECHNICAL_DEBT.md#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) |
 | Unusable data dir aborts with a core dump; `LOG_LEVEL` ignored; stale endpoint lists (§2, §3) | Ugly failure; fixed verbosity; misleading help | **Verified** (abort); by inspection | [TD-464](../../guides/TECHNICAL_DEBT.md#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) |
 | `SIGHUP` terminates | Already tracked | — | TD-283 |

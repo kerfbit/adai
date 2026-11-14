@@ -157,15 +157,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Verified | Tracked as |
 |---|---|---|---|
-| Non-numeric/partial numbers become 0 or truncated via `atoi`/`atof` (§3) | Port 0, temperature 0 and similar applied silently | Yes | [TD-240](../../guides/TECHNICAL_DEBT.md#td-240-chatbot_api_server-silently-accepts-non-numeric-and-partial-numbers) |
-| No range checks at startup; `ConfigLoader::validate()` only runs on reload (§4) | Negative timeouts, bad ports accepted, then rejected on reload | Yes (parser), by inspection (reload) | [TD-241](../../guides/TECHNICAL_DEBT.md#td-241-chatbot_api_server-never-validates-its-configuration-at-startup) |
-| `SIGHUP` reload discards CLI generation overrides (§4) | Settings silently revert on reload | By inspection | [TD-242](../../guides/TECHNICAL_DEBT.md#td-242-sighup-reload-discards-chatbot_api_servers-cli-generation-overrides) |
-| Engine-mode flags not mutually exclusive; header's "only ever enables one" is false (§3) | Unused engines and threads started; silent precedence | Yes (parser), by inspection (server) | [TD-243](../../guides/TECHNICAL_DEBT.md#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) |
-| Missing value reported as "Unknown argument" (§3) | Confusing error | Yes | [TD-245](../../guides/TECHNICAL_DEBT.md#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) |
-| `--strategy` not validated (§3) | Typos silently become nucleus sampling | Yes | [TD-241](../../guides/TECHNICAL_DEBT.md#td-241-chatbot_api_server-never-validates-its-configuration-at-startup) |
-| `--batch-timeout-ms` without `--batched-inference` silently ignored | Minor | By inspection | [TD-243](../../guides/TECHNICAL_DEBT.md#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) |
-| No CLI flags for `top_k`/`beam_width`; the server never applies them even from config (§2) | Config keys have no effect | By inspection | [TD-244](../../guides/TECHNICAL_DEBT.md#td-244-chatbot_api_server-ignores-the-top_k-and-beam_width-settings) |
-| Header names the wrong test file (§5) | Stale comment | By inspection | [TD-245](../../guides/TECHNICAL_DEBT.md#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) |
+| Non-numeric/partial numbers become 0 or truncated via `atoi`/`atof` (§3) | Port 0, temperature 0 and similar applied silently | Yes | [TD-240](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-240-chatbot_api_server-silently-accepts-non-numeric-and-partial-numbers) |
+| No range checks at startup; `ConfigLoader::validate()` only runs on reload (§4) | Negative timeouts, bad ports accepted, then rejected on reload | Yes (parser), by inspection (reload) | [TD-241](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-241-chatbot_api_server-never-validates-its-configuration-at-startup) |
+| `SIGHUP` reload discards CLI generation overrides (§4) | Settings silently revert on reload | By inspection | [TD-242](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-242-sighup-reload-discards-chatbot_api_servers-cli-generation-overrides) |
+| Engine-mode flags not mutually exclusive; header's "only ever enables one" is false (§3) | Unused engines and threads started; silent precedence | Yes (parser), by inspection (server) | [TD-243](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) |
+| Missing value reported as "Unknown argument" (§3) | Confusing error | Yes | [TD-245](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) |
+| `--strategy` not validated (§3) | Typos silently become nucleus sampling | Yes | [TD-241](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-241-chatbot_api_server-never-validates-its-configuration-at-startup) |
+| `--batch-timeout-ms` without `--batched-inference` silently ignored | Minor | By inspection | [TD-243](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) |
+| No CLI flags for `top_k`/`beam_width`; the server never applies them even from config (§2) | Config keys have no effect | By inspection | [TD-244](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-244-chatbot_api_server-ignores-the-top_k-and-beam_width-settings) |
+| Header names the wrong test file (§5) | Stale comment | By inspection | [TD-245](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) |
 
 ## Addendum (October 31, 2026): numeric flags are checked (TD-240)
 

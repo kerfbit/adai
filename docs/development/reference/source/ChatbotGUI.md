@@ -147,15 +147,15 @@ Fixed, for reference:
 
 | Item | Fixed | Tracked as |
 |---|---|---|
-| The GUI ran its own model and never loaded a trained checkpoint | November 4, 2026: a client of `chatbot_api_server` | [TD-260](../../guides/TECHNICAL_DEBT.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint) |
-| `num_beams > 1` forced beam search for every strategy | October 25, 2026 | [TD-261](../../guides/TECHNICAL_DEBT.md#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) |
+| The GUI ran its own model and never loaded a trained checkpoint | November 4, 2026: a client of `chatbot_api_server` | [TD-260](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint) |
+| `num_beams > 1` forced beam search for every strategy | October 25, 2026 | [TD-261](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) |
 | Local-config architecture; unusable after an init failure | Moot after TD-260 | [TD-262](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) |
 | Generation froze the window | November 4, 2026: the worker thread | [TD-263](../../guides/TECHNICAL_DEBT.md#td-263-chatbot_gui-freezes-while-generating) |
-| The wrapper forced Qt5 x86_64 paths | November 4, 2026 | [TD-264](../../guides/TECHNICAL_DEBT.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
+| The wrapper forced Qt5 x86_64 paths | November 4, 2026 | [TD-264](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
 | A prompt format different from the server's | Moot after TD-260 | [TD-265](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
-| `--help` needed a display; a loaded conversation wasn't shown | November 4, 2026 | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
+| `--help` needed a display; a loaded conversation wasn't shown | November 4, 2026 | [TD-266](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-266-chatbot_gui-minor-gaps) |
 | The widget class was untested | November 10, 2026: Qt Test suite | [TD-037](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) |
-| Multi-line messages were shown on one line; role names were inserted as HTML | November 10, 2026 | [TD-567](../../guides/TECHNICAL_DEBT.md#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) |
+| Multi-line messages were shown on one line; role names were inserted as HTML | November 10, 2026 | [TD-567](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-567-chatbot_gui-shows-multi-line-messages-on-one-line) |
 
 ---
 

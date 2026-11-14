@@ -118,7 +118,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Unchecked loads, `num_heads == 0` SIGFPE, checked accessor and column-wise `V` walks in the forward loops, console output (§3, §4) | **Fixed in code** (loads October 26, the rest November 13, 2026) | **Verified** | [TD-467](../../guides/TECHNICAL_DEBT.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
+| Unchecked loads, `num_heads == 0` SIGFPE, checked accessor and column-wise `V` walks in the forward loops, console output (§3, §4) | **Fixed in code** (loads October 26, the rest November 13, 2026) | **Verified** | [TD-467](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
 | Member-cached state (not concurrency-safe per instance); uniform fully masked rows (§4) | Callers serialize with `model_mutex_`; no caller produces a fully masked row | By inspection | Not tracked |
 | GPU path ran without LoRA silently, checked no shapes, dereferenced null in `gpu_backward()` without a forward, kept stale weights after host changes (§4) | **Fixed in code** November 13, 2026 | **Verified** on the oneAPI CPU device | [TD-301](../../guides/TECHNICAL_DEBT.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) |
 | An optimizer step taken outside `update_weights()` doesn't reach the mirror (§4) | Callers call `gpu_sync_weights()`; GPU training steps on the device | By inspection | Documented contract (TD-301) |

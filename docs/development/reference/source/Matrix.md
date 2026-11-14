@@ -152,8 +152,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `operator*`'s OpenMP gate is `rows > 64`, so ≤ 64-row products (training samples, decode steps) run single-threaded (§3) | 2–6× slower CPU matmuls on the common shapes | **Verified** (timing) | [TD-434](../../guides/TECHNICAL_DEBT.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
-| Portable builds have no SIMD matmul; AVX2 is compile-time only (§3) | 7–10× slower `operator*` in `portable` binaries | **Verified** (timing) | [TD-434](../../guides/TECHNICAL_DEBT.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
+| `operator*`'s OpenMP gate is `rows > 64`, so ≤ 64-row products (training samples, decode steps) run single-threaded (§3) | 2–6× slower CPU matmuls on the common shapes | **Verified** (timing) | [TD-434](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
+| Portable builds have no SIMD matmul; AVX2 is compile-time only (§3) | 7–10× slower `operator*` in `portable` binaries | **Verified** (timing) | [TD-434](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
 | `operator()` is out-of-line and bounds-checked (§2) | 2.4× slower element access in hot loops that use it | **Verified** (timing) | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | `sum()` accumulates in `float` (§2) | 2.2% error at 16.8M elements; few callers | **Verified** | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | `randomize()` static RNG isn't thread-safe (§2) | Data race if layers initialize concurrently | By inspection | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |

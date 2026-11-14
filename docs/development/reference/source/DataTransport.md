@@ -107,9 +107,9 @@ Without `BUILD_FTP_TRANSPORT`, both methods throw "FTP transport not compiled"; 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | No `curl_global_init()`; partial file deleted on failure; `COULDNT_CONNECT` not retried; global `using`/alias in a header (§3) | A possible init race on an old libcurl; lost resume across passes; a registry restart fails a pass; namespace pollution | By inspection | [TD-340](../../guides/TECHNICAL_DEBT.md#td-340-datatransport-robustness-and-header-hygiene) (LOW) |
-| Basename names: segments downloaded N times to one path, same-named files colliding | — | **Fixed October 19, 2026** | [TD-337](../../guides/TECHNICAL_DEBT.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
-| Condition B reusing a same-size stale file | — | **Fixed October 19, 2026** | [TD-338](../../guides/TECHNICAL_DEBT.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
-| FTPS without server verification | — | **Fixed October 24, 2026** when a pin or CA file is set | [TD-339](../../guides/TECHNICAL_DEBT.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
+| Basename names: segments downloaded N times to one path, same-named files colliding | — | **Fixed October 19, 2026** | [TD-337](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
+| Condition B reusing a same-size stale file | — | **Fixed October 19, 2026** | [TD-338](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
+| FTPS without server verification | — | **Fixed October 24, 2026** when a pin or CA file is set | [TD-339](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
 
 `stable` stands: TD-340's items are robustness and hygiene, none a correctness gap a caller would trip over.
 

@@ -76,9 +76,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Unrecognized `--admin-enabled` values fall back to `true` (§2) | A typo meant to disable the admin endpoint leaves it open | **Verified** (real server) | [TD-456](../../guides/TECHNICAL_DEBT.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
-| Port not range-checked: `99999` → 34463, `8083x` → 8083, `0` → random (§2) | MNS starts where clients can't find it | **Verified** (real server) | [TD-456](../../guides/TECHNICAL_DEBT.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
-| Missing value reported as "Unknown argument"; no config key for `--admin-enabled`; test-file name in header (§3) | Minor | By inspection | [TD-456](../../guides/TECHNICAL_DEBT.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
+| Unrecognized `--admin-enabled` values fall back to `true` (§2) | A typo meant to disable the admin endpoint leaves it open | **Verified** (real server) | [TD-456](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
+| Port not range-checked: `99999` → 34463, `8083x` → 8083, `0` → random (§2) | MNS starts where clients can't find it | **Verified** (real server) | [TD-456](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
+| Missing value reported as "Unknown argument"; no config key for `--admin-enabled`; test-file name in header (§3) | Minor | By inspection | [TD-456](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
 | Same parsing pattern in the other daemons | Already tracked | — | TD-438, TD-240 |
 
 ## Addendum (November 1, 2026): strict flags and `MNS_ADMIN_ENABLED` (TD-456)

@@ -120,7 +120,7 @@ messages reaching the log file.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| The reload diff showed `METRICS_DB_URL` (a PostgreSQL URL that can carry a password), which `to_string()` hid | — | **Fixed November 11, 2026** (`ReloadHidesTheMetricsDatabaseUrl`) | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| The reload diff showed `METRICS_DB_URL` (a PostgreSQL URL that can carry a password), which `to_string()` hid | — | **Fixed November 11, 2026** (`ReloadHidesTheMetricsDatabaseUrl`) | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
 | `reload()` formats its timestamp with `std::localtime()`, which isn't thread-safe | Harmless while only one thread reloads | By inspection | Not filed (cosmetic) |
 | Reload ignoring untracked keys; `SIGHUP` terminating binaries; FTP keys ignored by `registry_server`; two boolean parsers; partial and negative numbers; `validate()` gaps; inline comments and enum typos; output hygiene | — | **Fixed October 31, 2026** | TD-283–TD-290 |
 | Flags dropped by reload; the strict parsers for flags | — | **Fixed November 1, 2026** | TD-242, TD-240, TD-456 |

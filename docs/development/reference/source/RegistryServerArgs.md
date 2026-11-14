@@ -109,10 +109,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `stoi` without checks: `abc` aborts with a core dump, `8090x` → 8090, `99999` → 34463; no range checks for TTL, sessions or PASV range (§2) | Crash or a different port than logged; FTP silently unusable with 0/negative values | **Verified** (port); by inspection | [TD-488](../../guides/TECHNICAL_DEBT.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
-| A value flag with no value is ignored: bare `--admin-enabled` leaves the admin API open (§2) | Operator believes a setting applied | **Verified** | [TD-488](../../guides/TECHNICAL_DEBT.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
-| Unknown arguments ignored (`--portt` → 8082) (§2) | Typos go unnoticed | **Verified** | [TD-488](../../guides/TECHNICAL_DEBT.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
-| FTP-only flags without `--ftp-enabled` ignored; stale header comments; `--help` positional (§2) | Confusion | By inspection | [TD-489](../../guides/TECHNICAL_DEBT.md#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) |
+| `stoi` without checks: `abc` aborts with a core dump, `8090x` → 8090, `99999` → 34463; no range checks for TTL, sessions or PASV range (§2) | Crash or a different port than logged; FTP silently unusable with 0/negative values | **Verified** (port); by inspection | [TD-488](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
+| A value flag with no value is ignored: bare `--admin-enabled` leaves the admin API open (§2) | Operator believes a setting applied | **Verified** | [TD-488](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
+| Unknown arguments ignored (`--portt` → 8082) (§2) | Typos go unnoticed | **Verified** | [TD-488](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
+| FTP-only flags without `--ftp-enabled` ignored; stale header comments; `--help` positional (§2) | Confusion | By inspection | [TD-489](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) |
 | FTP security keys in `config.registry.conf` ignored; config/admin values unchecked | Already tracked | — | TD-284, TD-287, TD-306 |
 | Bind failure exits 0 | Belongs to `RegistryServer.cpp` | **Verified** | [RegistryServer.md](RegistryServer.md) |
 

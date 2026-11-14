@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050, TD-303, TD-348 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.19.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.19.2
+// @adai-reviewed: 2026-11-14
 
 #include "Decoder.hpp"
 #include "BinaryIO.hpp"
@@ -114,7 +114,8 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
     // 4. Pass through decoder blocks
     Matrix x = cached_pos_encoded;
 
-    // TODO: See TD-343 in TECHNICAL_DEBT.md - the same memory reaches every injected block, so it's updated once per injected layer
+    // TD-343: the same memory reaches every injected block, which only reads it. Generation commits one update per decode step
+    // (EncoderDecoderModel's HippocampalStepCommitter, from last_hippocampal_step_weights()).
     for (int i = 0; i < num_layers; ++i) {
         if (encoder_output.rows > 0 && encoder_output.cols > 0) {
             // Encoder-decoder mode: use cross-attention

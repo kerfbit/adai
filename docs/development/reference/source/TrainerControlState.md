@@ -51,7 +51,7 @@ No defects of its own beyond those already tracked, plus these smaller items:
 
 | Item | Tracked as |
 |---|---|
-| `last_loss` NaN streamed as invalid JSON; `best_loss` starts at 0 | [TD-520](../../guides/TECHNICAL_DEBT.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
+| `last_loss` NaN streamed as invalid JSON; `best_loss` starts at 0 | [TD-520](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
 | Pause/resume semantics across passes (supervisor-level state) | TD-173 (resolved) |
 
 ---
@@ -70,7 +70,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Stale `serve` comments; `Pausing` never set; dead wake/sleep in the child; ring vs log-file mismatch; phase not reset on exception (§2) | Misleading docs and status | By inspection | [TD-522](../../guides/TECHNICAL_DEBT.md#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic) |
+| Stale `serve` comments; `Pausing` never set; dead wake/sleep in the child; ring vs log-file mismatch; phase not reset on exception (§2) | Misleading docs and status | By inspection | [TD-522](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic) |
 | NaN loss JSON, `best_loss` default | Already tracked | — | TD-520 |
 
 ## Addendum (November 2, 2026): `stop_signal` (TD-416)

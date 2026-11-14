@@ -141,9 +141,9 @@ pass the pairs it loads (TD-334). A 20-pair file records 20.
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | Stored checksums never verified; `count_pairs()` materializes every pair; unused private path helpers, `add_files()`, `print_run_assignments()`; `make_config()` drops `max_files_per_run`/`data_registry_file`; in-memory `run_id` not updated on acquire (§2–3, §5) | Dead code, an unused integrity field, memory spent counting | By inspection | [TD-335](../../guides/TECHNICAL_DEBT.md#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW) |
-| Segments released and recorded by bare path | — | **Fixed October 19, 2026** | [TD-333](../../guides/TECHNICAL_DEBT.md#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments) |
-| All-zero sample counts | — | **Fixed October 19, 2026** | [TD-334](../../guides/TECHNICAL_DEBT.md#td-334-trained-sample-counts-are-always-zero) |
-| Legacy responses truncated to one line; a BOM breaking JSONL detection | — | **Fixed November 8, 2026** | [TD-336](../../guides/TECHNICAL_DEBT.md#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) |
+| Segments released and recorded by bare path | — | **Fixed October 19, 2026** | [TD-333](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments) |
+| All-zero sample counts | — | **Fixed October 19, 2026** | [TD-334](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-334-trained-sample-counts-are-always-zero) |
+| Legacy responses truncated to one line; a BOM breaking JSONL detection | — | **Fixed November 8, 2026** | [TD-336](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) |
 | `remove_pending()` ignoring its save; relative paths; `count <= 0`; unknown kinds; re-trained units; claim leases | — | **Fixed** | TD-327, TD-328, TD-321, TD-402, TD-493, TD-494 |
 
 `stable` stands: TD-335's items are dead code and an unused integrity field, not a gap a caller would trip over.

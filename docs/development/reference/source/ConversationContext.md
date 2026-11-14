@@ -187,11 +187,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| A single message over 1.2 × `max_tokens` evicts everything, itself included (§5) | Long user message → empty prompt → HTTP 500 and lost history | **Verified** | [TD-292](../../guides/TECHNICAL_DEBT.md#td-292-one-long-message-wipes-the-whole-conversation) |
-| `deserialize()` clears before parsing (§6) | A malformed import wipes the live session | **Verified** | [TD-293](../../guides/TECHNICAL_DEBT.md#td-293-a-malformed-conversation-import-wipes-the-live-session) |
-| Imported metadata replaces limits; imported token counts trusted, including 0/1/negative (§6) | Client-controlled unbounded session history/memory/prompt via `/chat/session/import` | **Verified** | [TD-291](../../guides/TECHNICAL_DEBT.md#td-291-conversation-imports-can-lift-session-limits-and-budgets) |
-| Token estimate is byte-based and unrelated to the model's `max_seq_length` (§4–5) | Prompts can exceed the model's positions; budget only approximate | By inspection | [TD-294](../../guides/TECHNICAL_DEBT.md#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length) |
-| Role labels are plain text; raw roles in the file format (§6) | Turn impersonation; corrupt lines for odd roles | By inspection | [TD-295](../../guides/TECHNICAL_DEBT.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped) |
+| A single message over 1.2 × `max_tokens` evicts everything, itself included (§5) | Long user message → empty prompt → HTTP 500 and lost history | **Verified** | [TD-292](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-292-one-long-message-wipes-the-whole-conversation) |
+| `deserialize()` clears before parsing (§6) | A malformed import wipes the live session | **Verified** | [TD-293](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-293-a-malformed-conversation-import-wipes-the-live-session) |
+| Imported metadata replaces limits; imported token counts trusted, including 0/1/negative (§6) | Client-controlled unbounded session history/memory/prompt via `/chat/session/import` | **Verified** | [TD-291](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-291-conversation-imports-can-lift-session-limits-and-budgets) |
+| Token estimate is byte-based and unrelated to the model's `max_seq_length` (§4–5) | Prompts can exceed the model's positions; budget only approximate | By inspection | [TD-294](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length) |
+| Role labels are plain text; raw roles in the file format (§6) | Turn impersonation; corrupt lines for odd roles | By inspection | [TD-295](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped) |
 | `save_to_file()` doesn't check writes and isn't atomic; `update_token_count()` unused; `ChatbotTrainer` includes the header for nothing (§4, §7) | Minor | By inspection | [TD-296](../../guides/TECHNICAL_DEBT.md#td-296-conversationcontext-hygiene) |
 | Not thread-safe | Already tracked | — | TD-227 |
 | `format_with_special_tokens()` strings aren't real special tokens; GUI vs server format | Already tracked | — | TD-265 (closed November 4, 2026 as moot: the GUI is a server client since TD-260) |

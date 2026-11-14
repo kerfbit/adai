@@ -119,9 +119,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `max_live_sessions` counts finished and stale sessions until their TTL (1 h); nothing evicts one to make room (§3) | More than 16 trainer passes an hour make later passes run without metrics (503) | **Verified** | [TD-445](../../guides/TECHNICAL_DEBT.md#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour) |
-| Runtime `sweep_interval` ≤ 0 spins the sweep thread; 0 → positive never starts it (§3) | A quarter of a core plus constant exclusive locking; or no eviction despite the reported setting | **Verified** | [TD-446](../../guides/TECHNICAL_DEBT.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
-| `get_session()` miss logging (amplified by Prometheus aggregation); DB and file I/O under the registry lock; late writes after archiving (§4) | Log spam; request stalls on slow storage; rare file sharing between runs | By inspection | [TD-446](../../guides/TECHNICAL_DEBT.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
+| `max_live_sessions` counts finished and stale sessions until their TTL (1 h); nothing evicts one to make room (§3) | More than 16 trainer passes an hour make later passes run without metrics (503) | **Verified** | [TD-445](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour) |
+| Runtime `sweep_interval` ≤ 0 spins the sweep thread; 0 → positive never starts it (§3) | A quarter of a core plus constant exclusive locking; or no eviction despite the reported setting | **Verified** | [TD-446](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
+| `get_session()` miss logging (amplified by Prometheus aggregation); DB and file I/O under the registry lock; late writes after archiving (§4) | Log spam; request stalls on slow storage; rare file sharing between runs | By inspection | [TD-446](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
 | No range checks on admin settings; `--sweep-interval-seconds 0`; unknown backend | Already tracked | — | TD-306, TD-438, TD-439 |
 
 ---

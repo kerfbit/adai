@@ -74,7 +74,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Silent setters, missing shape checks, unchecked loads, discarded file ε, console output, `gpu_backward()` null dereference, stale device mirror | **Fixed in code** (loads October 26, the rest November 13, 2026) | **Verified** by tests | [TD-426](../../guides/TECHNICAL_DEBT.md#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) |
+| Silent setters, missing shape checks, unchecked loads, discarded file ε, console output, `gpu_backward()` null dereference, stale device mirror | **Fixed in code** (loads October 26, the rest November 13, 2026) | **Verified** by tests | [TD-426](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) |
 | GPU forward-kernel race; decoder final norm never updated; shared-optimizer stepping | Fixed in code | — | TD-384, TD-346, TD-297 |
 
 No open items in this file.

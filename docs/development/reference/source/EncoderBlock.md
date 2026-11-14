@@ -101,7 +101,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `dropout` stored, saved and printed, never applied (§2) | No dropout regularization in any encoder | By inspection (same as TD-344 for the decoder) | [TD-344](../../guides/TECHNICAL_DEBT.md#td-344-decoderblock-dropout-is-stored-but-never-applied) (amended) |
+| `dropout` stored, saved and printed, never applied (§2) | No dropout regularization in any encoder | By inspection (same as TD-344 for the decoder) | [TD-344](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-344-decoderblock-dropout-is-stored-but-never-applied) (amended) |
 | `get_gradient_norm()`/`clip_gradients()` ignore `LayerNorm` gradients; `clip_gradients()` unused; header's forward/backward step lists describe Post-LN; "dropout"/"clipping" advertised (§2) | Misreported norms; direction-distorting clip if ever used; misleading docs | By inspection | [TD-356](../../guides/TECHNICAL_DEBT.md#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) |
 | `update_weights()` overwrites sub-layer LRs with the block's; no `set_learning_rate()` (§2) | LR changes must go through the public member; per-sub-layer LRs are silently reset | By inspection | [TD-357](../../guides/TECHNICAL_DEBT.md#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) |
 | `load_weights()` unchecked reads; `std::cout` in `save_weights()`/`load_weights()`/`print_config()` (§2) | Truncated files load garbage; console noise from library code | By inspection | [TD-357](../../guides/TECHNICAL_DEBT.md#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) |

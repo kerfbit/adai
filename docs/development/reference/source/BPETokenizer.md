@@ -197,7 +197,7 @@ whole. Tests: `TokensStartingWithAHashSurviveSaveAndLoad`, `TokensStartingWithAH
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| The reader applied `#`-comment and header-keyword rules inside the token and merge sections (§8); the constructor's comment called ASCII the default | `#` tokens lost on load; a keyword token failed the load | **Fixed November 11, 2026** (was verified) | [TD-570](../../guides/TECHNICAL_DEBT.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections) |
+| The reader applied `#`-comment and header-keyword rules inside the token and merge sections (§8); the constructor's comment called ASCII the default | `#` tokens lost on load; a keyword token failed the load | **Fixed November 11, 2026** (was verified) | [TD-570](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections) |
 | `"|||"` pair keys stopping merge learning | — | **Fixed October 17, 2026** | TD-220 (audit old vocabularies with `scripts/audit_vocab_merges.py`) |
 | Silent `save_vocab()` failures | — | **Fixed October 17, 2026** | TD-221 |
 | Never-invalidated `apply_bpe()` cache | — | **Fixed October 27, 2026** | TD-222 |

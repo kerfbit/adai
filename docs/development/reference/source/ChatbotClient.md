@@ -4,7 +4,7 @@
 - **Built into:** `chatbot` (through `ChatbotCLI`) and `chatbot_gui_binary`; needs cpp-httplib and the vendored nlohmann/json
 - **Status tag:** `@adai-status: experimental`, `@adai-version: 0.1.0`, `@adai-reviewed: 2026-11-04`
 - **Tests:** [`tests/chatbotclient_test.cpp`](../../../../tests/chatbotclient_test.cpp) → `chatbotclientTests` (11 tests against a stub server); also covered through `ChatbotCLI` by `chatbotcliImprovedTests`
-- **Added:** November 4, 2026, with [TD-260](../../guides/TECHNICAL_DEBT.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint)
+- **Added:** November 4, 2026, with [TD-260](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint)
 
 ---
 

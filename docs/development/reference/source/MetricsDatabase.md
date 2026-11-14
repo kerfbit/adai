@@ -123,9 +123,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| No retention anywhere; `max_records_on_disk` is configurable but read by nothing (§3) | The metrics DB and JSONL grow without bound; a documented limit doesn't exist | **Verified** (search) | [TD-440](../../guides/TECHNICAL_DEBT.md#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) |
-| `gradient_variance_history` and `generation_quality` are write-only; per-step inserts (§3) | One write per optimizer step per session for data nothing reads | **Verified** (search) | [TD-440](../../guides/TECHNICAL_DEBT.md#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) |
-| `step` restarts per service instance; `limit` keeps the oldest rows; unbounded compare/export reads; undocumented contract; factory in the SQLite file (§3) | Duplicate step numbers; a "latest N" query returns the earliest N | By inspection | [TD-441](../../guides/TECHNICAL_DEBT.md#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) |
+| No retention anywhere; `max_records_on_disk` is configurable but read by nothing (§3) | The metrics DB and JSONL grow without bound; a documented limit doesn't exist | **Verified** (search) | [TD-440](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) |
+| `gradient_variance_history` and `generation_quality` are write-only; per-step inserts (§3) | One write per optimizer step per session for data nothing reads | **Verified** (search) | [TD-440](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) |
+| `step` restarts per service instance; `limit` keeps the oldest rows; unbounded compare/export reads; undocumented contract; factory in the SQLite file (§3) | Duplicate step numbers; a "latest N" query returns the earliest N | By inspection | [TD-441](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) |
 | Unknown backend name falls back to file-only | Already tracked | — | TD-439 |
 
 ---

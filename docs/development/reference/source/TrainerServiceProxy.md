@@ -85,8 +85,8 @@ the fields go on every status answer that is a JSON object, a 503/504 included, 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Supervisor fields only on a 200; a pass's admin API started after GPU initialization; a five-character `json_escape()` (§2) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
-| Long checkpoint waits misreported, idle config ignoring the config file, unencoded `wait_ms`, ignored pause/resume failures | — | **Fixed November 2, 2026** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
+| Supervisor fields only on a 200; a pass's admin API started after GPU initialization; a five-character `json_escape()` (§2) | — | **Fixed November 11, 2026** | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| Long checkpoint waits misreported, idle config ignoring the config file, unencoded `wait_ms`, ignored pause/resume failures | — | **Fixed November 2, 2026** | [TD-525](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Spaced JSON booleans, partial idle saves, `null` losses, `?limit=`, the shared `wait_ms` limit, a failing pass looking idle | — | **Fixed** | TD-519, TD-305, TD-520, TD-522, TD-521, TD-523 |
 | Browser writes, a second instance on the same port, a test harness abort | — | **Fixed** | TD-550, TD-551, TD-556 |
 

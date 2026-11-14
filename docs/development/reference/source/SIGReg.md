@@ -92,8 +92,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Directions fixed per process: only 64 of 768 dimensions constrained (§2) | Collapse in 92% of dimensions gives identical loss and diagnostics; irreproducible directions | **Verified** | [TD-502](../../guides/TECHNICAL_DEBT.md#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized) |
-| Biased loss with a 1/n floor, applied per sequence (§2) | Short texts pushed off the target; logged loss tracks text length | **Verified** | [TD-503](../../guides/TECHNICAL_DEBT.md#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) |
+| Directions fixed per process: only 64 of 768 dimensions constrained (§2) | Collapse in 92% of dimensions gives identical loss and diagnostics; irreproducible directions | **Verified** | [TD-502](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized) |
+| Biased loss with a 1/n floor, applied per sequence (§2) | Short texts pushed off the target; logged loss tracks text length | **Verified** | [TD-503](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) |
 | Four unweighted frequencies; no NaN check; repeated projections (§2) | Weaker shape test; minor | By inspection | [TD-504](../../guides/TECHNICAL_DEBT.md#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) |
 | Unseeded initialization generally | Context | — | TD-368 |
 

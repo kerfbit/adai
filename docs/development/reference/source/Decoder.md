@@ -3,10 +3,10 @@
 - **Files:** [`src/Decoder.hpp`](../../../../src/Decoder.hpp), [`src/Decoder.cpp`](../../../../src/Decoder.cpp)
 - **Class:** `LLMDecoder` (global namespace)
 - **Built into:** `adai_models` (owned by `EncoderDecoderModel`)
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.14.0`, `@adai-reviewed: 2026-09-18`
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-303, TD-348), `@adai-version: 0.19.0` (`.hpp`) / `0.19.2` (`.cpp`), `@adai-reviewed: 2026-11-14` (`.cpp`)
 - **Tests:** [`tests/decoder_test.cpp`](../../../../tests/decoder_test.cpp) → `decoderTests` (59 tests)
 - **Origin:** original decoder stack; TD-050 (GPU incremental decode), TD-181 (sparse world-model injection knob), TD-186 (world-model/memory threading, hippocampal allocation)
-- **Last traced against the code:** 2026-10-11
+- **Last traced against the code:** 2026-10-11, with the addenda below; §3's hippocampal note and §8's status column re-checked 2026-11-14
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (linked against the debug libraries) in a scratch program.
@@ -81,11 +81,13 @@ never read.
 > `max_seq_length`. Neither path has positions the model was trained on. Generation should cap
 > sequences at `max_seq_length`.
 
-> **Hippocampal memory is mutated once per injected layer (by inspection).** The same `memory`
-> pointer reaches every block with the gated path, and each such block decays and accumulates
-> coverage and associations ([DecoderBlock.md](DecoderBlock.md) §3). With
-> `WORLD_MODEL_INJECT_EVERY_N_LAYERS = 1` and 6 layers, one forward call applies **6** decay +
-> accumulate rounds. That compounds TD-343's per-call over-counting.
+> **Hippocampal memory is read, not written, by the forwards (TD-343, fixed October 21, 2026).** The
+> same `memory` pointer reaches every block with the gated path, and each such block only reads it
+> ([DecoderBlock.md](DecoderBlock.md) §3). Generation commits one coverage and association update per
+> decode step: `EncoderDecoderModel`'s `HippocampalStepCommitter` passes `last_hippocampal_step_weights()`
+> (below) to `HippocampalMemory::commit_attention()`. Before the fix, every block that ran the path
+> decayed and accumulated the memory itself, so with `WORLD_MODEL_INJECT_EVERY_N_LAYERS = 1` and 6
+> layers one forward call applied **6** rounds, compounding TD-343's per-call over-counting.
 
 ---
 
@@ -172,12 +174,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `update_weights(lr)` skips the final norm and ignores `lr` (§4) | Non-optimizer training (`EncoderDecoderModel::train_step()`/`update_weights()`) never trains the final norm | **Verified** | [TD-346](../../guides/TECHNICAL_DEBT.md#td-346-llmdecoderupdate_weights-never-updates-the-final-norm) |
-| Cached (and GPU incremental) positional encoding keeps encoding past `max_seq_length` while the full forward stops (§3, §6) | Divergent hidden states (Δ 13.6 in a small test) between generation strategies on over-length sequences | **Verified** | [TD-347](../../guides/TECHNICAL_DEBT.md#td-347-cached-and-full-decoder-forwards-diverge-past-max_seq_length) |
-| Hippocampal memory mutated once per injected layer per forward (§3) | Coverage/association updates multiplied by the number of injected layers | By inspection (compounds TD-343) | [TD-343](../../guides/TECHNICAL_DEBT.md#td-343-hippocampal-memory-is-updated-on-every-forward-pass) (amended) |
+| `update_weights(lr)` skipped the final norm and ignored `lr` (§4) | **Fixed in code** October 26, 2026 (non-optimizer training never trained the final norm) | **Verified** | [TD-346](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-346-llmdecoderupdate_weights-never-updates-the-final-norm) |
+| Cached (and GPU incremental) positional encoding kept encoding past `max_seq_length` while the full forward stopped (§3, §6) | **Fixed in code** October 26, 2026 (it gave divergent hidden states, Δ 13.6 in a small test, between generation strategies) | **Verified** | [TD-347](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-347-cached-and-full-decoder-forwards-diverge-past-max_seq_length) |
+| Hippocampal memory mutated once per injected layer per forward (§3) | **Fixed in code** October 21, 2026: forwards only read it, one update per decode step | By inspection (compounds TD-343) | [TD-343](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-343-hippocampal-memory-is-updated-on-every-forward-pass) (amended) |
 | Dead code and hygiene: `set_training()`'s empty loop, unused `cached_encoder_output` copy, unused `forward_with_mask()`, unchecked `load_weights()` header reads, unvalidated constructor arguments, `gpu_backward()` UB with zero layers (§2–6) | Wasted copies, misleading code, silent garbage on truncated files | By inspection | [TD-348](../../guides/TECHNICAL_DEBT.md#td-348-llmdecoder-dead-code-and-robustness-gaps) |
 | Decoder-only dummy cross-attention | Already tracked | — | TD-303 |
-| Gated paths absent from cached/GPU paths | Already tracked | — | TD-342 |
+| Gated paths absent from cached/GPU paths | Fixed in code October 20, 2026 | — | TD-342 (archived) |
 
 ---
 
@@ -242,3 +244,9 @@ Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
 ## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
 
 `update_weights(lr)` applies `lr` to every sub-layer and updates the final norm (TD-346); with a registered optimizer it steps it once (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
+
+## Addendum (November 14, 2026): the TD-343 note in `forward()`
+
+`forward()` carried `TODO: See TD-343`, saying the memory is updated once per injected layer. That stopped being true with TD-343's
+fix (October 21, 2026); the comment now says the blocks only read the memory and generation commits one update per decode step. §3's
+note and §8's rows for TD-342, TD-343, TD-346 and TD-347 now say they're fixed. No code changed.

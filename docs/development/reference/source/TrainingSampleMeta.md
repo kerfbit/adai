@@ -96,9 +96,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `\uXXXX` (and `\b`, `\f`, `\/`) not decoded (§2) | Non-ASCII text from standard JSON tools trained as `u00e9`-style garbage | **Fixed October 17, 2026** | [TD-531](../../guides/TECHNICAL_DEBT.md#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text) |
-| First-occurrence key matching (§2) | Nested or unusual rows read the wrong field | **Fixed October 17, 2026** | [TD-532](../../guides/TECHNICAL_DEBT.md#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line) |
-| Writer leaves control characters raw (§2) | Registry-produced JSONL rejected by standard parsers | **Fixed November 10, 2026** | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
-| Unused metadata; locale/precision/NaN number handling; another hand-written scanner (§2) | Misleading fields; minor | **Fixed November 10, 2026** (scanner kept) | [TD-533](../../guides/TECHNICAL_DEBT.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
+| First-occurrence key matching (§2) | Nested or unusual rows read the wrong field | **Fixed October 17, 2026** | [TD-532](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line) |
+| Writer leaves control characters raw (§2) | Registry-produced JSONL rejected by standard parsers | **Fixed November 10, 2026** | [TD-533](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
+| Unused metadata; locale/precision/NaN number handling; another hand-written scanner (§2) | Misleading fields; minor | **Fixed November 10, 2026** (scanner kept) | [TD-533](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) |
 | HuggingFace scanner `\u` gap; empty responses; private `quality`; duplicated JSON code | Already tracked | — | TD-314, TD-267, TD-273, TD-453 |
 
 ## Addendum (November 8, 2026): `history` (TD-295)

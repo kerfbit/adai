@@ -110,11 +110,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Unknown flags silently ignored; `register` then uses config defaults for an immutable architecture (§3) | A one-character typo permanently registers the wrong architecture | **Verified** | [TD-448](../../guides/TECHNICAL_DEBT.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
-| `set-training` treats any stray argument as the session key (§3) | `--new_run` continues the run and links a bogus metrics key | **Verified** | [TD-448](../../guides/TECHNICAL_DEBT.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
-| Unchecked `stoul`/`stoi`/`stof`: aborts with a core dump on bad input, wraps negatives, truncates junk (§3) | Crash instead of a usage error; absurd values sent | **Verified** (real binary) | [TD-448](../../guides/TECHNICAL_DEBT.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
-| Standalone kind without `--num-layers` sends both layer counts (§3) | Confusing server rejection | **Verified** (request); by inspection (server) | [TD-449](../../guides/TECHNICAL_DEBT.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
-| Relink resets hippocampal settings; unencoded paths/queries; incomplete `json_escape()`; ignored `--sigreg-*`; `https://` accepted (§4) | Silent config resets; wrong endpoints or invalid JSON for unusual names | Partly verified | [TD-449](../../guides/TECHNICAL_DEBT.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
+| Unknown flags silently ignored; `register` then uses config defaults for an immutable architecture (§3) | A one-character typo permanently registers the wrong architecture | **Verified** | [TD-448](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
+| `set-training` treats any stray argument as the session key (§3) | `--new_run` continues the run and links a bogus metrics key | **Verified** | [TD-448](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
+| Unchecked `stoul`/`stoi`/`stof`: aborts with a core dump on bad input, wraps negatives, truncates junk (§3) | Crash instead of a usage error; absurd values sent | **Verified** (real binary) | [TD-448](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
+| Standalone kind without `--num-layers` sends both layer counts (§3) | Confusing server rejection | **Verified** (request); by inspection (server) | [TD-449](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
+| Relink resets hippocampal settings; unencoded paths/queries; incomplete `json_escape()`; ignored `--sigreg-*`; `https://` accepted (§4) | Silent config resets; wrong endpoints or invalid JSON for unusual names | Partly verified | [TD-449](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
 
 ---
 

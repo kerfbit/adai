@@ -109,7 +109,7 @@ run with the fixed binary left no trained record and the claim cleared.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| The LeJEPA pass marked its files trained before its final save; `reset` ignored unknown tokens; the per-pass admin API started late; a silent MNS lookup failure; start-up lines on stdout (§3) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| The LeJEPA pass marked its files trained before its final save; `reset` ignored unknown tokens; the per-pass admin API started late; a silent MNS lookup failure; start-up lines on stdout (§3) | — | **Fixed November 11, 2026** | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
 | `retrain` reads trained units by registry path | A retrain against a remote FTP registry can't read its trained files | By inspection | [TD-411](../../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (open item) |
 | The LeJEPA pass had no device-lost check | A lost GPU failed every remaining batch, and the pass then recorded its files as trained | **Fixed November 12, 2026** ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)) | TD-566 |
 | `resume` without FTP, zero-sample success, the wrong pending pool, the vocabulary bootstrap, LeJEPA segments and claims, signals, auto-save overrides, read-only `status`, log files | — | **Fixed** | TD-411, TD-412, TD-413, TD-414, TD-415, TD-416, TD-431 |

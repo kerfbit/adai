@@ -97,7 +97,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Wildcard CORS + no auth + writes accepting `text/plain` (§2) | Any web page in an operator's browser can clear/inject metrics and read training text | **Verified** | [TD-526](../../guides/TECHNICAL_DEBT.md#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page) |
+| Wildcard CORS + no auth + writes accepting `text/plain` (§2) | Any web page in an operator's browser can clear/inject metrics and read training text | **Verified** | [TD-526](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page) |
 | INFO log line per `metrics/current` poll (§2) | Log noise; faster rotation of real history | **Verified** | [TD-527](../../guides/TECHNICAL_DEBT.md#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) |
 | Substring parsing; uncapped `max_records`; second-resolution history timestamps; precision switch; size/boilerplate (§2) | Hygiene and resource use | By inspection | [TD-527](../../guides/TECHNICAL_DEBT.md#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) |
 | NaN JSON, session cap, query order, retention, admin PUT, duplicated JSON, CLI | Already tracked | — | TD-443, TD-445, TD-441, TD-440, TD-305/306, TD-453, TD-438/439 |

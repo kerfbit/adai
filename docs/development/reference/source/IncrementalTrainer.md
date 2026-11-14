@@ -143,7 +143,7 @@ keyword tokens end to end (the tokenizer's own tests cover the reader).
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| The vocabulary reloaded from a file the tokenizer misread; the early-stopping epoch missing from the per-epoch data (§5) | — | **Fixed November 11, 2026** | [TD-570](../../guides/TECHNICAL_DEBT.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections), [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| The vocabulary reloaded from a file the tokenizer misread; the early-stopping epoch missing from the per-epoch data (§5) | — | **Fixed November 11, 2026** | [TD-570](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-570-bpetokenizerload_vocab-takes-header-syntax-inside-the-token-and-merge-sections), [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
 | Resume from the best-ever checkpoint; interrupted passes lost; leaky deletion; dangling links; the cache key; checkpoints never loaded; the wrong reset pool | — | **Fixed** October 17–19, 2026 | TD-405–TD-409, TD-539, TD-545 |
 | Bookkeeping and hard-coded policy | — | **Fixed November 9, 2026** | TD-410 |
 | Fresh optimizer per pass; bare-path release and marking; zero counts; unchecked vocabulary save; the vocabulary bootstrap | — | **Fixed** | TD-269, TD-333, TD-334, TD-221, TD-414 |

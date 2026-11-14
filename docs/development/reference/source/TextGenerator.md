@@ -103,11 +103,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Beam width ≤ 0: segfault (0) or uncaught `length_error` (negative) (§2) | `BEAM_WIDTH=0` + `STRATEGY=beam` crashes `chatbot_api_server` | **Verified** | [TD-514](../../guides/TECHNICAL_DEBT.md#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) |
-| Temperature 0 ignored by top-k and nucleus (§2) | "Deterministic" config still random (33/50 distinct) | **Verified** | [TD-515](../../guides/TECHNICAL_DEBT.md#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling) |
-| `min_length` never read; `early_stopping` has no effect (§2) | Empty responses; beam search never stops early | **Verified** (`min_length`); by inspection | [TD-516](../../guides/TECHNICAL_DEBT.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
-| NaN logits → PAD → silent empty response (§2) | Broken models look like terse ones | **Verified** | [TD-516](../../guides/TECHNICAL_DEBT.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
-| `max_length` counts BOS/prompt; penalty after filtering; `top_p <= 0`; per-beam uncached calls; no vocab masking; seed 0 (§2) | Minor behaviour and cost issues | **Verified** (length); by inspection | [TD-516](../../guides/TECHNICAL_DEBT.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
+| Beam width ≤ 0: segfault (0) or uncaught `length_error` (negative) (§2) | `BEAM_WIDTH=0` + `STRATEGY=beam` crashes `chatbot_api_server` | **Verified** | [TD-514](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) |
+| Temperature 0 ignored by top-k and nucleus (§2) | "Deterministic" config still random (33/50 distinct) | **Verified** | [TD-515](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling) |
+| `min_length` never read; `early_stopping` has no effect (§2) | Empty responses; beam search never stops early | **Verified** (`min_length`); by inspection | [TD-516](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
+| NaN logits → PAD → silent empty response (§2) | Broken models look like terse ones | **Verified** | [TD-516](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
+| `max_length` counts BOS/prompt; penalty after filtering; `top_p <= 0`; per-beam uncached calls; no vocab masking; seed 0 (§2) | Minor behaviour and cost issues | **Verified** (length); by inspection | [TD-516](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) |
 | CPU `model_fn` contract broken by `ChatbotAPI`; masking/divergence between paths; duplicated softmax | Already tracked | — | TD-506, TD-362, TD-216, TD-424 |
 
 ---

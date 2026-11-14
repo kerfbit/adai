@@ -185,15 +185,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Verified | Tracked as |
 |---|---|---|---|
-| EOF (Ctrl+D, piped input) loops forever printing prompts (§4) | CPU pinned; ~95 MB/s of output when redirected; no auto-save | Yes | [TD-253](../../guides/TECHNICAL_DEBT.md#td-253-chatbot-spins-forever-at-end-of-input) |
-| `/set` settings are sent but ignored by the server; strategy names don't match the server's (§5) | Users believe settings changed when they didn't | Yes (sent); server side by inspection | [TD-254](../../guides/TECHNICAL_DEBT.md#td-254-chatbots-set-generation-settings-have-no-effect) |
-| `success:false` replies shown as empty bot responses (§6) | Server errors hidden | Yes | [TD-255](../../guides/TECHNICAL_DEBT.md#td-255-chatbot-shows-server-error-replies-as-empty-responses) |
-| `print_welcome()` omits `/save`, `/load`, `/stats` (§3) | Undiscoverable commands | By inspection | [TD-256](../../guides/TECHNICAL_DEBT.md#td-256-chatbots-help-banner-omits-save-load-and-stats) |
-| `session_id` unescaped in `/clear` and chat requests (§6) | Breaks on IDs with quotes or backslashes | By inspection | [TD-257](../../guides/TECHNICAL_DEBT.md#td-257-chatbot-sends-session_id-unescaped-in-two-requests) |
-| No Ctrl+C handling; auto-save silently overwrites the previous save; non-atomic write (§4, §6) | Lost conversations | By inspection | [TD-258](../../guides/TECHNICAL_DEBT.md#td-258-chatbot-can-lose-or-overwrite-saved-conversations) |
-| Numeric `/set` values accept partial and out-of-range input (§5) | Moot while settings are ignored | By inspection | [TD-259](../../guides/TECHNICAL_DEBT.md#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) |
-| JSON helpers have external linkage; header exports colour macros and all of httplib (§3) | ODR/collision risk; compile-time cost | By inspection | [TD-259](../../guides/TECHNICAL_DEBT.md#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) |
-| Server restart silently loses history under the reused session ID (§6) | Confusing | By inspection (TD-232 server side) | [TD-258](../../guides/TECHNICAL_DEBT.md#td-258-chatbot-can-lose-or-overwrite-saved-conversations) |
+| EOF (Ctrl+D, piped input) loops forever printing prompts (§4) | CPU pinned; ~95 MB/s of output when redirected; no auto-save | Yes | [TD-253](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-253-chatbot-spins-forever-at-end-of-input) |
+| `/set` settings are sent but ignored by the server; strategy names don't match the server's (§5) | Users believe settings changed when they didn't | Yes (sent); server side by inspection | [TD-254](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-254-chatbots-set-generation-settings-have-no-effect) |
+| `success:false` replies shown as empty bot responses (§6) | Server errors hidden | Yes | [TD-255](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-255-chatbot-shows-server-error-replies-as-empty-responses) |
+| `print_welcome()` omits `/save`, `/load`, `/stats` (§3) | Undiscoverable commands | By inspection | [TD-256](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-256-chatbots-help-banner-omits-save-load-and-stats) |
+| `session_id` unescaped in `/clear` and chat requests (§6) | Breaks on IDs with quotes or backslashes | By inspection | [TD-257](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-257-chatbot-sends-session_id-unescaped-in-two-requests) |
+| No Ctrl+C handling; auto-save silently overwrites the previous save; non-atomic write (§4, §6) | Lost conversations | By inspection | [TD-258](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-258-chatbot-can-lose-or-overwrite-saved-conversations) |
+| Numeric `/set` values accept partial and out-of-range input (§5) | Moot while settings are ignored | By inspection | [TD-259](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) |
+| JSON helpers have external linkage; header exports colour macros and all of httplib (§3) | ODR/collision risk; compile-time cost | By inspection | [TD-259](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) |
+| Server restart silently loses history under the reused session ID (§6) | Confusing | By inspection (TD-232 server side) | [TD-258](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-258-chatbot-can-lose-or-overwrite-saved-conversations) |
 
 ---
 

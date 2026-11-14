@@ -113,11 +113,11 @@ None open. For reference, fixed:
 
 | Item | Fixed | Tracked as |
 |---|---|---|
-| Set Training sent a run ID the server ignores and never `new_run`; Set Candidate with the typed ID got 409 | November 10, 2026 | [TD-454](../../guides/TECHNICAL_DEBT.md#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) |
-| `--help` aborted without a display; a missing value or unknown argument was ignored; records loaded only on a mouse click; a refill highlighted the wrong model; an unused `QSpinBox` style | November 11, 2026 | [TD-568](../../guides/TECHNICAL_DEBT.md#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight) |
+| Set Training sent a run ID the server ignores and never `new_run`; Set Candidate with the typed ID got 409 | November 10, 2026 | [TD-454](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) |
+| `--help` aborted without a display; a missing value or unknown argument was ignored; records loaded only on a mouse click; a refill highlighted the wrong model; an unused `QSpinBox` style | November 11, 2026 | [TD-568](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-568-mns-manager-gui-argument-handling-keyboard-selection-and-a-stale-highlight) |
 | The widget class was untested | November 10, 2026: Qt Test suite | [TD-037](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-037-no-qt-test-infrastructure-for-gui-classes) |
-| Success judged by the text `"error"`; HTTP on the GUI thread; arbitrary Register defaults; unpopulated role filter; no URL encoding; `#ifndef` guard and four copied HTTP helpers | November 10, 2026 | [TD-455](../../guides/TECHNICAL_DEBT.md#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) |
-| Register body without kind, run group or connection; JSON helpers' parsing gaps; `https://` sent as plain HTTP | November 10, 2026 | [TD-452](../../guides/TECHNICAL_DEBT.md#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) |
+| Success judged by the text `"error"`; HTTP on the GUI thread; arbitrary Register defaults; unpopulated role filter; no URL encoding; `#ifndef` guard and four copied HTTP helpers | November 10, 2026 | [TD-455](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) |
+| Register body without kind, run group or connection; JSON helpers' parsing gaps; `https://` sent as plain HTTP | November 10, 2026 | [TD-452](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) |
 
 ---
 

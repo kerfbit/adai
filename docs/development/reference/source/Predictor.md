@@ -38,8 +38,8 @@ No defects of its own beyond those already tracked:
 
 | Item | Tracked as |
 |---|---|
-| No save/load: every resumed LeJEPA pass starts with a random predictor (0.0017 → 2.05 predictor loss after reload) | [TD-427](../../guides/TECHNICAL_DEBT.md#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) |
-| `train_step()`'s two `update_weights()` calls step the shared optimizer twice per sample | [TD-428](../../guides/TECHNICAL_DEBT.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
+| No save/load: every resumed LeJEPA pass starts with a random predictor (0.0017 → 2.05 predictor loss after reload) | [TD-427](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) |
+| `train_step()`'s two `update_weights()` calls step the shared optimizer twice per sample | [TD-428](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
 | Shared-optimizer stepping from layer `update_weights()`; duplicate registration | TD-297, TD-469 |
 | Unseeded initialization (via `FeedForward`) | TD-368 |
 

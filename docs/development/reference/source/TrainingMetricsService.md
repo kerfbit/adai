@@ -97,8 +97,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| JSONL open failure returns before the persisted marker moves, so DB rows are re-inserted every persist (§2) | Quadratic duplicate rows (9 for 3 records) in every DB query | **Verified** | [TD-529](../../guides/TECHNICAL_DEBT.md#td-529-metrics-service-re-inserts-db-rows-when-the-jsonl-file-cant-be-written) |
-| Dead push path; JSONL missing extended fields; unused `compress_old_records`; stale `GlobalMetricsService` comment; undocumented sampling (§2) | Dead code and misleading expectations | By inspection | [TD-530](../../guides/TECHNICAL_DEBT.md#td-530-trainingmetricsservice-dead-push-path-partial-jsonl-rows-and-undocumented-sampling) |
+| JSONL open failure returns before the persisted marker moves, so DB rows are re-inserted every persist (§2) | Quadratic duplicate rows (9 for 3 records) in every DB query | **Verified** | [TD-529](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-529-metrics-service-re-inserts-db-rows-when-the-jsonl-file-cant-be-written) |
+| Dead push path; JSONL missing extended fields; unused `compress_old_records`; stale `GlobalMetricsService` comment; undocumented sampling (§2) | Dead code and misleading expectations | By inspection | [TD-530](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-530-trainingmetricsservice-dead-push-path-partial-jsonl-rows-and-undocumented-sampling) |
 | NaN JSON, retention, FK ordering, NaN reads, session cap, step counter | Already tracked | — | TD-443, TD-440, TD-479, TD-510, TD-445, TD-441 |
 
 ---

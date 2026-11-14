@@ -84,10 +84,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `get_session()` leaves its statement active after a found row, blocking WAL checkpoints (§2) | Unbounded WAL (254 MB vs 4 MB for 20k rows), empty main file, slower reads | **Verified** (production trigger by inspection) | [TD-509](../../guides/TECHNICAL_DEBT.md#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints) |
-| NaN stored as NULL and read as 0 for every unguarded float column (§2) | Diverged runs show loss 0 | **Verified** | [TD-510](../../guides/TECHNICAL_DEBT.md#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0) |
-| No busy timeout (§2) | Lock contention drops rows immediately | **Verified** | [TD-511](../../guides/TECHNICAL_DEBT.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
-| Per-row transactions; ignored PRAGMA/migration errors; unused `schema_version`; default directory not created (§2) | Robustness | By inspection (directory verified) | [TD-511](../../guides/TECHNICAL_DEBT.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
+| `get_session()` leaves its statement active after a found row, blocking WAL checkpoints (§2) | Unbounded WAL (254 MB vs 4 MB for 20k rows), empty main file, slower reads | **Verified** (production trigger by inspection) | [TD-509](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints) |
+| NaN stored as NULL and read as 0 for every unguarded float column (§2) | Diverged runs show loss 0 | **Verified** | [TD-510](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0) |
+| No busy timeout (§2) | Lock contention drops rows immediately | **Verified** | [TD-511](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
+| Per-row transactions; ignored PRAGMA/migration errors; unused `schema_version`; default directory not created (§2) | Robustness | By inspection (directory verified) | [TD-511](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
 | No retention; limit keeps oldest rows; timestamp parsing; unknown backend accepted | Already tracked | — | TD-440, TD-441, TD-477, TD-439 |
 
 ---

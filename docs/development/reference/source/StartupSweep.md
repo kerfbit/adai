@@ -77,8 +77,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Callers never call `load_pending_list()`; every file looks orphaned (§2) | Every pass deleted all downloads (and anything else in `DOWNLOAD_DIR`); resume and reuse never happened | **Fixed October 18, 2026** (was verified) | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
-| Registry failure also wipes the directory (§2) | Data loss on a network blip | **Fixed October 18, 2026** | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
+| Callers never call `load_pending_list()`; every file looks orphaned (§2) | Every pass deleted all downloads (and anything else in `DOWNLOAD_DIR`); resume and reuse never happened | **Fixed October 18, 2026** (was verified) | [TD-512](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
+| Registry failure also wipes the directory (§2) | Data loss on a network blip | **Fixed October 18, 2026** | [TD-512](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
 | Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | **Fixed October 19, 2026** (with TD-337) | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Throwing filesystem calls; whole-file release (§2) | Crash on permission errors; stranded segment claims | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Download naming by basename (fixed October 19, 2026); segment release | Already tracked | — | TD-337, TD-333 |

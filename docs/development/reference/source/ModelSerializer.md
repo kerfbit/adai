@@ -103,7 +103,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| ~~Export writes only the encoder's embedding; import copies it to the decoder (§2)~~ | **Fixed November 12, 2026:** both embeddings are exported and imported | **Verified** (tests) | [TD-465](../../guides/TECHNICAL_DEBT.md#td-465-safetensors-round-trip-replaces-the-decoder-embedding) |
+| ~~Export writes only the encoder's embedding; import copies it to the decoder (§2)~~ | **Fixed November 12, 2026:** both embeddings are exported and imported | **Verified** (tests) | [TD-465](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-465-safetensors-round-trip-replaces-the-decoder-embedding) |
 | "T5" names/config for a non-T5 architecture: no relative bias, RMSNorm vs LayerNorm, GELU vs "relu", biases, scaling (§2); decision: make it T5-faithful | Exports aren't usable in `transformers`; real T5 checkpoints can never be imported | By inspection | [TD-466](../../guides/TECHNICAL_DEBT.md#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation) |
 | dtype ignored; no header/offset validation; partial imports; dead `json_escape()`; `stable` with no production caller (§2) | Cryptic errors on real files; half-overwritten models | By inspection | [TD-466](../../guides/TECHNICAL_DEBT.md#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation) |
 | Gated world-model/hippocampal layers not exported | Already tracked | — | TD-345 |

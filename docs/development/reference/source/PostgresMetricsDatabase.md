@@ -82,7 +82,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Child rows written before the session row violate foreign keys; retried 3× (~0.5 s) and dropped (§2) | Every session loses its first history batch and early per-step gradient rows; ingest stalls 0.5 s per rejected insert | **Verified** (real PostgreSQL 16) | [TD-479](../../guides/TECHNICAL_DEBT.md#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations) |
+| Child rows written before the session row violate foreign keys; retried 3× (~0.5 s) and dropped (§2) | Every session loses its first history batch and early per-step gradient rows; ingest stalls 0.5 s per rejected insert | **Verified** (real PostgreSQL 16) | [TD-479](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations) |
 | Schema bootstrap only on a successful first connection; reconnects under the pool mutex; no timeouts; non-idempotent and non-retryable retries; archive key collision (§2) | Broken store after a late DB start; stalls; duplicate rows | By inspection | [TD-480](../../guides/TECHNICAL_DEBT.md#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries) |
 | Timestamp fraction parsing; no retention | Already tracked | — | TD-477, TD-440 |
 

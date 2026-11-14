@@ -3,9 +3,9 @@
 **Status:** Implemented in code November 8, 2026 (TT-1 to TT-5), as recommended, with multi-turn training data done now (decision 6). TT-6, the
 vocabulary rebuild and retrain, remains. Proposed November 4, 2026.
 
-**Tracks:** [TD-295](../development/guides/TECHNICAL_DEBT.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped)
+**Tracks:** [TD-295](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped)
 (part 2: typed role labels impersonate turns). Closely tied to
-[TD-224](../development/guides/TECHNICAL_DEBT.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) (lossy
+[TD-224](../development/archive/TECHNICAL_DEBT_RESOLVED.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) (lossy
 tokenizer normalization), TD-265 (prompt format vs training data, closed as moot by TD-260 with the training-data question left
 open), TD-505 (special-token ids), TD-223/TD-225 (vocabulary id assignment) and the TD-358 retraining.
 

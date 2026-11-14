@@ -95,8 +95,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `skip_value()`: bool-list elements consume nothing (26-byte file spins forever); nested structs recurse without a limit (SIGSEGV) (§2) | One malicious or corrupt HuggingFace part hangs a request or crashes `registry_server` | **Verified** | [TD-470](../../guides/TECHNICAL_DEBT.md#td-470-malformed-parquet-footers-hang-or-crash-registry_server) |
-| Declared sizes trusted for allocations: negative page sizes, Snappy length, page `num_values`, `num_rows` (§2) | Escaped `length_error`s (HTTP 500, no cleanup); multi-GB allocations from tiny inputs | **Verified** (exceptions); by inspection (8 GB case) | [TD-471](../../guides/TECHNICAL_DEBT.md#td-471-parquetreader-trusts-declared-sizes-for-allocations) |
+| `skip_value()`: bool-list elements consume nothing (26-byte file spins forever); nested structs recurse without a limit (SIGSEGV) (§2) | One malicious or corrupt HuggingFace part hangs a request or crashes `registry_server` | **Verified** | [TD-470](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-470-malformed-parquet-footers-hang-or-crash-registry_server) |
+| Declared sizes trusted for allocations: negative page sizes, Snappy length, page `num_values`, `num_rows` (§2) | Escaped `length_error`s (HTTP 500, no cleanup); multi-GB allocations from tiny inputs | **Verified** (exceptions); by inspection (8 GB case) | [TD-471](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-471-parquetreader-trusts-declared-sizes-for-allocations) |
 | Throws despite the "returns −1" contract; whole part in memory; only reference test disabled (§2) | Contract mismatch; memory use; weak coverage | By inspection | [TD-472](../../guides/TECHNICAL_DEBT.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) |
 | Partial HuggingFace downloads cached as complete | Already tracked | — | TD-313 |
 

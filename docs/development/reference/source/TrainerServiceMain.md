@@ -113,10 +113,10 @@ failure backs off, and the shipped unit can write the download directory (TD-524
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| A pass that hangs without failing a sample was waited for forever (§2) | The always-on service stalled until a manual restart | **Fixed November 11, 2026** (was verified on ai-machine, v1 adapter) | [TD-569](../../guides/TECHNICAL_DEBT.md#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress) |
+| A pass that hangs without failing a sample was waited for forever (§2) | The always-on service stalled until a manual restart | **Fixed November 11, 2026** (was verified on ai-machine, v1 adapter) | [TD-569](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-569-trainer_service-has-no-time-limit-for-a-pass-that-stops-making-progress) |
 | A long stretch of work with no progress call is stopped as a stall | A pass doing such work for more than `TRAINER_PASS_STALL_MINUTES` would be stopped and retried | By design; every long loop found reports progress, and the 30-minute default is far above any gap seen | TD-569 |
-| Exit code 1 meant both "idle" and "failed" (§2) | A failing trainer looked idle | **Fixed October 19, 2026** | [TD-523](../../guides/TECHNICAL_DEBT.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
-| Child port, binary resolution, launch backoff, unit write paths | — | **Fixed November 2, 2026** | [TD-524](../../guides/TECHNICAL_DEBT.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
+| Exit code 1 meant both "idle" and "failed" (§2) | A failing trainer looked idle | **Fixed October 19, 2026** | [TD-523](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
+| Child port, binary resolution, launch backoff, unit write paths | — | **Fixed November 2, 2026** | [TD-524](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
 | Forwarded flags, log files, SIGHUP, exit codes, FTP resume, `--help` | — | Fixed | TD-403, TD-431, TD-283, TD-277, TD-278, TD-411, TD-412, TD-557 |
 
 ## 5. History

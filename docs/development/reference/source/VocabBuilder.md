@@ -104,10 +104,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Default `plain` format on JSONL training data; help doesn't say `pairs` reads JSONL (§2) | Vocabulary slots wasted on JSON syntax that never occurs in training text | **Fixed October 17, 2026** | [TD-534](../../guides/TECHNICAL_DEBT.md#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) |
-| Save failure reported as success, exit 0 (§2) | Scripts proceed without a vocabulary | **Fixed October 17, 2026** (cause TD-221) | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
-| `stoi` without checks: `abc` aborts, `8000x` accepted, no range check (§2) | Crash or silent misconfiguration | **Fixed October 17, 2026** | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
-| `json` loader takes keys and doesn't unescape; OPERATIONS_MANUAL.md flags/defaults wrong; inherited JSONL gaps (§2) | Polluted corpora; operators misled | By inspection | [TD-536](../../guides/TECHNICAL_DEBT.md#td-536-vocab_builder-json-loader-and-operator-documentation-drift) |
+| Default `plain` format on JSONL training data; help doesn't say `pairs` reads JSONL (§2) | Vocabulary slots wasted on JSON syntax that never occurs in training text | **Fixed October 17, 2026** | [TD-534](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) |
+| Save failure reported as success, exit 0 (§2) | Scripts proceed without a vocabulary | **Fixed October 17, 2026** (cause TD-221) | [TD-535](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
+| `stoi` without checks: `abc` aborts, `8000x` accepted, no range check (§2) | Crash or silent misconfiguration | **Fixed October 17, 2026** | [TD-535](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
+| `json` loader takes keys and doesn't unescape; OPERATIONS_MANUAL.md flags/defaults wrong; inherited JSONL gaps (§2) | Polluted corpora; operators misled | By inspection | [TD-536](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-536-vocab_builder-json-loader-and-operator-documentation-drift) |
 | Silent save, top-tokens, normalization, merge separator, bootstrap, JSONL parsing | Already tracked | — | TD-221, TD-225, TD-224, TD-220, TD-414, TD-531/532 |
 
 ## Addendum (November 4, 2026): `--lowercase` (TD-560)

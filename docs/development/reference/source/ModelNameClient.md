@@ -109,8 +109,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Timeouts retried for non-idempotent requests (§2) | A slow MNS skips a run number on `retrain`; `register_model()` throws after succeeding | **Verified** (mock server) | [TD-457](../../guides/TECHNICAL_DEBT.md#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout) |
-| NaN progress loss sent as `nan` and stored/re-emitted by `mns_server` (§2) | A diverged run makes `GET /models` invalid JSON for strict clients; persists in `training_history` | **Verified** (real `mns_server`) | [TD-458](../../guides/TECHNICAL_DEBT.md#td-458-a-nan-training-loss-makes-mnss-json-unparseable) |
+| Timeouts retried for non-idempotent requests (§2) | A slow MNS skips a run number on `retrain`; `register_model()` throws after succeeding | **Verified** (mock server) | [TD-457](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout) |
+| NaN progress loss sent as `nan` and stored/re-emitted by `mns_server` (§2) | A diverged run makes `GET /models` invalid JSON for strict clients; persists in `training_history` | **Verified** (real `mns_server`) | [TD-458](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-458-a-nan-training-loss-makes-mnss-json-unparseable) |
 | Architecture not validated; no unescaping; ~16 s per call when MNS doesn't answer; no URL encoding; `https://` (§3) | Wrong-shaped models instead of clear errors; slow fallback | By inspection | [TD-459](../../guides/TECHNICAL_DEBT.md#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps) |
 | Duplicated JSON helpers | Already tracked | — | TD-453 |
 

@@ -84,8 +84,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `load()` pre-fills `NaN` and doesn't check reads; a truncated `.lm_head` loads silently (§3) | A damaged checkpoint serves all-`NaN` logits instead of failing to load | **Verified** | [TD-423](../../guides/TECHNICAL_DEBT.md#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) |
-| Uncached generation paths project all positions every step (§3) | About 30× the LM-head work per step (and per beam) at 100 tokens | **Verified** (timing) | [TD-424](../../guides/TECHNICAL_DEBT.md#td-424-uncached-generation-projects-every-position-through-the-lm-head) |
+| `load()` pre-fills `NaN` and doesn't check reads; a truncated `.lm_head` loads silently (§3) | A damaged checkpoint serves all-`NaN` logits instead of failing to load | **Verified** | [TD-423](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) |
+| Uncached generation paths project all positions every step (§3) | About 30× the LM-head work per step (and per beam) at 100 tokens | **Verified** (timing) | [TD-424](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-424-uncached-generation-projects-every-position-through-the-lm-head) |
 | `std::cout` in the constructor; no input-shape check; setters don't check shapes or refresh the GPU mirror; `gpu_backward()` null dereference; unused `get_probabilities()`; `int` parameter-count overflow (§2) | Console noise from library code; latent misuse failures | By inspection | [TD-425](../../guides/TECHNICAL_DEBT.md#td-425-languagemodelhead-hygiene) |
 | No weight tying with the token embedding (§1) | Twice the vocabulary parameters; a design choice | By inspection | — (design choice) |
 | Shared-optimizer stepping; unseeded init | Already tracked | — | TD-297, TD-368 |

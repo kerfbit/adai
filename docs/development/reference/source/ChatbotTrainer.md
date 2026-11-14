@@ -197,7 +197,7 @@ fails with the check moved back.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| The early-stopping epoch skipped `record_epoch()` and the epoch callback (§10) | — | **Fixed November 11, 2026** | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| The early-stopping epoch skipped `record_epoch()` and the epoch callback (§10) | — | **Fixed November 11, 2026** | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
 | Skipped pairs biasing validation; `end_epoch()` only with validation; optimizer state and LR schedule per pass; adaptive clipping per epoch; split vs cache; mid-window losses; unread backfills; the best-weights file; `<eos>` lost; hygiene | — | **Fixed** October 17 – November 4, 2026 | TD-267–TD-276 |
 | Device-resident optimizer and embeddings | — | **Fixed** October 19, 2026 | TD-468, TD-547 |
 | A lost GPU retried every sample; an epoch with no update recorded as loss 0 | — | **Fixed November 10, 2026** | TD-566 |

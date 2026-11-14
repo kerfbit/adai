@@ -150,7 +150,7 @@ is their only full description.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `unassign` exits 0 when every match was skipped as claimed | A no-op looks like success unless the "skipped" line is read | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) (not in its action items) |
+| `unassign` exits 0 when every match was skipped as claimed | A no-op looks like success unless the "skipped" line is read | By inspection | [TD-330](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) (not in its action items) |
 | Commands without tests (§5) | Composition bugs go unnoticed (`migrate` and `remove` had them) | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | The guide lacks `assign`, `unassign`, `delete`, `migrate`, `models` (§6) | Pool-changing commands documented only in the usage text | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
 | `migrate --count N` counts entries, not files | A file's segments may be split between pools | By inspection | — |

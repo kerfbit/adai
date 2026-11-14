@@ -100,11 +100,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `append()` didn't check key/value or column shapes (§3) | **Fixed in code** October 26, 2026 (it was heap overflow or silent corruption on mismatched input) | **Verified** (ASan) | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
-| Full reallocate-and-copy on every append (§3) | **Fixed in code** October 26, 2026 (it was O(n²·d) copying per generation, about 6 s at 24 layers × 512 tokens) | **Verified** (timing) | [TD-422](../../guides/TECHNICAL_DEBT.md#td-422-kvcache-copies-the-whole-cache-on-every-append) |
-| `get_*_cache()` weren't bounds-checked (fixed October 26, 2026); `current_length()` reads only layer 0; no default constructor (§2) | Inconsistent layers go unnoticed | By inspection | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
+| `append()` didn't check key/value or column shapes (§3) | **Fixed in code** October 26, 2026 (it was heap overflow or silent corruption on mismatched input) | **Verified** (ASan) | [TD-421](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-421-kvcacheappend-has-no-shape-checks) |
+| Full reallocate-and-copy on every append (§3) | **Fixed in code** October 26, 2026 (it was O(n²·d) copying per generation, about 6 s at 24 layers × 512 tokens) | **Verified** (timing) | [TD-422](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-422-kvcache-copies-the-whole-cache-on-every-append) |
+| `get_*_cache()` weren't bounds-checked (fixed October 26, 2026); `current_length()` reads only layer 0; no default constructor (§2) | Inconsistent layers go unnoticed | By inspection | [TD-421](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-421-kvcacheappend-has-no-shape-checks) |
 | Generation past `max_seq_length` diverges between cached and full forward | Already tracked | — | TD-347 |
-| A cross-attention cache reused for another encoder output answered with the old K/V | **Fixed in code** November 13, 2026: `source_tag`, checked by `CrossAttention` | **Verified** | [TD-300](../../guides/TECHNICAL_DEBT.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
+| A cross-attention cache reused for another encoder output answered with the old K/V | **Fixed in code** November 13, 2026: `source_tag`, checked by `CrossAttention` | **Verified** | [TD-300](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
 
 ---
 

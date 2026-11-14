@@ -86,7 +86,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Embedding norm ≈ 1 vs positional norm ≈ 19.6, no √d_model scaling (§2) | Different tokens at one position were 0.997-similar at init | **Fixed October 17, 2026** (N(0, 1) init; owner decision) | [TD-517](../../guides/TECHNICAL_DEBT.md#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) |
+| Embedding norm ≈ 1 vs positional norm ≈ 19.6, no √d_model scaling (§2) | Different tokens at one position were 0.997-similar at init | **Fixed October 17, 2026** (N(0, 1) init; owner decision) | [TD-517](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) |
 | `load_pretrained()` doesn't check reads (§2) | Truncated checkpoints load with random rows | **Verified** | [TD-518](../../guides/TECHNICAL_DEBT.md#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) |
 | Full-matrix zeroing/updates; no size/shape validation; unused cache; console output (§2) | Cost and hygiene | By inspection | [TD-518](../../guides/TECHNICAL_DEBT.md#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) |
 | Shared-optimizer stepping; duplicate registration; unseeded init; float sums | Already tracked | — | TD-297, TD-469, TD-368, TD-435 |

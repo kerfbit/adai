@@ -102,8 +102,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | Bounds-checked accessor in every update loop (3.2× slower); CPU-only optimizer forces GPU training to round-trip all gradients and weights per step (§2) | Seconds of CPU work and GBs of copies per optimizer step at the configured model size | **Verified** (timing); estimate for production size | [TD-468](../../guides/TECHNICAL_DEBT.md#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) |
-| One global weight decay, applied to norms, biases and embeddings (§2) | Slow drift of norm gains under AdamW; no per-group control | By inspection | [TD-469](../../guides/TECHNICAL_DEBT.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
-| Unused `amsgrad`; no duplicate-registration check; raw pointers; float norm accumulation (§2) | Hygiene; double updates if a layer registers twice | By inspection | [TD-469](../../guides/TECHNICAL_DEBT.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
+| One global weight decay, applied to norms, biases and embeddings (§2) | Slow drift of norm gains under AdamW; no per-group control | By inspection | [TD-469](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
+| Unused `amsgrad`; no duplicate-registration check; raw pointers; float norm accumulation (§2) | Hygiene; double updates if a layer registers twice | By inspection | [TD-469](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
 | Shared-optimizer stepping; accessor cost | Already tracked | — | TD-297, TD-435 |
 | Optimizer state not persisted across passes | Every pass restarted AdamW from zero moments | **Fixed October 19, 2026** (`save_state()`/`load_state()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
 

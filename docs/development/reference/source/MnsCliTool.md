@@ -75,9 +75,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `register` takes unspecified architecture from `config.mns.conf` (512/8), not the trainer's config (768/12) (§2) | A flagless `register` permanently sets an architecture the operator didn't intend | By inspection (config files) | [TD-450](../../guides/TECHNICAL_DEBT.md#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config) |
-| `https://` sends plain HTTP to port 8083; no custom headers (§2) | `mns_cli` can't use a TLS/tunnel endpoint | **Verified** | [TD-451](../../guides/TECHNICAL_DEBT.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
-| `--help` only as the first word; global options taken anywhere; unused include; stale comment; duplicated helpers (§2) | Minor usability and hygiene | **Verified** (`--help`); by inspection | [TD-451](../../guides/TECHNICAL_DEBT.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
+| `register` takes unspecified architecture from `config.mns.conf` (512/8), not the trainer's config (768/12) (§2) | A flagless `register` permanently sets an architecture the operator didn't intend | By inspection (config files) | [TD-450](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config) |
+| `https://` sends plain HTTP to port 8083; no custom headers (§2) | `mns_cli` can't use a TLS/tunnel endpoint | **Verified** | [TD-451](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
+| `--help` only as the first word; global options taken anywhere; unused include; stale comment; duplicated helpers (§2) | Minor usability and hygiene | **Verified** (`--help`); by inspection | [TD-451](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
 | Unknown flags ignored; uncaught number-parsing exceptions | Already tracked | — | TD-448 |
 
 ---

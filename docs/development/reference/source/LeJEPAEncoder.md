@@ -117,8 +117,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `save()`/`load()` skip the `Predictor`; every resumed pass gets a random predictor (§3) | Predictor re-learned each pass; its random gradients disturb the resumed encoder; misleading loss curve | **Verified** (0.0017 → 2.053) | [TD-427](../../guides/TECHNICAL_DEBT.md#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) |
-| Two sequential `update_weights()` per sample, justified by a TD-189 overwrite problem that TD-195 fixed (§3) | Two optimizer steps per sample; momentum applied twice; stale rationale | By inspection | [TD-428](../../guides/TECHNICAL_DEBT.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
+| `save()`/`load()` skip the `Predictor`; every resumed pass gets a random predictor (§3) | Predictor re-learned each pass; its random gradients disturb the resumed encoder; misleading loss curve | **Verified** (0.0017 → 2.053) | [TD-427](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) |
+| Two sequential `update_weights()` per sample, justified by a TD-189 overwrite problem that TD-195 fixed (§3) | Two optimizer steps per sample; momentum applied twice; stale rationale | By inspection | [TD-428](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
 | `TokenizerEncodingError` escapes the caller's `invalid_argument` catch; `std::cout`; unchecked loads; `max_seq_length` not compared (§3) | One bad sample ends a pass; console noise | By inspection | [TD-429](../../guides/TECHNICAL_DEBT.md#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) |
 | Gates never train; unseeded RNG; ASCII-only tokenizer | Already tracked | — | TD-341, TD-368, TD-416 |
 

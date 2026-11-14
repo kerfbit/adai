@@ -36,7 +36,7 @@ none hung). A bind failure exits 1, unlike `registry_server` (TD-494).
 ## 2. Gaps (by inspection)
 
 No defects of its own beyond those already tracked, plus small items, tracked as
-[TD-528](../../guides/TECHNICAL_DEBT.md#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot):
+[TD-528](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot):
 
 - **Stop/start race:** `TrainingMetricsAPI::stop()` returns early unless `running_` is set, and `start()` sets it on the server thread. A SIGTERM
   between the handlers being installed and `start()` running would make `stop()` a no-op and `join()` wait for a server that then runs forever (the

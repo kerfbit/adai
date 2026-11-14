@@ -89,8 +89,8 @@ confirmation text does say "Delete the data registry", but `--yes` skips reading
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `reset` ignored unknown tokens, so a mistyped `--keep-data` with `--yes` deleted the data registry (§3) | — | **Fixed November 11, 2026** (was verified) | [TD-571](../../guides/TECHNICAL_DEBT.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
-| `--admin-port` abort, a mistyped objective training the chatbot, missing values as positionals | — | **Fixed November 1, 2026** | [TD-401](../../guides/TECHNICAL_DEBT.md#td-401-incremental_trainer-flag-parsing-crashes-or-silently-misreads-bad-values) |
+| `reset` ignored unknown tokens, so a mistyped `--keep-data` with `--yes` deleted the data registry (§3) | — | **Fixed November 11, 2026** (was verified) | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
+| `--admin-port` abort, a mistyped objective training the chatbot, missing values as positionals | — | **Fixed November 1, 2026** | [TD-401](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-401-incremental_trainer-flag-parsing-crashes-or-silently-misreads-bad-values) |
 | `--dataset-kind` unvalidated; flags dropped by `trainer_service`; colliding run ids; child port; log files; `--help` | — | **Fixed** | TD-402, TD-403, TD-404, TD-524, TD-431, TD-557 |
 
 ## 6. History

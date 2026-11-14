@@ -125,12 +125,12 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Every signal death reported as 128; signal number lost (§3) | Can't distinguish GPU-driver SIGSEGV from an OOM SIGKILL in status/metrics | **Verified** | [TD-277](../../guides/TECHNICAL_DEBT.md#td-277-childprocess-reports-every-signal-death-as-exit-code-128) |
-| Exec failure reported as a successful `start()` then exit 127 (§3) | Missing binary → endless silent retry loop | **Verified** | [TD-278](../../guides/TECHNICAL_DEBT.md#td-278-childprocess-reports-a-failed-exec-as-a-successful-launch) |
-| `request_stop()` could `kill(-1, SIGTERM)` if called concurrently, as the header permits (§4) | Would signal every user process; not reachable today | By inspection | [TD-279](../../guides/TECHNICAL_DEBT.md#td-279-childprocessrequest_stop-can-signal-every-process-if-called-concurrently) |
-| No process group or parent-death signal (§4) | Orphaned passes if the supervisor is hard-killed outside systemd | By inspection | [TD-280](../../guides/TECHNICAL_DEBT.md#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed) |
-| `fork()` + `execvp()` in a multithreaded process; accepted sockets inherited (§4) | Theoretical deadlock; fd leak during a pass | By inspection | [TD-281](../../guides/TECHNICAL_DEBT.md#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors) |
-| Windows quoting / `STILL_ACTIVE` / console-event limits (§4) | Windows-only | By inspection | [TD-282](../../guides/TECHNICAL_DEBT.md#td-282-childprocess-windows-path-has-known-gaps) |
+| Every signal death reported as 128; signal number lost (§3) | Can't distinguish GPU-driver SIGSEGV from an OOM SIGKILL in status/metrics | **Verified** | [TD-277](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-277-childprocess-reports-every-signal-death-as-exit-code-128) |
+| Exec failure reported as a successful `start()` then exit 127 (§3) | Missing binary → endless silent retry loop | **Verified** | [TD-278](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-278-childprocess-reports-a-failed-exec-as-a-successful-launch) |
+| `request_stop()` could `kill(-1, SIGTERM)` if called concurrently, as the header permits (§4) | Would signal every user process; not reachable today | By inspection | [TD-279](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-279-childprocessrequest_stop-can-signal-every-process-if-called-concurrently) |
+| No process group or parent-death signal (§4) | Orphaned passes if the supervisor is hard-killed outside systemd | By inspection | [TD-280](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed) |
+| `fork()` + `execvp()` in a multithreaded process; accepted sockets inherited (§4) | Theoretical deadlock; fd leak during a pass | By inspection | [TD-281](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors) |
+| Windows quoting / `STILL_ACTIVE` / console-event limits (§4) | Windows-only | By inspection | [TD-282](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-282-childprocess-windows-path-has-known-gaps) |
 
 ## Addendum (November 2, 2026): `start()` reports a failed `exec` (TD-278)
 
