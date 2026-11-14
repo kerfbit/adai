@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.5.1
-# @adai-reviewed: 2026-11-13
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-11-14
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
 # archive to copy back. Built into a package by scripts/package_sycl_gpu_tests.sh; see README.md
@@ -503,6 +503,7 @@ if [[ $RUN_BENCHMARK == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
         echo "gpu_cached = GPU KV cache (gpu_decode_step), gpu_full = GPU full recompute every step"
         echo "(before TD-050), cpu_cached = CPU KV cache, cpu_dispatch = CPU KV cache with each large"
         echo "multiply sent to the GPU on its own (chatbot_api_server before TD-033)."
+        echo "GPU queue bound (TD-574): GPU_QUEUE_DEPTH=${GPU_QUEUE_DEPTH:-8, the default}."
         for shape in "${decode_shapes[@]}"; do
             for run in "decode_${shape%% *}" "decode_${shape%% *}_retry"; do
                 [[ -f "$RESULTS/$run.log" ]] || continue
@@ -782,18 +783,24 @@ fi
 
 # Training passes like the soak's, on the default Level Zero v2 adapter, in variants that each
 # change one thing, run round-robin (the starting variant rotates each round) so a burst of resets
-# lands on every variant alike:
-#   control         as the soak (twice per round)
+# lands on every variant alike. Every variant but default, depth_N and encode_soak_default runs
+# with GPU_QUEUE_DEPTH=0, the unbounded queue of the November 13 and 14 rounds, so it stays
+# comparable with them. Run by default (third round, after the bound became the default):
+#   control         GPU_QUEUE_DEPTH=0, the unbounded queue (twice per round)
+#   default         the shipped GPU_QUEUE_DEPTH=8: a wait before every 8th operation (twice per round)
+#   depth_N         GPU_QUEUE_DEPTH=N for N = 16, 32: where the bound stops working
 #   sync_step       ADAI_GPU_SYNC=step: wait for the GPU at each training phase
+#   encode_soak     forward only: LeJEPAEncoder::gpu_encode() for 10 s, no backward or optimizer
+#   encode_soak_default  the same with the shipped bound
+# Settled by the first two rounds and left out unless named in BISECT_VARIANTS (a space-separated
+# list replacing the default one):
 #   sync_kernel     ADAI_GPU_SYNC=kernel: wait before every kernel; a failure names its kernel
-#                   (twice per round: November 13 it was the only variant with no resets)
-#   sync_every_N    ADAI_GPU_SYNC=kernel:N for N = 8, 64, 512: at most N operations queued
+#   sync_every_N    ADAI_GPU_SYNC=kernel:N: at most N operations queued
 #   full_priority   GPU_STRATEGY=full: the normal-priority queue instead of the low-priority one
 #   no_dropout      DROPOUT=0: no dropout kernel
 #   host_embedding  the embedding gather and scatter-add (float atomics) on the host
 #   host_optimizer  the optimizer update and gradient norms (float atomics) on the host
 #   host_all        embedding, optimizer and dropout on the host
-#   encode_soak     forward only: LeJEPAEncoder::gpu_encode() for 10 s, no backward or optimizer
 #   long_preempt    --engine-tuning: the compute engine's preempt timeout raised to 5 s
 #   long_timeslice  --engine-tuning: the compute engine's time slice raised to 100 ms
 # Every pass keeps its last GPU work in gpu_trace.txt (ADAI_GPU_TRACE_FILE), so even a hung pass
@@ -826,8 +833,9 @@ engine_restore() {
 }
 
 if [[ $BISECT_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}" ]]; then
-    VARIANTS=(control sync_kernel sync_step sync_every_8 sync_every_64 sync_every_512 full_priority
-        control sync_kernel no_dropout host_embedding host_optimizer host_all encode_soak)
+    # shellcheck disable=SC2206  # a space-separated list, split on purpose
+    VARIANTS=(${BISECT_VARIANTS:-control default depth_16 depth_32 sync_step
+        control default encode_soak encode_soak_default})
     if [[ $ENGINE_TUNING == 1 ]]; then
         if [[ -z "$SUDO" ]]; then
             log "--engine-tuning needs sudo: long_preempt and long_timeslice left out."
@@ -861,6 +869,11 @@ if [[ $BISECT_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}"
             name=$(printf 'bisect_%s_%02d' "$variant" "$run")
             dir="$RESULTS/work/$name"
             envs=(ADAI_GPU_TRACE_FILE="$dir/gpu_trace.txt")
+            case $variant in
+                default | encode_soak_default) ;;
+                depth_*) envs+=(GPU_QUEUE_DEPTH="${variant#depth_}") ;;
+                *) envs+=(GPU_QUEUE_DEPTH=0) ;;
+            esac
             tuned=""
             case $variant in
                 sync_step) envs+=(ADAI_GPU_SYNC=step) ;;
@@ -880,7 +893,7 @@ if [[ $BISECT_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}"
                 continue
             fi
             t0=$(date +%s)
-            if [[ $variant == encode_soak ]]; then
+            if [[ $variant == encode_soak* ]]; then
                 step "$name" 600 env "${envs[@]}" "$BIN/gpu_encode_soak" "$HERE/data/pairs.jsonl" 10
             else
                 step "$name" 600 env "${envs[@]}" "$HERE/train_pass.sh" "$dir" "$((300 + run))" "$SOAK_EPOCHS"

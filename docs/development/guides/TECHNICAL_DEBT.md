@@ -18,8 +18,8 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
 **Where things stand.** Of the 100 open items:
-- **23 wait on something outside a coding session:** 10 on a run on ai-machine (TD-574's next step, a bounded GPU queue, is code
-  work here first; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
+- **23 wait on something outside a coding session:** 10 on a run on ai-machine (TD-574's bounded GPU queue, the default since
+  November 14, and the decode benchmark with it come first; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
 - **77 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
@@ -35,7 +35,7 @@ test package. It checks the GPU KV-cached decode step by step against the GPU fu
 cache, and the CPU with each large multiply sent to the GPU (`chatbot_api_server` before TD-033), for 50 and 100 tokens at a small
 shape and at `config.trainer.conf`'s architecture. The cached GPU decode already matched the CPU on ai-machine's Arc on November 10
 and 12 (`EncoderDecoderGPUTest`). Its first run, November 14, lost the device to TD-574's engine resets in all four attempts;
-it waits on TD-574's bounded queue.
+the package now runs it with TD-574's queue bound (`GPU_QUEUE_DEPTH=8`, the default since November 14).
 
 **November 13, 2026:** Filed [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
 (MEDIUM) from the November 12 GPU run: Arc engine resets happen only when training runs our own device kernels (the LeJEPA pass, which
@@ -43,7 +43,8 @@ sends the GPU one waited-for GEMM at a time, ran 220 passes without one). Added 
 `ADAI_GPU_SYNC`, `ADAI_GPU_HOST_KERNELS`, `ADAI_GPU_TRACE_FILE`, a forward-only `gpu_encode_soak`, crash-dump capture and an
 engine-reset bisection in the GPU test package. **November 14:** the second round found the resets stop when the GPU queue is waited
 on at least every 8 operations (0 losses in 567 s across both runs, against about one a minute otherwise), and that GPU inference
-resets far more often than training; a bounded queue as the default is next.
+resets far more often than training. **November 14:** that bound is now the default, `GPU_QUEUE_DEPTH=8` (0 = unbounded), in
+training, serving and every GPU tool; the package's third round compares it with the unbounded queue.
 
 **November 12, 2026:** Filed [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): no Android file is `stable`, and
 TD-047/TD-048 cap them without saying what `stable` would take. It sets that bar for `app` and `opsdashboard` (a first release, the
@@ -165,12 +166,12 @@ Re-derive this order when items move rather than trusting it blindly.
 The November 14, 2026 run (package `f19c0aee`) closed TD-301 and gave TD-574's second round; the decode benchmark reset before any
 result. A full `./run_gpu_tests.sh` runs everything here.
 
-- [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) (MEDIUM): first. The resets stop when the GPU queue is waited on at least every 8 operations;
-  make that bounded queue the default on SYCL (code work here), then rerun the decode benchmark and the bisection with it, and run the
-  `--engine-tuning` round for an upstream report. The resets cut short every other GPU run, inference most of all.
+- [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) (MEDIUM): first. The resets stop when the GPU queue is waited on at least every 8 operations,
+  which is the default since November 14 (`GPU_QUEUE_DEPTH=8`); the third round checks it against the unbounded queue and measures its
+  cost, then the `--engine-tuning` round for an upstream report. The resets cut short every other GPU run, inference most of all.
 - [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) (MEDIUM) and [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (MEDIUM): `gpu_decode_bench` checks the GPU KV-cached decode against GPU full recompute and gives
-  the before/after latency; both close on its `decode_benchmark.txt`. Its November 14 run lost the device in all four attempts, so it
-  waits on TD-574's bounded queue.
+  the before/after latency; both close on its `decode_benchmark.txt`. Its November 14 run lost the device in all four attempts; the
+  next one runs with TD-574's queue bound.
 - [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (MEDIUM): the over-length prompt already runs on the Arc without throwing; a test comparing its output with the CPU path's
   is still to be written.
 - Measurements of fixes that landed in code: [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) (MEDIUM, a training pass's wall time with the `icpx` SIMD flags),
@@ -545,7 +546,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench`'s November 14 run lost the device to TD-574's engine resets in all four attempts, so the direct check and the benchmark wait on TD-574's bounded queue | GPU / Inference / Training | July 4, 2026 | Only an ai-machine run and reading its results remain |
+| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench`'s November 14 run lost the device to TD-574's engine resets in all four attempts, so the direct check and the benchmark rerun with TD-574's queue bound, the default since November 14 | GPU / Inference / Training | July 4, 2026 | Only an ai-machine run and reading its results remain |
 
 Description:
 The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU.
@@ -701,7 +702,7 @@ Action Items:
 - [x] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps. Done — no new kernels needed, built from existing primitives (see Update above).
 - [x] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache). Done.
 - [x] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step. Done — for every strategy except beam search, which keeps the full-recompute path deliberately (see Update above).
-- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026. Run November 14, 2026: every attempt (two shapes, each retried) lost the device to an engine reset about 4 s in, during validation, before any result; waits on TD-574's bounded queue.**
+- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026. Run November 14, 2026: every attempt (two shapes, each retried) lost the device to an engine reset about 4 s in, during validation, before any result. The next run has TD-574's queue bound (`GPU_QUEUE_DEPTH=8`, the default since November 14).**
 - [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. `gpu_decode_bench`'s `RESULT` lines, for TD-033's before/after too. **Packaged November 13, 2026; the November 14 run reset before it got this far (see the item above).**
 - [x] Fix the flagged CPU `generate_response()` beam-vs-cache gap (and the identical gap in
   `generate_response_with_strategy()`'s unrecognized-strategy fallback). Done — see the
@@ -728,7 +729,7 @@ Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 20
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark packaged November 13, 2026 (`gpu_decode_bench`, TD-050); its November 14 run lost the device to engine resets (TD-574), so it waits on TD-574's bounded queue | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
+| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark packaged November 13, 2026 (`gpu_decode_bench`, TD-050); its November 14 run lost the device to engine resets (TD-574), so it is rerun with TD-574's queue bound, the default since November 14 | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
 
 Description:
 Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
@@ -798,7 +799,7 @@ Action Items:
   this item's "before" (the CPU path with each large multiply sent to the GPU on its own) and
   `gpu_cached` its "after". Needs a run on ai-machine; CUDA stays compile-checked only. **November 14, 2026:**
   the run lost the device to engine resets in every attempt (TD-574), as did `chatbotapiTests`'s beam-search echo
-  test, so GPU inference on the Arc needs TD-574's bounded queue before this can be measured.
+  test, so GPU inference on the Arc needs TD-574's queue bound, the default since November 14, which the next run has.
 - [x] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix`
   data and no persistent-residency alternative — untouched; this item routed the identified hot
   path around them rather than removing them.
@@ -5404,7 +5405,7 @@ Related: TD-047, TD-048.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — second bisection round November 14, 2026: the resets stop when the queue is waited on every 8 operations or fewer; a bounded queue as the default is next | GPU / Testing | November 13, 2026 | 1 day of tooling (done), then runs on ai-machine |
+| MEDIUM | Open — second bisection round November 14, 2026: the resets stop when the queue is waited on every 8 operations or fewer; that bound is the default since November 14 (`GPU_QUEUE_DEPTH=8`), and its third round on ai-machine is next | GPU / Testing | November 13, 2026 | 1 day of tooling (done), then runs on ai-machine |
 
 Description:
 ai-machine's Arc Pro B60 has engine resets (`GT0: Engine reset: engine_class=ccs`) during chatbot training, which end a pass with a
@@ -5504,8 +5505,24 @@ under either would confirm the context-switch reading.
   `--engine-tuning` round is still worth running, since it tests the context-switch reading directly and, if it holds, an upstream
   report.
 
-Tests: `gpuDebugSyncTests` (11 on the oneAPI CPU device, 7 of them in every build: parsing including `kernel:N`, which operations wait under it, the record and trace file, each host family against its device kernel
-with the host path's run count checked, and kernel mode naming the kernel);
+**The bound is the default (November 14, 2026).** `GPUManager::trace_kernel()` now waits for the queue before every 8th GPU
+operation unless told otherwise: `GPU_QUEUE_DEPTH` (config key and environment variable, default 8, 0 = unbounded, validated
+0–1,000,000) sets it. `incremental_trainer` and `chatbot_api_server` apply their `ServiceConfig::gpu_queue_depth` after the GPU
+initializes and log `[GPU] Queue depth: …`; every other binary (the GPU tests, `gpu_decode_bench`, `gpu_encode_soak`) starts from the
+environment's value or 8. `ADAI_GPU_SYNC=kernel`/`kernel:N` still take precedence; `step` keeps the bound between its phase waits.
+Only the SYCL backend counts its operations, so CUDA is unaffected. On the oneAPI CPU device a 3-epoch pass gave the same validation
+loss bounded and unbounded (2.0402), in 9.1 s against 8.6 s; the cost on the Arc is what the next run measures. It is a workaround:
+the GuC still resets a long-running compute context that runs too long, which the `--engine-tuning` round and an upstream report
+are for. See [GPUDebugSync.md](../reference/source/GPUDebugSync.md).
+
+The GPU test package's third round (`run_gpu_tests.sh` 0.6.0) compares the two: `control` (`GPU_QUEUE_DEPTH=0`) and `default` (8),
+each twice per round, `depth_16` and `depth_32` (where the bound stops working), `sync_step`, and `encode_soak` without and with the
+bound. Every variant except `default`, `depth_N` and `encode_soak_default` runs unbounded, so it stays comparable with the first two
+rounds; those rounds' other variants still run when named in `BISECT_VARIANTS`. The rest of the package, the decode benchmark
+included, runs with the bound.
+
+Tests: `gpuDebugSyncTests` (15 on the oneAPI CPU device, 11 of them in every build: parsing including `kernel:N` and `GPU_QUEUE_DEPTH`, which operations wait under each mode and queue depth, the record and trace file, each host family against its device kernel
+with the host path's run count checked, and kernel mode naming the kernel); `ConfigTest.GpuQueueDepthDefaultFileEnvAndRange`;
 `package_sycl_gpu_tests_test.sh` (the new options and the kernel-event pattern).
 
 Action items:
@@ -5515,12 +5532,16 @@ Action items:
 - [x] Second round: `kernel:N`, priority, engine-setting variants, more control/`sync_kernel` passes, event-count fix (November 13,
   2026).
 - [x] Run the second-round bisection on ai-machine (November 14, 2026; results above, without `--engine-tuning`).
-- [ ] Make a bounded GPU queue the default on SYCL (a wait at least every 8 operations, for training and serving), measure its cost,
-  and rerun the decode benchmark (TD-050) and the bisection with it.
+- [x] Make a bounded GPU queue the default on SYCL (a wait at least every 8 operations, for training and serving): `GPU_QUEUE_DEPTH`,
+  default 8 (November 14, 2026).
+- [ ] Run the third round on ai-machine (`run_gpu_tests.sh`, or `--bisect-only` plus the decode benchmark): no device loss under
+  `default` while `control` still loses it, the bound's cost per pass, where it stops working (`depth_16`, `depth_32`), and the decode
+  benchmark (TD-050) with it.
 - [ ] Run `run_gpu_tests.sh --bisect-only --engine-tuning` on ai-machine, and report the resets upstream with the dumps if raising the
   preempt timeout or time slice stops them.
 
-Location in code: `src/gpu/GPUDebugSync.{hpp,cpp}`, `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`trace_kernel()` calls, host versions),
+Location in code: `src/gpu/GPUDebugSync.{hpp,cpp}` (the queue bound too), `src/Config.{hpp,cpp}` (`GPU_QUEUE_DEPTH`),
+`src/IncrementalTrainingTool.cpp` and `src/ChatbotAPIServer.cpp` (applying it), `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`trace_kernel()` calls, host versions),
 `src/gpu/sycl/GPUUtils_SYCL.hpp` (`trace_kernel()`, `debug_sync_point()`), `src/ChatbotTrainer.cpp` (sync points),
 `benchmarks/GpuEncodeSoak.cpp`, `scripts/sycl_gpu_tests/run_gpu_tests.sh`.
 

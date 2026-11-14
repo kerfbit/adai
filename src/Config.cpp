@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.31.1
-// @adai-reviewed: 2026-11-11
+// @adai-version: 1.32.0
+// @adai-reviewed: 2026-11-14
 
 #include "Config.hpp"
 #include <algorithm>
@@ -612,6 +612,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_memory_fraction = parse_float(value);
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(parse_file_choice(key, value, kGpuStrategies));
+            } else if (key == "GPU_QUEUE_DEPTH") {
+                config.gpu_queue_depth = parse_int(value);  // TD-574
             } else if (key == "TOKENIZER_MODE") {
                 config.unicode_tokenizer = parse_file_choice(key, value, kTokenizerModes) == "unicode";  // TD-289
             } else if (key == "VOCAB_BUILD_SIZE") {
@@ -939,6 +941,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = env_choice("GPU_STRATEGY", get_env("GPU_STRATEGY"), kGpuStrategies)) {
         config.gpu_strategy = gpu_strategy_from_string(*val);
+    }
+    if (auto val = get_env_int("GPU_QUEUE_DEPTH")) {  // TD-574
+        config.gpu_queue_depth = *val;
     }
     if (auto val = env_choice("TOKENIZER_MODE", get_env("TOKENIZER_MODE"), kTokenizerModes)) {
         config.unicode_tokenizer = (*val == "unicode");
@@ -1596,6 +1601,9 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     require(config.gpu_memory_fraction > 0.0f && config.gpu_memory_fraction <= 1.0f, "gpu_memory_fraction",
             std::to_string(config.gpu_memory_fraction), "must be in (0.0, 1.0]");
     at_least(config.gpu_device_id, 0, "gpu_device_id");
+    require(config.gpu_queue_depth >= 0 && config.gpu_queue_depth <= 1000000, "gpu_queue_depth",
+            std::to_string(config.gpu_queue_depth),
+            "must be in [0, 1000000] (0 = unbounded)");  // TD-574
 
     // Ports.
     is_port(config.metrics_api_port, "metrics_api_port");
@@ -1773,6 +1781,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GPU_DEVICE_ID", num(c.gpu_device_id));
     item("GPU_MEMORY_FRACTION", num(c.gpu_memory_fraction));
     item("GPU_STRATEGY", c.gpu_strategy == GPUStrategy::FULL ? "full" : "background");
+    item("GPU_QUEUE_DEPTH", num(c.gpu_queue_depth));
     section("Metrics client");
     item("ENABLE_METRICS_SERVICE", flag(c.enable_metrics_service));
     item("METRICS_SERVER_URL", c.metrics_server_url);

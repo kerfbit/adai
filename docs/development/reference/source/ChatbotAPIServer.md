@@ -2,11 +2,11 @@
 
 - **File:** [`src/ChatbotAPIServer.cpp`](../../../../src/ChatbotAPIServer.cpp) (the `main()` of `chatbot_api_server`; no header)
 - **Built into:** `chatbot_api_server` (with `Config.cpp` and `ChatbotApiServerArgs.cpp`; links `adai_api` and the model libraries); only when `BUILD_API_SERVER` is on
-- **Status tag:** `@adai-status: stable`, `@adai-version: 2.10.2`, `@adai-reviewed: 2026-11-12`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 2.11.0`, `@adai-reviewed: 2026-11-14`
 - **Tests:** none directly. The argv layer is tested by `chatbotApiServerArgsTests` and the HTTP layer by `chatbotapiTests`; `main()` itself is untested
 - **Related references:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (its CLI parsing), [ChatbotAPI.md](ChatbotAPI.md) (the HTTP class it runs), [BPETokenizer.md](BPETokenizer.md)
 - **Operator docs:** [chatbot-guide.md](../../../operations/guides/chatbot-guide.md), [SYSTEMD_DEPLOYMENT.md](../../../operations/deployment/SYSTEMD_DEPLOYMENT.md), [configuration_guide.md](../../configuration_guide.md)
-- **Last traced against the code:** 2026-10-08; §6's RAG paragraph and step 10 re-traced 2026-11-12 (TD-349). The other sections predate later fixes, recorded in the addenda below
+- **Last traced against the code:** 2026-10-08; §6's RAG paragraph and step 10 re-traced 2026-11-12 (TD-349); step 5 re-traced 2026-11-14 (TD-574). The other sections predate later fixes, recorded in the addenda below
 
 > Code-traced reference. The shutdown-race finding was confirmed against the vendored cpp-httplib
 > source (`external/cpp-httplib/httplib.h`); the rest is from reading `main()` and the code it calls.
@@ -46,6 +46,7 @@ something other than what the operator asked for (§9).
              (any failure: warn, keep local config)
  4. [1/4] Tokenizer: BPETokenizer().load_vocab(VOCAB_PATH)   ← throws to main's catch → exit 1
  5. GPU (if GPU_ENABLED): gpu_try_initialize(device, memory fraction); else CPU
+             ─► initialized: set_gpu_queue_depth(GPU_QUEUE_DEPTH), default 8 (TD-574)
  6. [2/4] Model: EncoderDecoderModel(vocab size, architecture, inject_every_n if world model on)
              ─► load_model(MODEL_PATH)   (failure → warn, RANDOM weights; no path → random)
  7. Draft model (if DRAFT_MODEL_PATH): its own checkpoint's architecture (TD-507), same vocabulary, load weights (failure → disabled)
@@ -277,3 +278,11 @@ that register the routes, so the listing can't drift from what is served. It use
 the 9 routes (no `/chat/batch`, `/chat/batch-session`, `/chat/session/export` or `/chat/session/import`).
 `/admin/profile` is always listed, marked `[not enabled]` without `--profile`. `--help` now says the architecture flags
 are fallbacks that MNS's architecture and model path replace when the model resolves.
+
+## Addendum (November 14, 2026): the GPU queue bound (TD-574)
+
+After the GPU initializes, startup passes `GPU_QUEUE_DEPTH` (default 8, 0 = unbounded) to
+`adai::gpu::set_gpu_queue_depth()` and logs `[GPU] Queue depth: …`. A SYCL build then waits for the
+GPU before every 8th operation, which stopped the Arc engine resets in the ai-machine test rounds,
+including the ones every GPU generation attempt hit. The setting is read at startup only; a reload
+doesn't change it. See [GPUDebugSync.md](GPUDebugSync.md).

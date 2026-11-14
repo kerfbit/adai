@@ -566,6 +566,7 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
 
 #### Recommended Settings by Dataset Size
 
@@ -838,6 +839,7 @@ All settings can be provided via:
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
 | `ENABLE_GENERATION_QUALITY_METRICS` | `false` | Compute BLEU/ROUGE during validation |
 | `GENERATION_QUALITY_SAMPLE_SIZE` | `10` | Validation pairs sampled for scoring per epoch |
 | `GENERATION_QUALITY_MAX_TOKENS` | `50` | Max tokens per scoring call |
@@ -862,6 +864,7 @@ All settings can be provided via:
 | `GPU_DEVICE_ID` | `0` | Device index. On SYCL, each card counts once and Level Zero is numbered first (TD-391); the startup log shows the `Backend:` in use |
 | `GPU_MEMORY_FRACTION` | `0.5` | Fraction of GPU memory ADAI may allocate (0.0–1.0) |
 | `GPU_STRATEGY` | `background` | `background` (yields to other GPU work) or `full` (high-priority stream) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
 
 ### Training Metrics
 
@@ -1003,6 +1006,7 @@ GPU_ENABLED=false
 GPU_DEVICE_ID=0
 GPU_MEMORY_FRACTION=0.5
 # GPU_STRATEGY=background   # background (default) or full
+# GPU_QUEUE_DEPTH=8         # wait for the GPU queue every 8 operations (0 = unbounded, TD-574)
 
 # ============================================================================
 # Logging

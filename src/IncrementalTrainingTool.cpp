@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.38.0
+// @adai-version: 0.39.0
 // @adai-reviewed: 2026-11-14
 
 #include <array>
@@ -35,6 +35,9 @@
 #include "TrainerAdminAPI.hpp"
 #endif
 #include "TrainingPassFiles.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/GPUDebugSync.hpp"  // TD-574: the GPU queue bound
+#endif
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -523,6 +526,12 @@ static int run_main(int argc, char* argv[]) {
             const char* mode =
                 low_priority ? "background (low-priority stream)" : "full (high-priority stream)";
             adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
+            // TD-574: wait for the queue before every Nth GPU operation (0 = unbounded).
+            adai::gpu::set_gpu_queue_depth(static_cast<unsigned>(svc_config.gpu_queue_depth));
+            adai::Logger::info("[GPU] Queue depth: {}",
+                               svc_config.gpu_queue_depth == 0
+                                   ? std::string("unbounded")
+                                   : std::to_string(svc_config.gpu_queue_depth));
         } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
             adai::Logger::warn(

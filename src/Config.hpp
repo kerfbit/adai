@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.31.0
-// @adai-reviewed: 2026-11-11
+// @adai-version: 1.32.0
+// @adai-reviewed: 2026-11-14
 
 #include <climits>
 #include <cstdint>
@@ -819,6 +819,16 @@ struct ServiceConfig {
      *              gpu_memory_fraction (e.g. 0.9) to maximise throughput.
      */
     GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND;
+
+    /**
+     * @brief TD-574: wait for the GPU queue before every Nth operation (default 8; 0 = unbounded).
+     *
+     * On ai-machine's Arc the compute engine was reset (a lost device) about once a minute while
+     * the queue ran long un-waited chains, and not at all when it was waited on at least every 8
+     * operations, for a few percent of a training pass's time. SYCL builds only; the CUDA backend
+     * doesn't count its operations.
+     */
+    int gpu_queue_depth = 8;
 
     // ============================================================
     // Tokenizer Configuration

@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-14
 
 // TD-574: see GPUDebugSync.hpp.
 
@@ -32,6 +32,8 @@ std::string lower_trimmed(const std::string& s) {
     return out;
 }
 
+unsigned initial_queue_depth();
+
 struct State {
     std::mutex mutex;  // guards settings replacement and the trace file
     std::unique_ptr<GPUDebugSettings> settings;
@@ -40,11 +42,16 @@ struct State {
     std::atomic<const char*> phase{"none"};
     std::atomic<unsigned long long> seq{0};
     std::atomic<unsigned long long> host_runs{0};
+    std::atomic<unsigned> queue_depth{initial_queue_depth()};  // TD-574
 };
 
 State& state() {
     static State s;
     return s;
+}
+
+unsigned initial_queue_depth() {
+    return parse_gpu_queue_depth(std::getenv("GPU_QUEUE_DEPTH"));
 }
 
 // Rewrites the trace file's single record in place; a fixed width keeps an older, longer record
@@ -158,13 +165,37 @@ void set_gpu_debug_settings_for_testing(const GPUDebugSettings& settings) {
     s.host_runs = 0;
 }
 
+unsigned parse_gpu_queue_depth(const char* value) {
+    if (!value) {
+        return kDefaultGpuQueueDepth;
+    }
+    const std::string v = lower_trimmed(value);
+    char* end = nullptr;
+    const unsigned long depth = std::strtoul(v.c_str(), &end, 10);
+    if (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0])) || *end != '\0' ||
+        depth > 1000000) {
+        return kDefaultGpuQueueDepth;
+    }
+    return static_cast<unsigned>(depth);
+}
+
+void set_gpu_queue_depth(unsigned depth) {
+    state().queue_depth.store(depth, std::memory_order_relaxed);
+}
+
+unsigned gpu_queue_depth() {
+    return state().queue_depth.load(std::memory_order_relaxed);
+}
+
 bool wait_before_gpu_operation() {
     const GPUDebugSettings& g = gpu_debug_settings();
-    if (g.sync != DebugSyncMode::Kernel) {
-        return false;
+    // seq counts the operations already queued, so these wait before operations 1, N+1, 2N+1, …
+    const unsigned long long seq = state().seq.load(std::memory_order_relaxed);
+    if (g.sync == DebugSyncMode::Kernel) {
+        return g.sync_every <= 1 || seq % g.sync_every == 0;
     }
-    // seq counts the operations already queued, so this waits before operations 1, N+1, 2N+1, …
-    return g.sync_every <= 1 || state().seq.load(std::memory_order_relaxed) % g.sync_every == 0;
+    const unsigned depth = gpu_queue_depth();  // TD-574: the production bound
+    return depth != 0 && seq % depth == 0;
 }
 
 void note_gpu_kernel(const char* kernel) {
@@ -214,7 +245,13 @@ std::string describe_last_gpu_work() {
                 "it queued";
             break;
         case DebugSyncMode::Off:
-            out += "; the last work queued, which the GPU may not have reached";
+            if (gpu_queue_depth() > 0) {
+                out += "; GPU_QUEUE_DEPTH=" + std::to_string(gpu_queue_depth()) +
+                       ": the failure is in this operation or one of the ones queued since the "
+                       "last wait";
+            } else {
+                out += "; the last work queued, which the GPU may not have reached";
+            }
             break;
     }
     return out;

@@ -36,8 +36,19 @@ std::string read_file(const std::string& path) {
 struct ResetSettings {
     ~ResetSettings() {
         adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
+        adai::gpu::set_gpu_queue_depth(adai::gpu::kDefaultGpuQueueDepth);
     }
 };
+
+// Which of `n` operations wait for the queue first ('W') and which don't ('.').
+std::string wait_pattern(int n) {
+    std::string waits;
+    for (int i = 0; i < n; ++i) {
+        waits += adai::gpu::wait_before_gpu_operation() ? 'W' : '.';
+        adai::gpu::note_gpu_kernel("k_gpu");
+    }
+    return waits;
+}
 
 }  // namespace
 
@@ -107,9 +118,54 @@ TEST(GPUDebugSyncTest, KernelEveryNWaitsBeforeEveryNthOperation) {
     adai::gpu::note_gpu_kernel("k_gpu");
     EXPECT_TRUE(adai::gpu::wait_before_gpu_operation());
 
+    adai::gpu::set_gpu_queue_depth(0);
     s.sync = DebugSyncMode::Step;
     adai::gpu::set_gpu_debug_settings_for_testing(s);
     EXPECT_FALSE(adai::gpu::wait_before_gpu_operation());
+}
+
+// TD-574: with no diagnostic set, the GPU code waits for the queue before every 8th operation.
+TEST(GPUDebugSyncTest, DefaultQueueDepthWaitsBeforeEveryEighthOperation) {
+    ResetSettings reset;
+    adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
+    EXPECT_EQ(adai::gpu::gpu_queue_depth(), 8u);
+    EXPECT_EQ(wait_pattern(17), "W.......W.......W");
+    EXPECT_TRUE(adai::gpu::gpu_debug_summary().empty()) << "the bound isn't a diagnostic";
+}
+
+TEST(GPUDebugSyncTest, ParsesGpuQueueDepth) {
+    EXPECT_EQ(adai::gpu::parse_gpu_queue_depth(nullptr), 8u);
+    EXPECT_EQ(adai::gpu::parse_gpu_queue_depth("0"), 0u);
+    EXPECT_EQ(adai::gpu::parse_gpu_queue_depth(" 16 "), 16u);
+    for (const char* bad : {"", "abc", "8x", "-4", "2000000"}) {
+        EXPECT_EQ(adai::gpu::parse_gpu_queue_depth(bad), 8u) << bad;
+    }
+}
+
+TEST(GPUDebugSyncTest, QueueDepthZeroNeverWaits) {
+    ResetSettings reset;
+    adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
+    adai::gpu::set_gpu_queue_depth(0);
+    EXPECT_EQ(wait_pattern(20), std::string(20, '.'));
+    adai::gpu::set_gpu_queue_depth(3);
+    adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
+    EXPECT_EQ(wait_pattern(7), "W..W..W");
+}
+
+TEST(GPUDebugSyncTest, KernelDiagnosticOverridesTheQueueDepth) {
+    ResetSettings reset;
+    GPUDebugSettings s;
+    s.sync = DebugSyncMode::Kernel;
+    s.sync_every = 2;
+    adai::gpu::set_gpu_queue_depth(0);
+    adai::gpu::set_gpu_debug_settings_for_testing(s);
+    EXPECT_EQ(wait_pattern(5), "W.W.W") << "ADAI_GPU_SYNC=kernel:2 waits although the bound is off";
+    adai::gpu::set_gpu_queue_depth(4);
+    adai::gpu::set_gpu_debug_settings_for_testing(s);
+    EXPECT_EQ(wait_pattern(5), "W.W.W") << "kernel:2 wins over GPU_QUEUE_DEPTH=4";
+    s.sync = DebugSyncMode::Step;
+    adai::gpu::set_gpu_debug_settings_for_testing(s);
+    EXPECT_EQ(wait_pattern(5), "W...W") << "step mode keeps the bound between its phase waits";
 }
 
 TEST(GPUDebugSyncTest, RecordsLastWorkAndKeepsOneTraceRecord) {
@@ -126,7 +182,9 @@ TEST(GPUDebugSyncTest, RecordsLastWorkAndKeepsOneTraceRecord) {
 
     const std::string d = adai::gpu::describe_last_gpu_work();
     EXPECT_NE(d.find("kernel short_gpu in phase forward (GPU work #2)"), std::string::npos) << d;
-    EXPECT_NE(d.find("may not have reached"), std::string::npos) << d;
+    EXPECT_NE(d.find("GPU_QUEUE_DEPTH=8"), std::string::npos) << d;
+    adai::gpu::set_gpu_queue_depth(0);
+    EXPECT_NE(adai::gpu::describe_last_gpu_work().find("may not have reached"), std::string::npos);
 
     const std::string trace = read_file(path);
     EXPECT_EQ(std::count(trace.begin(), trace.end(), '\n'), 1);

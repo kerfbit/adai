@@ -87,6 +87,7 @@ class ConfigTest : public ::testing::Test {
         _putenv("WORLD_MODEL_SIGREG_BATCH_SIZE=");
         _putenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS=");
         _putenv("TRAINER_PASS_STALL_MINUTES=");  // TD-569
+        _putenv("GPU_QUEUE_DEPTH=");             // TD-574
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -119,6 +120,7 @@ class ConfigTest : public ::testing::Test {
         unsetenv("GPU_DEVICE_ID");
         unsetenv("GPU_MEMORY_FRACTION");
         unsetenv("GPU_STRATEGY");
+        unsetenv("GPU_QUEUE_DEPTH");  // TD-574
         // FTP Dataset Transport (Phase 10)
         unsetenv("FTP_SERVER_PORT");
         unsetenv("FTP_PASV_PORT_MIN");
@@ -1078,6 +1080,26 @@ TEST_F(ConfigTest, GpuStrategyEnvVarOverridesFile) {
     setEnv("GPU_STRATEGY", "full");
     auto config = ConfigLoader::load(test_file.string());
     EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::FULL);
+}
+
+// TD-574: GPU_QUEUE_DEPTH bounds the GPU queue; 8 by default, 0 = unbounded.
+TEST_F(ConfigTest, GpuQueueDepthDefaultFileEnvAndRange) {
+    createConfigFile({{"GPU_STRATEGY", "full"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_queue_depth, 8);
+    createConfigFile({{"GPU_QUEUE_DEPTH", "0"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_queue_depth, 0);
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors)) << "0 means unbounded";
+    setEnv("GPU_QUEUE_DEPTH", "16");
+    config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_queue_depth, 16);
+    EXPECT_NE(ConfigLoader::to_string(config).find("GPU_QUEUE_DEPTH"), std::string::npos);
+    config.gpu_queue_depth = -1;
+    errors.clear();
+    EXPECT_FALSE(ConfigLoader::validate(config, errors));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("gpu_queue_depth"), std::string::npos);
 }
 
 // ============================================================================

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (tests: tests/scripts/install_chatbot_api_test.sh)
-# @adai-version: 0.8.4
-# @adai-reviewed: 2026-11-10
+# @adai-version: 0.9.0
+# @adai-reviewed: 2026-11-14
 
 # ADAI Chatbot API - systemd Service Installation Script
 #
@@ -427,6 +427,10 @@ GPU_ENABLED=true
 GPU_DEVICE_ID=0
 GPU_MEMORY_FRACTION=0.9
 GPU_STRATEGY=full
+# TD-574: wait for the GPU queue before every Nth operation (0 = unbounded). On an Intel Arc the
+# compute engine was reset (a lost device) about once a minute with long un-waited queues and not
+# at all at 8, for a few percent of training time. SYCL builds only.
+GPU_QUEUE_DEPTH=8
 "
 fi
 

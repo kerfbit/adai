@@ -172,6 +172,24 @@ assert_exit 0
 assert_contains "70.72.1"
 rm -f -- "$FW"
 
+t "the bisection runs the shipped queue bound against an unbounded control (TD-574)"
+run bash -c '
+    variant_env() {
+        local variant=$1 envs=()
+        eval "$(sed -n "/^            case \$variant in\$/,/^            esac\$/p" "$2" | head -5)"
+        echo "$variant: ${envs[*]:-none}"
+    }
+    for v in control default depth_16 encode_soak encode_soak_default sync_kernel; do variant_env $v "$1"; done
+    grep -A1 "VARIANTS=(\${BISECT_VARIANTS" "$1"' _ "$RUNNER"
+assert_exit 0
+assert_contains "control: GPU_QUEUE_DEPTH=0"
+assert_contains "default: none"
+assert_contains "depth_16: GPU_QUEUE_DEPTH=16"
+assert_contains "encode_soak: GPU_QUEUE_DEPTH=0"
+assert_contains "encode_soak_default: none"
+assert_contains "sync_kernel: GPU_QUEUE_DEPTH=0"
+assert_contains "control default depth_16 depth_32 sync_step"
+
 t "the packaged pairs file is JSON Lines with input and response"
 run python3 -c "import json,sys; [json.loads(l)['response'] for l in open(sys.argv[1])]" \
     "${REPO_ROOT}/scripts/sycl_gpu_tests/pairs.jsonl"

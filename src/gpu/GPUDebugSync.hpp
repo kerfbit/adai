@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-14
 
 // TD-574: diagnostics for finding which GPU work an Arc engine reset interrupts. Off by default; a
 // run turns them on through the environment, read once:
@@ -69,8 +69,27 @@ inline bool host_kernel(HostKernelFamily family) {
     return (gpu_debug_settings().host_kernels & family) != 0;
 }
 
+/// TD-574: the default bound on the GPU queue. Arc engine resets stopped when the queue was waited
+/// on at least every 8 operations (0 device losses in 567 s on ai-machine, about one a minute
+/// without), so the GPU code waits before every 8th operation unless GPU_QUEUE_DEPTH says
+/// otherwise.
+constexpr unsigned kDefaultGpuQueueDepth = 8;
+
+/// GPU_QUEUE_DEPTH's value: a whole number from 0 to 1000000, else (unset or malformed)
+/// kDefaultGpuQueueDepth. The bound starts from the environment's value, so a binary that reads
+/// no config file (gpu_encode_soak, gpu_decode_bench, the GPU tests) can still be run unbounded.
+unsigned parse_gpu_queue_depth(const char* value);
+
+/// The queue bound: wait for the queue before every @p depth-th GPU operation, so at most @p depth
+/// are queued; 0 = unbounded (the behaviour before TD-574's fix). Set from GPU_QUEUE_DEPTH by
+/// incremental_trainer and chatbot_api_server. An explicit ADAI_GPU_SYNC=kernel or kernel:N
+/// diagnostic takes precedence.
+void set_gpu_queue_depth(unsigned depth);
+unsigned gpu_queue_depth();
+
 /// Whether the next GPU operation should first wait for the queue: always in kernel mode, before
-/// every sync_every-th operation with kernel:N, never otherwise.
+/// every sync_every-th operation with kernel:N, otherwise before every gpu_queue_depth()-th one
+/// (never when it is 0).
 bool wait_before_gpu_operation();
 
 /// Records @p kernel (a string literal) as the latest GPU work. Called by each kernel entry point.

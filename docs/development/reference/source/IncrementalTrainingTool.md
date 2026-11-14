@@ -1,11 +1,11 @@
 # `IncrementalTrainingTool` — Source File Reference
 
-- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,149 lines): the `main()` of `incremental_trainer`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.38.0`, `@adai-reviewed: 2026-11-14`
+- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,159 lines): the `main()` of `incremental_trainer`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.39.0`, `@adai-reviewed: 2026-11-14`
 - **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp`, `IncrementalTrainerArgs.cpp`, `LeJEPATrainingPass.cpp` and `TrainingPassFiles.cpp` (the LeJEPA pass and the shared download step, moved out of this file November 12, 2026) and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [LeJEPATrainingPass.md](LeJEPATrainingPass.md) (the LeJEPA pass and the download step), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
 - **Tests:** `retrainRemoteTests` ([`tests/retrain_remote_test.cpp`](../../../../tests/retrain_remote_test.cpp), TD-411) runs the real binary's `train` and `retrain` against a real `registry_server` with FTP on; otherwise none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
-- **Last traced against the code:** 2026-11-12; `retrain` (§2) re-traced 2026-11-14
+- **Last traced against the code:** 2026-11-12; `retrain` (§2) and GPU initialization (§1, step 4) re-traced 2026-11-14
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the built `build/debug/bin/incremental_trainer` (and
 > `dataset_manager`, `vocab_builder`) against a scratch session directory.
@@ -33,7 +33,8 @@ incremental_trainer [--config F] [--model N] [--gpu-strategy S] [--foreground] [
    (TD-288). `--seed`/`SEED` seeds initialization (TD-368).
 3. Set `DATASET_KIND` from the objective, or `--dataset-kind` (TD-202/TD-204), and apply `--gpu-strategy`.
 4. Initialize the GPU now, unless the command is `train`/`retrain`/`resume`, which initialize it in the worker after any fork, once
-   the pass's `PassAdminApi` exists (TD-571).
+   the pass's `PassAdminApi` exists (TD-571). A GPU that initializes gets the queue bound, `GPU_QUEUE_DEPTH` (default 8, 0 =
+   unbounded), through `adai::gpu::set_gpu_queue_depth()`, logged as `[GPU] Queue depth: …` (TD-574, [GPUDebugSync.md](GPUDebugSync.md)).
 5. With `NAME_SERVICE_URL` set: resolve the model (`--model` > `MODEL_NAME` > an interactive pick, refused without a terminal, TD-416); take
    its artifact path and `run_group` from MNS; take the 6 architecture fields from MNS; and, when a world model is linked, its artifact path,
    architecture, injection and `HIPPOCAMPAL_*` settings and SIGReg sketch count (TD-196). Each lookup that fails is logged with its
@@ -126,3 +127,4 @@ run with the fixed binary left no trained record and the claim cleared.
   October sections and folding in its addenda; the findings were fixed the same day (TD-571).
 - **November 14, 2026:** `retrain` re-queues the trained units and claims the whole pool, so every file comes over FTP from a remote registry
   (TD-411's last item); `retrainRemoteTests`.
+- **November 14, 2026:** after the GPU initializes, the GPU queue bound is set from `GPU_QUEUE_DEPTH` (TD-574).

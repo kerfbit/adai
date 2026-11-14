@@ -1,12 +1,12 @@
 # `Config` — Source File Reference
 
-- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,022 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,017 lines)
+- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,032 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,025 lines)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
-- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.31.0`, `Config.cpp` `1.31.1`; `@adai-reviewed: 2026-11-11`
+- **Status tags:** `@adai-status: stable`; `Config.hpp` and `Config.cpp` `@adai-version: 1.32.0`; `@adai-reviewed: 2026-11-14`
 - **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (107); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-11-11
+- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` added 2026-11-14
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `ConfigLoader` (a scratch program compiled against
 > `Config.cpp`) or the binaries.
@@ -77,7 +77,7 @@ Precedence is **command-line flags > environment > file > defaults**; each binar
 - **hippocampal** capacity, alphas and decays; **generation** (`adai::GenerationLimits`, TD-254: length, temperature, `top_p`, `top_k`, beam
   width, strategy);
 - **training:** learning rate, epochs, batch size, accumulation steps, weight decay, dropout `[0, 1)`, clipping and adaptive clipping, seed;
-- **GPU** fraction `(0, 1]` and device; **every port** (PASV min ≤ max; the trainer's admin port ≠ its child port); every metrics, registry, FTP,
+- **GPU** fraction `(0, 1]`, device, and `gpu_queue_depth` `[0, 1000000]` (TD-574); **every port** (PASV min ≤ max; the trainer's admin port ≠ its child port); every metrics, registry, FTP,
   MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569). A field whose 0 means "off" or "no limit" accepts 0.
 
 `validate_or_exit(config, binary)` logs every error and calls `std::exit(1)`. Every shipped `config.*.conf` passes
@@ -137,3 +137,7 @@ messages reaching the log file.
 - **November 4, 2026:** the quality backfill switches (TD-273); `TOKENIZER_MODE` defaults to `unicode` (TD-564).
 - **November 11, 2026:** `TRAINER_PASS_STALL_MINUTES` (TD-569); `METRICS_DB_URL` hidden in reload diffs (TD-571). This document was re-traced against the code, replacing its October sections
   and folding in its addenda.
+- **November 14, 2026:** `GPU_QUEUE_DEPTH` (TD-574): `ServiceConfig::gpu_queue_depth`, default 8, 0 = unbounded, from the file or the
+  environment, validated `[0, 1000000]`, printed by `to_string()`. `incremental_trainer` and `chatbot_api_server` pass it to
+  `adai::gpu::set_gpu_queue_depth()` after the GPU initializes ([GPUDebugSync.md](GPUDebugSync.md)). Test:
+  `ConfigTest.GpuQueueDepthDefaultFileEnvAndRange`.
