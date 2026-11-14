@@ -1,10 +1,65 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (471 on November 14, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (472 on November 14, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 14, 2026 | Training / IncrementalTrainingTool | Code fix, `resume` October 18 and `retrain` November 14, 2026 (**HIGH**, filed October 13, 2026) |
+
+Description:
+Found while tracing `IncrementalTrainingTool`, by inspection (definite). `trainer_service` runs
+`incremental_trainer --foreground --admin-port N resume` for every pass, and `resume` calls
+`IncrementalTrainer::resume_last_session()`. That function acquires pending files and then trains on
+`resp.registry_paths()` directly, under the comment "resume_last_session runs on the same machine as
+the registry … ftp_server_host is always empty here". That's only true for a local registry. With
+`REGISTRY_SERVER_URL` pointing at a remote `registry_server` that delivers files over FTP (TD-040's
+transport), these are the registry host's paths; the `DataTransport::fetch_all()` download that `train`
+performs never happens, so the trainer can't open the files. With TD-412 the pass then "succeeds" and
+marks them trained.
+
+Action Items:
+
+**Fix landed October 18, 2026:** the FTP-or-direct download step is now `resolve_pass_files()` in `IncrementalTrainingTool.cpp`, shared by
+`train`, `retrain` (its pending files) and `resume`. It keeps TD-205 segment ranges. `IncrementalTrainer::resume_last_session()` takes an optional
+`PassFileResolver`, which the `resume` command passes, and the downloads are cleaned up after the pass. Without a resolver, a registry that hands
+out an FTP host fails the pass and releases its files instead of training on paths it can't read. The pass also now releases its batch when the
+resume checkpoint is missing or fails to load; before, those returns left the files claimed.
+
+New test `ResumeTrainsOnResolvedFilesAndReleasesOnResolverFailure`: a failed resolver releases the file, and a successful one trains on the resolved
+local path and marks the registry entry trained. The old code failed it.
+
+The rest, `retrain`, was left open then: it read its already-trained files by registry path (only pending ones were fetched), so a full
+retrain against a remote FTP registry couldn't read them.
+
+**Fix (November 14, 2026):** `retrain` first returns every trained unit to the pending queue, assigned to the model
+(`DatasetRegistry::requeue_trained(all)`, TD-540's re-queue, which keeps each trained segment as that segment), then claims the whole
+pool and resolves it through `resolve_pass_files()` like `train`. So against `registry_server` every file comes over FTP, the claims are
+renewed, and each unit gets its own trained record for the new run (one pair count per unit, TD-334). The model is reset and its
+checkpoints archived before any of this, so a pass that fails leaves the files pending, which is the honest state. A registry that
+can't take the re-queue, or can't be asked for the claim, fails the pass before anything trains. Test: `retrainRemoteTests` spawns
+`registry_server` with FTP on and `incremental_trainer`, trains once and retrains, and counts the FTP server's completed downloads of
+the file: 2 (the old code: 1, reading the trained file by its registry path). `DatasetRegistry::trained_units()` (TD-546), which only
+`retrain` used, now has no production caller.
+
+- [x] Factor `train`'s acquire → (FTP download) → train → mark/release → cleanup sequence into one function and use it from `resume_last_session()` (with the segment ranges). (The download step is shared; acquire/mark/release stay in each caller.)
+- [x] Ask the user whether ai-machine's `trainer_service` uses a remote FTP registry; if so, audit and re-queue files marked trained since it went live. Answered October 18, 2026: the trainer always takes its data from the remote services. The affected files can't be told apart (TD-334), so re-queue everything before the retraining with `dataset_manager requeue --all --model <name>` (TD-540).
+- [x] Download already-trained files for `retrain` against a remote registry. (November 14, 2026: by re-queueing them and claiming the
+  whole pool, see the Fix above.)
+
+Location in code: `src/IncrementalTrainer.cpp` (`resume_last_session()`), `src/IncrementalTrainingTool.cpp` (`train`, `retrain`, `resume`
+commands), `src/TrainingPassFiles.cpp` (`resolve_pass_files()`); the `TODO: See TD-411` tags are now fix comments.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `tests/retrain_remote_test.cpp`, `tests/CMakeLists.txt` (`retrainRemoteTests`)
 
 ### TD-467: `MultiHeadAttention` Unchecked Loads, `num_heads == 0` SIGFPE and Hot-Loop Overhead
 
@@ -23613,6 +23668,10 @@ notes run oldest first in their own block, and the September notes come last. Wh
 they say was true on their date; the entries above are the current record, and notes about items that are still open stay in the
 Overview.
 
+**November 14, 2026:** Fixed [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp)'s last item: `incremental_trainer
+retrain` returns the trained units to the pending queue and claims the whole pool, so against `registry_server` every file comes over FTP
+(it used to read the trained ones by their registry paths). TD-411 moved here.
+
 **October 24, 2026:** Filed [TD-555](#td-555-abnormal-sample-pushes-404-and-flood-the-log-with-session-re-registration) (MEDIUM, verified)
 after the owner asked about frequent "session gone, re-registering" warnings in training logs. The trainer posts abnormal samples
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
@@ -23929,7 +23988,7 @@ top-level sidecars, 0.1 of 29.6 MB, so retention never bounds `SESSION_DIR` (TD-
 are MEDIUM: the `latest`/`best` symlinks always dangle (TD-408) and the tokenized cache key has no
 preprocessing version (TD-409). One is LOW: session bookkeeping and hard-coded policy (TD-410).
 
-Also October 13, 2026: filed [TD-411](../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) through [TD-416](#td-416-incremental_trainer-command-hygiene) from the code-traced
+Also October 13, 2026: filed [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) through [TD-416](#td-416-incremental_trainer-command-hygiene) from the code-traced
 [IncrementalTrainingTool.md](../reference/source/IncrementalTrainingTool.md), checked against the built
 `incremental_trainer`/`dataset_manager`. Two are **HIGH**: `resume`, the command `trainer_service` runs
 every pass, never downloads over FTP and uses registry-host paths (TD-411); and a pass that loads zero
@@ -25621,7 +25680,7 @@ interrupted session's snapshots instead of deleting them), and [TD-407](#td-407-
 part of any tokenization fix. [TD-410](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy) is cleanup.
 
 **Tier 52 — Newly filed (October 13, 2026): `IncrementalTrainingTool`.** Fix [TD-412](#td-412-a-training-pass-that-loads-zero-samples-marks-its-files-trained) immediately (a
-one-line "zero samples = failure" guard), then [TD-411](../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (share `train`'s download step with
+one-line "zero samples = failure" guard), then [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (share `train`'s download step with
 `resume_last_session()`). Ask the user whether ai-machine's `trainer_service` uses a remote FTP
 registry; if so, files marked trained since it went live may need re-queuing. [TD-414](#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli) and
 [TD-413](#td-413-standalone-trainretrain-pre-check-reads-the-wrong-pending-pool) fix standalone first-run use; [TD-415](#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash) with TD-404; [TD-416](#td-416-incremental_trainer-command-hygiene) is cleanup.

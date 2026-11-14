@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 14, 2026
-**Active Items:** 103 (9 high, 22 medium, 72 low)
+**Active Items:** 102 (8 high, 22 medium, 72 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 471 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 472 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 103 open items:
+**Where things stand.** Of the 102 open items:
 - **24 wait on something outside a coding session:** 11 on a run on ai-machine (the GPU test package built from `86181ca5` covers
   TD-574, TD-050, TD-033 and TD-301; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **79 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **78 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -158,7 +158,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the 103 open items, by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (102 since TD-411 moved), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -192,7 +192,8 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 2. Scan the queued datasets for `\u` escapes and drop tokenized caches built from affected files ([TD-531](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text) (HIGH)).
 3. Re-measure the token cost on the registry pool at the chosen vocabulary size ([TD-562](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text) (LOW)).
 4. Rebuild the cased vocabulary with the turn tokens and reserved ids ([TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)).
-5. Re-queue the trained files on the registry ([TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): `dataset_manager requeue --all --model <name>`).
+5. Have every file pending again: `incremental_trainer retrain` re-queues the trained files itself (TD-411); to restart with `train` or
+   `trainer_service` instead, run `dataset_manager requeue --all --model <name>` first ([TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM)).
 6. Retrain from scratch: [TD-358](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) (HIGH), [TD-538](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) (HIGH), [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads) (HIGH).
 7. Afterwards: compare against the lowercase model (TD-563), benchmark generation quality before and after (TD-059), and test RAG
    retrieval with the trained checkpoint ([TD-247](#td-247-rag-retrieval-in-chatbot_api_server-uses-an-untrained-encoder) (HIGH)).
@@ -207,7 +208,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (HIGH): `retrain` against a remote registry doesn't download the already-trained files it re-trains.
 - [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) (HIGH): report each layer's `tanh(gate)` as a metrics series, so a stuck gate is visible on the dashboards.
 - [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) (MEDIUM): show the run's `global_step` in the MNS record.
 - [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): re-queue in the Android ops dashboard's Registry tab (CLI parity).
@@ -339,7 +339,6 @@ as TD-426 and TD-467 were:
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
   - [TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented)
   - [TD-400: `NullMetricsReporter` Keeps Reporting-Only Work Switched On](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on)
-  - [TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp)
   - [TD-425: `LanguageModelHead` Hygiene](#td-425-languagemodelhead-hygiene)
   - [TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads)
   - [TD-432: `LoRAAdapter::load()` Silently Adopts the File's Shape](#td-432-loraadapterload-silently-adopts-the-files-shape)
@@ -3878,50 +3877,6 @@ Files to Modify:
 
 ---
 
-### TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `IncrementalTrainingTool`, by inspection (definite). `trainer_service` runs
-`incremental_trainer --foreground --admin-port N resume` for every pass, and `resume` calls
-`IncrementalTrainer::resume_last_session()`. That function acquires pending files and then trains on
-`resp.registry_paths()` directly, under the comment "resume_last_session runs on the same machine as
-the registry … ftp_server_host is always empty here". That's only true for a local registry. With
-`REGISTRY_SERVER_URL` pointing at a remote `registry_server` that delivers files over FTP (TD-040's
-transport), these are the registry host's paths; the `DataTransport::fetch_all()` download that `train`
-performs never happens, so the trainer can't open the files. With TD-412 the pass then "succeeds" and
-marks them trained.
-
-Action Items:
-
-**Fix landed October 18, 2026:** the FTP-or-direct download step is now `resolve_pass_files()` in `IncrementalTrainingTool.cpp`, shared by
-`train`, `retrain` (its pending files) and `resume`. It keeps TD-205 segment ranges. `IncrementalTrainer::resume_last_session()` takes an optional
-`PassFileResolver`, which the `resume` command passes, and the downloads are cleaned up after the pass. Without a resolver, a registry that hands
-out an FTP host fails the pass and releases its files instead of training on paths it can't read. The pass also now releases its batch when the
-resume checkpoint is missing or fails to load; before, those returns left the files claimed.
-
-New test `ResumeTrainsOnResolvedFilesAndReleasesOnResolverFailure`: a failed resolver releases the file, and a successful one trains on the resolved
-local path and marks the registry entry trained. The old code failed it.
-
-Still open: `retrain` reads its already-trained files by registry path (only pending ones are fetched), so a full retrain against a remote FTP
-registry can't read them. That needs a download path for trained files.
-
-- [x] Factor `train`'s acquire → (FTP download) → train → mark/release → cleanup sequence into one function and use it from `resume_last_session()` (with the segment ranges). (The download step is shared; acquire/mark/release stay in each caller.)
-- [x] Ask the user whether ai-machine's `trainer_service` uses a remote FTP registry; if so, audit and re-queue files marked trained since it went live. Answered October 18, 2026: the trainer always takes its data from the remote services. The affected files can't be told apart (TD-334), so re-queue everything before the retraining with `dataset_manager requeue --all --model <name>` (TD-540).
-- [ ] Download already-trained files for `retrain` against a remote registry.
-
-Location in code: `src/IncrementalTrainer.cpp` (`resume_last_session()`), `src/IncrementalTrainingTool.cpp` (`resolve_pass_files()`; `train`, `retrain`, `resume` commands); the `TODO: See TD-411` tags are now fix comments except `retrain`'s trained-files one.
-
-Files to Modify:
-
-- `src/IncrementalTrainer.cpp`
-- `src/IncrementalTrainingTool.cpp`
-
----
-
 ### TD-425: `LanguageModelHead` Hygiene
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -5660,7 +5615,7 @@ Related: TD-566, TD-569, TD-572, TD-468, TD-547, TD-344.
 
 ## Resolved Items
 
-471 items resolved (253 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+472 items resolved (254 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---
@@ -6186,16 +6141,16 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed November 14, 2026 from the 103 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
+Recomputed November 14, 2026 from the 102 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
 that list when an item moves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|9|9%|
-|Medium|22|21%|
-|Low|72|70%|
+|High|8|8%|
+|Medium|22|22%|
+|Low|72|71%|
 
-**Total Active Items:** 103
+**Total Active Items:** 102
 
 ### By Component
 
@@ -6269,7 +6224,6 @@ that list when an item moves or a new one is filed.
 |Training / Data Generation|1|
 |Training / Deployment / Tooling|1|
 |Training / IncrementalTrainer|1|
-|Training / IncrementalTrainingTool|1|
 |Training / Metrics / Core|1|
 |Training / MetricsTracker|1|
 |Training / Operations|1|
@@ -6280,18 +6234,18 @@ that list when an item moves or a new one is filed.
 
 ### Effort Distribution
 
-Each entry's own estimate, made when it was filed. For the 31 entries whose fix has landed in code, most of it is spent; what remains
+Each entry's own estimate, made when it was filed. For the 30 entries whose fix has landed in code, most of it is spent; what remains
 there is a run, a measurement or a retraining.
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|49|
-|2-4 hours|31|
+|2-4 hours|30|
 |4-8 hours|8|
 |8+ hours|7|
 |Not estimated|8|
 
-**Total Estimated Effort (Active Items):** 264-460 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
+**Total Estimated Effort (Active Items):** 262-456 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
 TD-039 (none given), TD-171 and TD-563 (large: an architecture project and the retraining), TD-554 (1-2 days), TD-573 (2-4 days,
 plus devices and a release), TD-574 (its tooling is done; runs on ai-machine remain) and TD-050 (only reading an ai-machine run remains).
 

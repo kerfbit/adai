@@ -829,6 +829,19 @@ if(TARGET metrics_api_server AND TARGET mns_server AND TARGET registry_server AN
     add_test(NAME SighupTests COMMAND sighupTests)
 endif()
 
+# TD-411: `incremental_trainer retrain` downloads every file from a remote registry_server over FTP.
+# Spawns both real binaries.
+if(TARGET registry_server AND TARGET incremental_trainer AND HTTPLIB_INCLUDE_DIR)
+    add_executable(retrainRemoteTests retrain_remote_test.cpp)
+    target_include_directories(retrainRemoteTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(retrainRemoteTests PRIVATE
+        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>"
+        INCREMENTAL_TRAINER_BINARY_PATH="$<TARGET_FILE:incremental_trainer>")
+    target_link_libraries(retrainRemoteTests pthread GTest::gtest_main)
+    add_dependencies(retrainRemoteTests registry_server incremental_trainer)
+    add_test(NAME RetrainRemoteTests COMMAND retrainRemoteTests)
+endif()
+
 if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
     add_executable(registryFtpConfinementTests registry_ftp_confinement_test.cpp)
     target_include_directories(registryFtpConfinementTests PRIVATE

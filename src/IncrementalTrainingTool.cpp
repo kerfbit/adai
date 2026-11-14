@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.37.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.38.0
+// @adai-reviewed: 2026-11-14
 
 #include <array>
 #include <atomic>
@@ -901,30 +901,40 @@ static int run_main(int argc, char* argv[]) {
                 DatasetRegistry reg(dcfg);
                 reg.load_registry();
 
+                // TD-411: every trained unit goes back to the pending queue (assigned to this
+                // model, each trained segment as that segment, TD-546), so the claim below takes
+                // the whole pool through the same path as `train`: FTP tokens and downloads from a
+                // remote registry, claim renewal, and one trained record per unit afterwards.
+                // Trained files used to be read by their registry paths, which don't exist on a
+                // trainer that isn't the registry host, so a full retrain against registry_server
+                // never read them. The model was reset and its checkpoints archived above, so if
+                // the pass fails the files are left pending, which is the honest state.
+                const RequeueResult requeued =
+                    reg.requeue_trained({}, /*all=*/true, dcfg.model_name);
+                if (!requeued.ok) {
+                    adai::Logger::error(
+                        "Could not return the trained files to the pending queue; nothing "
+                        "retrained");
+                    return 1;
+                }
+                adai::Logger::info(
+                    "Returned {} trained unit(s) to the pending queue ({} already pending)",
+                    requeued.requeued, requeued.already_pending);
+
                 startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list (TD-512)
 
-                auto trained_units = reg.trained_units();  // TD-546
                 auto pending_resp = reg.acquire_pending(run_id);
+                if (pending_resp.failed) {
+                    adai::Logger::error("Could not claim the files to retrain on");
+                    return 1;
+                }
 
-                // For retrain: already-trained files are read directly by path (they
-                // live on the registry machine which already trained them, so no FTP
-                // needed for the trained portion).  Only newly acquired pending files
-                // may need FTP download.
-                // Each trained unit is read as it was trained, so a partly trained segmented file's
-                // pending segments, acquired below, aren't also read here (TD-546).
-                // TODO: See TD-411 in TECHNICAL_DEBT.md - trained files are read by registry path, never downloaded, so
-                // retrain against a remote FTP registry can't read them (only pending files are fetched)
-                std::vector<PendingFileRange> local_ranges = std::move(trained_units);
+                std::vector<PendingFileRange> local_ranges;
                 std::vector<fs::path> downloaded_paths;
-                if (!pending_resp.files.empty()) {
-                    std::vector<PendingFileRange> pending_ranges;
-                    if (!resolve_pass_files(pending_resp, dcfg, pending_ranges,
-                                            downloaded_paths)) {
-                        reg.release_pending(run_id, pending_resp.file_ranges());  // TD-333
-                        return 1;
-                    }
-                    local_ranges.insert(local_ranges.end(), pending_ranges.begin(),
-                                        pending_ranges.end());
+                if (!pending_resp.files.empty() &&
+                    !resolve_pass_files(pending_resp, dcfg, local_ranges, downloaded_paths)) {
+                    reg.release_pending(run_id, pending_resp.file_ranges());  // TD-333
+                    return 1;
                 }
 
                 if (local_ranges.empty()) {
@@ -938,16 +948,12 @@ static int run_main(int argc, char* argv[]) {
 
                 if (ok) {
                     if (!pending_reg_paths.empty()) {
-                        // TD-334: local_ranges holds the trained files first, then the pending
-                        // ones, so the pending files' counts are the trailing entries.
+                        // TD-334: one pair count per claimed unit, in claim order (TD-411: every
+                        // unit is claimed now, so they're all of local_ranges).
                         const auto& all_counts = trainer.last_pass_pair_counts();
                         std::vector<int> counts(pending_reg_paths.size(), 0);
-                        const std::size_t offset = all_counts.size() >= counts.size()
-                                                       ? all_counts.size() - counts.size()
-                                                       : 0;
-                        for (std::size_t i = 0; i < counts.size() && offset + i < all_counts.size();
-                             ++i)
-                            counts[i] = all_counts[offset + i];
+                        for (std::size_t i = 0; i < counts.size() && i < all_counts.size(); ++i)
+                            counts[i] = all_counts[i];
                         reg.mark_trained(run_id, pending_reg_paths, counts);
                     }
                     trainer.print_training_summary();

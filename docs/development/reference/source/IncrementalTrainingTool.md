@@ -1,11 +1,11 @@
 # `IncrementalTrainingTool` — Source File Reference
 
-- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,145 lines): the `main()` of `incremental_trainer`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.37.0`, `@adai-reviewed: 2026-11-12`
+- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,149 lines): the `main()` of `incremental_trainer`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.38.0`, `@adai-reviewed: 2026-11-14`
 - **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp`, `IncrementalTrainerArgs.cpp`, `LeJEPATrainingPass.cpp` and `TrainingPassFiles.cpp` (the LeJEPA pass and the shared download step, moved out of this file November 12, 2026) and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [LeJEPATrainingPass.md](LeJEPATrainingPass.md) (the LeJEPA pass and the download step), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
-- **Tests:** none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
-- **Last traced against the code:** 2026-11-12
+- **Tests:** `retrainRemoteTests` ([`tests/retrain_remote_test.cpp`](../../../../tests/retrain_remote_test.cpp), TD-411) runs the real binary's `train` and `retrain` against a real `registry_server` with FTP on; otherwise none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
+- **Last traced against the code:** 2026-11-12; `retrain` (§2) re-traced 2026-11-14
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the built `build/debug/bin/incremental_trainer` (and
 > `dataset_manager`, `vocab_builder`) against a scratch session directory.
@@ -19,7 +19,7 @@ incremental_trainer [--config F] [--model N] [--gpu-strategy S] [--foreground] [
                     [--objective=chatbot|lejepa] [--dataset-kind K] [--log-file F] [--heartbeat-file F]  <command> [args]
   init [vocab] [model]           build the trainer once and print the architecture
   train [epochs]                 acquire pending files and train (the LeJEPA world model with --objective=lejepa)
-  retrain [epochs]               fresh weights; train on every trained unit plus newly acquired pending files
+  retrain [epochs]               fresh weights; return every trained unit to the pending queue and train on the whole pool
   reset [--yes] [--keep-data]    wipe sessions and checkpoints (asks unless --yes)
   resume                         one pass over what is pending; what trainer_service runs as each pass
   status / history               print the session history and the registry (read-only)
@@ -70,7 +70,7 @@ FTP and remove them afterwards; they live in `TrainingPassFiles.cpp` since Novem
 |---|---|
 | `init` | Builds an `IncrementalTrainer(vocab, model, cfg)` (paths from the arguments, else config) and prints the session directory and architecture. Extra arguments are ignored |
 | `train [epochs]` (chatbot) | Epochs via `parse_epochs_arg()`. Pre-fork: `count_acquirable()` on this model's pool (TD-413); none → exit 1. Worker: `PassAdminApi`, GPU initialization, the trainer (TD-571), `begin_run(false)` (MNS run id, else the local one), `startup_sweep()` (TD-512), `acquire_pending()`, `resolve_pass_files()`, `train_on_files()`, then `mark_trained()` with the per-file pair counts (TD-334) or `release_pending()` of the exact units (TD-333) |
-| `retrain [epochs]` | Pre-fork count of trained files plus acquirable ones. Worker: `PassAdminApi`, GPU initialization, the trainer, `reset_model_for_config()`, `begin_run(true)` (a new MNS run), the sweep, `trained_units()` (TD-546) plus newly acquired pending files, `retrain_on_files()`; marks only the pending units trained (their counts are the trailing ones) or releases them. Trained units are read by their registry path, never downloaded (TD-411's open item) |
+| `retrain [epochs]` | Pre-fork count of trained files plus acquirable ones. Worker: `PassAdminApi`, GPU initialization, the trainer, `reset_model_for_config()` (checkpoints archived, TD-410), `begin_run(true)` (a new MNS run), then `requeue_trained(all)` assigned to `MODEL_NAME` (TD-411: every trained unit back to pending, each trained segment as that segment), the sweep, one `acquire_pending()` of the whole pool, `resolve_pass_files()` (FTP from a remote registry, like `train`), `retrain_on_files()`; then marks every claimed unit trained with its pair count (TD-334) or releases them. A failed re-queue or claim (`failed`) exits 1 before training. A failed pass leaves the files pending, matching the reset model |
 | `reset [--yes] [--keep-data]` | An unknown argument is an error, exit 1 (TD-571). Prints what it will do, asks unless `--yes`, then `reset_all(keep_data)` on this binary's pool (TD-545); `--keep-data` re-queues the trained entries, server-side against `registry_server` (TD-540) |
 | `resume` (chatbot) | Worker: `PassAdminApi` (with the per-pass admin API under `trainer_service`), GPU initialization, the trainer (TD-571), `begin_run(false)`, the sweep, `resume_last_session(resolve_pass_files)`. Exits **0** trained, **3** nothing pending, **1** failed (TD-523) |
 | `train`/`resume --objective=lejepa` | Needs `WORLD_MODEL_ENABLED`. `run_lejepa_training_pass()` (below); `train` runs `epochs`, `resume` `NUM_EPOCHS`, with the same exit codes |
@@ -110,7 +110,7 @@ run with the fixed binary left no trained record and the claim cleared.
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | The LeJEPA pass marked its files trained before its final save; `reset` ignored unknown tokens; the per-pass admin API started late; a silent MNS lookup failure; start-up lines on stdout (§3) | — | **Fixed November 11, 2026** | [TD-571](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-571-findings-from-the-november-11-2026-trace-of-the-files-td-569-touched) |
-| `retrain` reads trained units by registry path | A retrain against a remote FTP registry can't read its trained files | By inspection | [TD-411](../../guides/TECHNICAL_DEBT.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (open item) |
+| `retrain` read trained units by registry path | **Fixed November 14, 2026**: it re-queues them and claims the whole pool, so they download over FTP (a retrain against a remote FTP registry couldn't read them) | **Verified** (`retrainRemoteTests`) | [TD-411](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) |
 | The LeJEPA pass had no device-lost check | A lost GPU failed every remaining batch, and the pass then recorded its files as trained | **Fixed November 12, 2026** ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)) | TD-566 |
 | `resume` without FTP, zero-sample success, the wrong pending pool, the vocabulary bootstrap, LeJEPA segments and claims, signals, auto-save overrides, read-only `status`, log files | — | **Fixed** | TD-411, TD-412, TD-413, TD-414, TD-415, TD-416, TD-431 |
 
@@ -124,3 +124,5 @@ run with the fixed binary left no trained record and the claim cleared.
 - **November 12, 2026:** the LeJEPA pass and the download helpers moved to their own files, and the LeJEPA pass stops on a lost GPU (TD-566).
 - **November 11, 2026:** `--heartbeat-file` and progress per LeJEPA batch (TD-569). This document was re-traced against the code, replacing its
   October sections and folding in its addenda; the findings were fixed the same day (TD-571).
+- **November 14, 2026:** `retrain` re-queues the trained units and claims the whole pool, so every file comes over FTP from a remote registry
+  (TD-411's last item); `retrainRemoteTests`.

@@ -449,7 +449,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(103 on November 14, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(102 on November 14, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -513,7 +513,6 @@ reference doc that tracks it):
 | TD-398 (LOW) | `HippocampalMemory` Per-Step Copies and Unchecked Saves. Left: Cache the packed key/value matrices and update them incrementally on write/evict; check stream state after saves; save both files atomically together… See [HippocampalMemory.md](docs/development/reference/source/HippocampalMemory.md). |
 | TD-399 (LOW) | `IMetricsReporter` Buffering and Ordering Contract Is Undocumented. Left: Document per method whether it's pushed immediately or included in the next `end_epoch()`, and the ordering rule, in the interface (and 1 more). See [IMetricsReporter.md](docs/development/reference/source/IMetricsReporter.md). |
 | TD-400 (LOW) | `NullMetricsReporter` Keeps Reporting-Only Work Switched On. Left: Add `virtual bool enabled() const` to `IMetricsReporter` (false for `NullMetricsReporter`), and have `ChatbotTrainer` check `metrics_reporter_ &&… See [IMetricsReporter.md](docs/development/reference/source/IMetricsReporter.md). |
-| **TD-411** (HIGH) | `resume` (Every `trainer_service` Pass) Never Downloads Over FTP. Code fix landed October 18, 2026. Left: Download already-trained files for `retrain` against a remote registry. See [IncrementalTrainingTool.md](docs/development/reference/source/IncrementalTrainingTool.md). |
 | TD-425 (LOW) | `LanguageModelHead` Hygiene. Left: Switch to `adai::Logger`; add shape checks; invalidate the GPU mirror in the setters; guard `gpu_backward()`; remove or test `get_probabilities()`. See [LanguageModelHead.md](docs/development/reference/source/LanguageModelHead.md). |
 | TD-429 (LOW) | `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads. Left: Catch tokenizer exceptions per sample in the LeJEPA loop; switch to `adai::Logger`; validate `max_seq_length` and check reads on load. See [LeJEPAEncoder.md](docs/development/reference/source/LeJEPAEncoder.md). |
 | TD-432 (LOW) | `LoRAAdapter::load()` Silently Adopts the File's Shape. Left: Validate the file's shape against the adapter (throw on mismatch, leaving it unchanged), reject non-positive rank/dims, and check reads and writes. See [LoRA.md](docs/development/reference/source/LoRA.md). |

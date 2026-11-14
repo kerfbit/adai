@@ -103,7 +103,7 @@ Trains only on files that have not been trained before (the pending queue). On s
 ./build/bin/incremental_trainer retrain [epochs]
 ```
 
-Resets model weights to the config architecture, then trains on **all** files in the registry (trained + pending). This is the equivalent of a clean restart without losing the data you've accumulated.
+Resets model weights to the config architecture, then trains on **all** files in the registry (trained + pending). It first returns every trained file (or trained segment) to the pending queue, assigned to `MODEL_NAME`, and then claims the whole pool like `train`, so against a remote `registry_server` every file is downloaded over FTP; each is recorded as trained again when the pass succeeds, and a failed pass leaves them pending (TD-411). This is the equivalent of a clean restart without losing the data you've accumulated.
 
 **Use when:** Changing model architecture, recovering from a badly diverged model, or doing a scheduled consolidation after many incremental runs.
 

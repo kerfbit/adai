@@ -523,10 +523,11 @@ If MNS doesn't answer, the command changes nothing and exits 1; start the name s
 
 Files in the trained registry are skipped by `add`. To include them again:
 
-1. Use `incremental_trainer reset --keep-data --yes` — this marks all registry files as pending again.
-2. Or use `incremental_trainer retrain` — this trains on all registry files without touching the pending list.
-
-`dataset_manager` has no direct command to "un-train" a file; that is the trainer's responsibility.
+1. Use `dataset_manager requeue (--all | <file> ...) [--model <name>]` — this moves trained files (or trained segments) back to the
+   pending queue, on `registry_server` too.
+2. Or use `incremental_trainer reset --keep-data --yes` — this marks all registry files as pending again.
+3. Or use `incremental_trainer retrain` — this re-queues every trained file itself, then trains on the whole pool from fresh weights
+   (TD-411).
 
 ### Scripted bulk ingestion
 
@@ -556,7 +557,7 @@ ls -lh my_file.txt    # verify the file exists
 
 ### "Data file already trained, skipping"
 
-The file is already in the trained registry. If you genuinely want to retrain on it, use `incremental_trainer retrain` (which trains on all registry files) or `incremental_trainer reset --keep-data --yes` (which moves everything back to pending).
+The file is already in the trained registry. If you genuinely want to retrain on it, use `dataset_manager requeue <file>`, `incremental_trainer retrain` (which re-queues and trains on all registry files) or `incremental_trainer reset --keep-data --yes` (which moves everything back to pending).
 
 ### "Data file already in pending queue"
 
