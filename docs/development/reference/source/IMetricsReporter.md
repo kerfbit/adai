@@ -1,11 +1,11 @@
 # `IMetricsReporter` — Source File Reference
 
-- **File:** [`src/IMetricsReporter.hpp`](../../../../src/IMetricsReporter.hpp) (header-only, 224 lines)
+- **File:** [`src/IMetricsReporter.hpp`](../../../../src/IMetricsReporter.hpp) (header-only, 279 lines)
 - **Namespace:** global (`AbnormalSample`, `IMetricsReporter`, `NullMetricsReporter`)
 - **Built into:** header-only; used by `ChatbotTrainer`, `IncrementalTrainer`, `IncrementalTrainingTool` (LeJEPA path), `MetricsPushClient` (the real implementation), and the metrics databases (for `AbnormalSample`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-23`
-- **Tests:** no dedicated test file. `tests/generation_quality_async_test.cpp` defines a `RecordingMetricsReporter`; the metrics-database tests use `AbnormalSample`
-- **Last traced against the code:** 2026-10-13
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.3.0`, `@adai-reviewed: 2026-11-14`
+- **Tests:** no dedicated test file. `tests/generation_quality_async_test.cpp` defines a `RecordingMetricsReporter` and `tests/chatbottrainer_test.cpp` an `EpochRecordingReporter` (which records `update_gate_values()`, TD-341); the metrics-database tests use `AbnormalSample`
+- **Last traced against the code:** 2026-10-13; `update_gate_values()` (TD-341) added 2026-11-14
 
 > Code-traced reference. The cost of the always-non-null reporter (§3) was measured with a small
 > `ChatbotTrainer` run in a scratch program.
@@ -48,6 +48,7 @@ Every training metric on the dashboards, the metrics DB and the ops app goes thr
 | `update_adaptive_clip_metrics(threshold, spikes)` / `update_adaptive_clip_epoch(avg, total)` | Adaptive clipping (TD-017) | Buffered but **never sent**: `end_epoch()` omits it (see [MetricsPushClient.md](MetricsPushClient.md)) | `ChatbotTrainer` |
 | `update_activation_saturation(ratio)`, `update_attention_entropy(h)` | Hook diagnostics (−1 = not computed) | **Buffered** | Both |
 | `update_layer_gradient_norms(enc, dec)` | Per-layer gradient norms | Pushed | `ChatbotTrainer` |
+| `update_gate_values(world, memory)` | TD-341: each decoder layer's `tanh(gate)` for the gated world-model and memory paths, NaN where a layer has no such path or nothing attached; once per epoch before `end_epoch()`, only for a model with a gated path | Pushed | `ChatbotTrainer` |
 | `update_padding_efficiency(eff)` | Padding efficiency | **Buffered** | `ChatbotTrainer` |
 | `update_generation_quality_metrics(bleu4, r1, r2, rL)` | BLEU/ROUGE (TD-016). No `bleu1`/`bleu2` parameters (TD-379) | Pushed. **Can be called from `ChatbotTrainer`'s async scoring thread** | `ChatbotTrainer` |
 | `update_lejepa_metrics(pred, sigreg)`, `update_lejepa_advanced_metrics(...)` | LeJEPA pretraining (TD-178) | **Buffered** | LeJEPA loop only |
@@ -106,3 +107,10 @@ New pure virtual `report_sample_quality(const SampleQualityReport&)` with the `S
 one epoch's per-sample quality distribution for one `source` (`"loss"`: exp(-loss); `"generation"`: sentence BLEU-4 / 100; both in
 [0, 1]) and `split` (`"train"`/`"validation"`), plus its lowest-scoring pairs. Sent immediately and never dropped (epoch priority in
 `MetricsPushClient`). `NullMetricsReporter` ignores it.
+
+## Addendum (November 14, 2026): gate values (TD-341)
+
+New pure virtual `update_gate_values(world_model_gates, memory_gates)` (table above), with a no-op in `NullMetricsReporter`. Every
+implementer needs it: `MetricsPushClient` sends it to `…/metrics/gate-values`, and the three test reporters define it. Adding a pure
+virtual changes what an implementer must provide, but every implementer is in this repository, so the version moved MINOR (1.3.0),
+as the earlier additions did.

@@ -120,6 +120,8 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **POST** | `/api/sessions/{key}/metrics/validation` | Push validation metrics |
 | **POST** | `/api/sessions/{key}/metrics/best` | Record best epoch checkpoint |
 | **POST** | `/api/sessions/{key}/metrics/advanced` | Push advanced diagnostic metrics |
+| **POST** | `/api/sessions/{key}/metrics/layer-gradients` | Push per-layer gradient norms (once per epoch) |
+| **POST** | `/api/sessions/{key}/metrics/gate-values` | TD-341: push per-layer `tanh(gate)` of the gated world-model and memory paths (once per epoch) |
 | **POST** | `/api/sessions/{key}/metrics/generation-quality` | Push BLEU/ROUGE scores |
 | **POST** | `/api/sessions/{key}/metrics/sample-quality` | TD-273: push a per-sample quality report |
 | **POST** | `/api/sessions/{key}/control/flush` | Force flush to disk |
@@ -218,6 +220,11 @@ Response:
   "compute_time_ratio": 0.8234,
   "weight_update_ratio": 0.000456,
   "activation_saturation_ratio": 0.1234,
+  "attention_entropy": 2.31,
+  "encoder_layer_grad_norms": [0.91, 0.84],
+  "decoder_layer_grad_norms": [1.12, 0.97],
+  "world_model_gates": [0.214, null],
+  "memory_gates": [null, -0.031],
   "current_validation_perplexity": 11.23,
   "current_validation_accuracy": -1.0,
   "current_bleu4": -1.0,
@@ -229,6 +236,12 @@ Response:
 
 **Field notes:**
 
+- `encoder_layer_grad_norms`, `decoder_layer_grad_norms` — the last epoch's per-layer gradient norms, in layer order; empty until
+  an epoch reports them.
+- `world_model_gates`, `memory_gates` — TD-341 (November 14, 2026): each decoder layer's `tanh(gate)` for the gated world-model
+  and hippocampal-memory paths after the last epoch, `null` where the layer has no such path or nothing is attached. Empty for a
+  model without gated paths. A gate that stays near 0 means its path isn't learning and changes nothing; the Android ops
+  dashboard and the Tizen dashboard show them.
 - `current_validation_perplexity` — `0.0` if not yet computed this epoch.
 - `current_validation_accuracy` — token-level accuracy: the share of validation target tokens the model ranks first (`incremental_trainer` sends it since TD-276, November 4, 2026). `-1.0` if the trainer did not push `validation_accuracy`.
 - `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — `-1.0` when `ENABLE_GENERATION_QUALITY_METRICS=false` in `config.conf` or before the first scored epoch. Since TD-561 (November 4, 2026) BLEU ignores letter case for a model whose vocabulary lowercases; before that such a model's BLEU was biased low by every capitalized reference word, so earlier BLEU values aren't comparable.
@@ -269,12 +282,13 @@ Each record's `timestamp` is whole seconds (a string, as before); `timestamp_ms`
 
 **History is sampled (TD-530).** A history record is written once every `persist_every_samples` samples (default 100,
 `METRICS_PERSIST_EVERY_SAMPLES`), plus one at every epoch end. It is not one per sample. The epoch-level fields (diagnostics,
-LeJEPA losses, layer gradient norms) are filled on the epoch-end records and are -1 or absent on the others. The same records go to
+LeJEPA losses, layer gradient norms, gate values) are filled on the epoch-end records and are -1 or absent on the others. The same records go to
 `/history`, to the DB's `metrics_history` (`db-history`, `export`) and to the session's JSONL file. Per-step gradient variance has its
 own unsampled table (`db-gradient-variance`).
 
 **JSONL file.** One JSON object per line with every record field: `loss`, `validation_loss`, `learning_rate`, `gradient_norm`,
-`perplexity`, the TD-013 diagnostics, the LeJEPA fields, and `layer_gradient_norms` when set. Non-finite values are `null`. Before
+`perplexity`, the TD-013 diagnostics, the LeJEPA fields, and `layer_gradient_norms` and `gate_values`
+(`{"world_model":[…],"memory":[…]}`, TD-341) when set. Non-finite values are `null`. Before
 TD-530 the file had only the first five metrics, wrote NaN as `nan` (invalid JSON) and rounded small values to `0.000000`.
 
 **Request bodies (TD-527, October 25, 2026).** Every POST body is parsed as a JSON object. Absent fields take their defaults,
@@ -892,6 +906,30 @@ Response: `{"status":"ok"}`
 TD-273: one per-sample quality report, the shape the GET above returns without `timestamp` (the server sets it). `source`
 must be `"loss"` or `"generation"` and `split` `"train"` or `"validation"`, `epoch` and `count` can't be negative, and
 `lowest` must be an array of objects; anything else is a 400 naming the field. Stored in the `sample_quality` table.
+
+Response: `{"status":"ok"}`
+
+#### `POST /api/sessions/{key}/metrics/layer-gradients`
+
+Once per epoch, before `epoch/end`: each layer's gradient norm, in layer order. Shown in `metrics/current` and stored with the
+epoch's record (`layer_gradient_norms_json`).
+
+```json
+{"encoder_layer_grad_norms": [0.91, 0.84], "decoder_layer_grad_norms": [1.12, 0.97]}
+```
+
+Response: `{"status":"ok"}`
+
+#### `POST /api/sessions/{key}/metrics/gate-values`
+
+TD-341 (November 14, 2026). Once per epoch, before `epoch/end`, for a model with a gated world-model or hippocampal-memory path:
+each decoder layer's `tanh(gate)`, in layer order, `null` where the layer has no such path or nothing is attached to it. Shown in
+`metrics/current` and stored with the epoch's record (the `gate_values_json` column, and `gate_values` in the JSONL file). A field
+that isn't an array of numbers and nulls is a 400.
+
+```json
+{"world_model_gates": [0.214, null], "memory_gates": [null, -0.031]}
+```
 
 Response: `{"status":"ok"}`
 

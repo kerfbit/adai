@@ -449,7 +449,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(102 on November 14, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(101 on November 14, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -485,7 +485,6 @@ reference doc that tracks it):
 | TD-332 (LOW) | Operator Guide Covers Only 8 of 15 `dataset_manager` Commands. Left: Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences. See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
 | TD-335 (LOW) | `DatasetRegistry` Dead Code and Unused Integrity Data. Left: Use the checksum (warn when a queued/trained file changed) or drop it; ~~count pairs without storing them~~ (done with TD-543); delete the unused… See [DatasetRegistry.md](docs/development/reference/source/DatasetRegistry.md). |
 | TD-340 (LOW) | `DataTransport` Robustness and Header Hygiene. Left: Call `curl_global_init()` once at trainer startup; keep partial files on failure; treat `COULDNT_CONNECT` as retryable with backoff; move the… See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
-| **TD-341** (HIGH) | World-Model and Hippocampal Gates Never Train in Production. Code fix landed October 20, 2026. Left: Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible. (Partly: logged per epoch; a metrics-pipeline series… See [DecoderBlock.md](docs/development/reference/source/DecoderBlock.md). |
 | TD-345 (LOW) | `DecoderBlock` Persistence Gaps for Gated State. Left: Check reads in `load()` and validate before assigning; add SafeTensors entries (and accessors) for the gates and gated sub-layers. See [DecoderBlock.md](docs/development/reference/source/DecoderBlock.md). |
 | TD-348 (LOW) | `LLMDecoder` Dead Code and Robustness Gaps. Left: Remove the empty loop, the unused copy and (if still unused) `forward_with_mask()`; check header reads; validate constructor arguments; guard the… See [Decoder.md](docs/development/reference/source/Decoder.md). |
 | TD-351 (LOW) | `DocumentStore` Embedding and Housekeeping Gaps. Left: Pool over content tokens only; add metadata filtering or drop the field; optionally cache embeddings on disk keyed by file checksum; treat NaN scores… See [DocumentStore.md](docs/development/reference/source/DocumentStore.md). |

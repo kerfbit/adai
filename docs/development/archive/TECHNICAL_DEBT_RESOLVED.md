@@ -1,10 +1,92 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (472 on November 14, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (473 on November 14, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-341: World-Model and Hippocampal Gates Never Train in Production
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 14, 2026 | Transformer / DecoderBlock | Code fix, the gates October 20 and the metrics series November 14, 2026 (**HIGH**, filed October 11, 2026) |
+
+Description:
+Found while writing the code-traced reference [DecoderBlock.md](../reference/source/DecoderBlock.md) and confirmed by running the real class.
+`DecoderBlock`'s TD-180 gates (`gate`, `gate_h`) are plain floats updated only by plain SGD inside
+`DecoderBlock::update_weights()`; `register_parameters_with_optimizer()` doesn't register them
+(`Optimizer` takes only `Matrix` groups). `ChatbotTrainer` never calls `update_weights()`: it
+registers the model with one optimizer and calls `optimizer->step()` directly (which is also how it
+avoids TD-297). So **nothing ever updates the gates**.
+
+A block with the world-model path enabled, trained 50 steps the way `ChatbotTrainer` does, ended at
+`gate = 0.000000` (gradients up to 34 were computed, then zeroed). With `tanh(gate) = 0` the gated
+cross-attention's own gradient is also zero, so its weights didn't change at all. The same 50 steps
+via `update_weights()` moved the gate to −1.04. World-model injection (TD-180/181/186) and
+hippocampal memory (TD-185/194) therefore remain exact no-ops in every trained model, whatever MNS
+links. Nothing reads `get_gate()` outside tests, so no metric reveals it.
+
+Action Items:
+
+- [x] Make each gate a 1×1 `Matrix` (value + gradient) and register it in `register_parameters_with_optimizer()`; drop the plain-SGD gate step from `update_weights()` (or keep it only for the no-optimizer case).
+- [x] Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible. (November 14, 2026: a reporter
+  method, server storage and a view on both dashboards, see the Follow-up below.)
+- [x] Test: training via the trainer's optimizer-only path moves a gate off zero.
+
+Location in code: `src/DecoderBlock.cpp` (`update_weights()`, `register_parameters_with_optimizer()`), `src/DecoderBlock.hpp` (gate members); tagged `TODO: See TD-341`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/ChatbotTrainer.cpp` (metrics)
+- `tests/decoderblock_test.cpp`
+
+**Fix (October 20, 2026).**
+- **Registered gates:** `gate`/`gate_h` (and their gradients) are 1×1 `Matrix` members.
+  `register_parameters_with_optimizer()` adds each as a parameter group when its path is allocated, so
+  `ChatbotTrainer`'s `optimizer->step()` moves them. `update_weights()` keeps its plain-SGD gate step only when no
+  optimizer is registered (`gate_optimizer_`). The accessors and the checkpoint format (one float per gate) are
+  unchanged.
+- **Visibility:** at the end of each epoch, `ChatbotTrainer` logs per-layer `tanh(gate)`/`tanh(gate_h)`
+  (`Epoch N gates tanh(gate): L0 world=… L0 memory=…`), only for a model with gated paths. A stuck gate now shows in
+  the trainer log and `/admin/logs`.
+- **Optimizer state:** a gated model has two more parameter groups per gated block, so a `<checkpoint>.optimizer`
+  saved before this fix no longer matches. `Optimizer::load_state()` warns and keeps fresh moments once (TD-269's
+  existing mismatch handling). AdamW's global weight decay (TD-469) also applies to the gates.
+- **GPU training:** the gated paths still don't run there (TD-342), so the gates get no gradient and stay at 0 on a
+  GPU pass. They are host groups of `GPUOptimizer`. This fix makes them learn in CPU training.
+
+Tests:
+- `decoderblock_test.cpp`:
+  - `OptimizerOnlyTrainingOpensBothGates`: 30 optimizer-only steps open both gates, and the gated inputs then change
+    the output.
+  - `UpdateWeightsStillStepsGatesWithoutAnOptimizer`.
+- `encoderdecoder_test.cpp`:
+  - `TrainerStyleOptimizerStepsOpenTheGates`: a model with a `LeJEPAEncoder` attached, trained the way
+    `ChatbotTrainer` does, opens every block's world-model gate.
+
+The first and third fail on the old code (gates exactly 0, output unchanged).
+
+**Follow-up (October 20, 2026, TD-342).** The gates now train on the GPU too, as device parameters, and the per-epoch log
+reads their live device values.
+
+**Follow-up (November 14, 2026): gate values as a metrics series.**
+- **Trainer:** at each epoch's end `ChatbotTrainer` sends each decoder layer's `tanh(gate)` for the world-model and memory paths to
+  the reporter, `IMetricsReporter::update_gate_values(world, memory)`, NaN where a layer has no attached path, before `end_epoch()`.
+  A world-model-injected block allocates both paths, so the log and the report now include a path only when the model has its world
+  model or memory attached; an unattached memory gate used to be logged as `memory=0`, which looks like a stuck gate.
+- **Pipeline:** `MetricsPushClient` posts `…/metrics/gate-values` (`null` for NaN); `metrics_api_server` keeps them in the session
+  snapshot (`world_model_gates`/`memory_gates` in `metrics/current`) and stores them with the epoch's record (`gate_values_json` in
+  SQLite and PostgreSQL, migrated into existing databases, and `gate_values` in the JSONL file).
+- **Dashboards:** the Android ops dashboard's session screen shows one "Gate L<n> tanh" row per gated layer (world · memory), and the
+  Tizen dashboard a "Gates (world/mem)" tile.
+
+Tests: `ReportsTheGateValuesOncePerEpochForAGatedModel` (`chatbottrainerTests`: reported once per epoch before it ends, NaN for the
+unattached memory path, the last value the trained gate; nothing for a model without gated paths), `SendsBothArraysWithNullForAMissingPath`
+(`metricsPushClientTests`), `GateValuesRoundTripThroughPostAndGet` and the JSONL and every-endpoint tests (`trainingMetricsApiRoutesTests`),
+the SQLite round trip and migration (`metricsDatabaseTests`) and the PostgreSQL round trip (23 pass on PostgreSQL 16), `GateRowsTest`
+(Android, 4) and `gateSummary` (Tizen, 2).
 
 ### TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP
 
@@ -23668,6 +23750,10 @@ notes run oldest first in their own block, and the September notes come last. Wh
 they say was true on their date; the entries above are the current record, and notes about items that are still open stay in the
 Overview.
 
+**November 14, 2026:** Fixed [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production)'s last item: each decoder
+layer's `tanh(gate)` goes from the trainer through `metrics_api_server` (snapshot, SQLite/PostgreSQL, JSONL) to both dashboards, so a
+stuck world-model or memory gate is visible during training. TD-341 moved here.
+
 **November 14, 2026:** Fixed [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp)'s last item: `incremental_trainer
 retrain` returns the trained units to the pending queue and claims the whole pool, so against `registry_server` every file comes over FTP
 (it used to read the trained ones by their registry paths). TD-411 moved here.
@@ -23842,7 +23928,7 @@ segments of one file download it N times concurrently into one path, and same-na
 (TD-337, verified); a same-name, same-size stale file is reused without checking the token checksum
 (TD-338, verified); and FTPS doesn't verify the registry's certificate (TD-339). TD-340 is LOW.
 
-Also October 11, 2026: filed [TD-341](../guides/TECHNICAL_DEBT.md#td-341-world-model-and-hippocampal-gates-never-train-in-production) through [TD-345](../guides/TECHNICAL_DEBT.md#td-345-decoderblock-persistence-gaps-for-gated-state) from the code-traced
+Also October 11, 2026: filed [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) through [TD-345](../guides/TECHNICAL_DEBT.md#td-345-decoderblock-persistence-gaps-for-gated-state) from the code-traced
 [DecoderBlock.md](../reference/source/DecoderBlock.md). One is **HIGH** (verified): the TD-180
 world-model/hippocampal gates aren't optimizer parameters and `ChatbotTrainer` only calls
 `optimizer->step()`, so the gates stay at 0 and the gated cross-attentions never learn. World-model
@@ -25579,7 +25665,7 @@ registry, both transports, `registry_server` and the trainer's call sites; do it
 same local-file handling and belong together (and with TD-333, since all three are about segments in
 distributed training). [TD-339](#td-339-ftps-downloads-dont-verify-the-registrys-certificate) pairs with TD-284's FTPS config fix. [TD-340](../guides/TECHNICAL_DEBT.md#td-340-datatransport-robustness-and-header-hygiene) is cleanup.
 
-**Tier 32 — Newly filed (October 11, 2026): `DecoderBlock`.** [TD-341](../guides/TECHNICAL_DEBT.md#td-341-world-model-and-hippocampal-gates-never-train-in-production) is HIGH and small: until it's
+**Tier 32 — Newly filed (October 11, 2026): `DecoderBlock`.** [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) is HIGH and small: until it's
 fixed, every world-model/hippocampal feature is inert in trained models. Do [TD-345](../guides/TECHNICAL_DEBT.md#td-345-decoderblock-persistence-gaps-for-gated-state)'s SafeTensors
 part with it, so trained gates survive checkpoints, and [TD-343](#td-343-hippocampal-memory-is-updated-on-every-forward-pass) before relying on hippocampal
 memory. [TD-342](#td-342-kv-cached-generation-and-the-gpu-path-skip-the-gated-paths) is the larger follow-up that makes the paths apply consistently across generation

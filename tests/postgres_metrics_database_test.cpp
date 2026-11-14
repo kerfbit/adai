@@ -467,6 +467,7 @@ TEST_F(PostgresMetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQue
     rec.attention_entropy = 2.1f;
     rec.padding_efficiency = 0.91f;
     rec.layer_gradient_norms_json = R"({"encoder":[0.5,0.4,0.3],"decoder":[0.6,0.5,0.4]})";
+    rec.gate_values_json = R"({"world_model":[0.25,null],"memory":[]})";  // TD-341
     db.insert_metrics_record("td013-test", rec);
 
     // Second record with no TD-013 diagnostics this call — must read back at "not computed"
@@ -488,6 +489,7 @@ TEST_F(PostgresMetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQue
     EXPECT_FLOAT_EQ(results[0].padding_efficiency, 0.91f);
     EXPECT_EQ(results[0].layer_gradient_norms_json,
              R"({"encoder":[0.5,0.4,0.3],"decoder":[0.6,0.5,0.4]})");
+    EXPECT_EQ(results[0].gate_values_json, R"({"world_model":[0.25,null],"memory":[]})");
 
     EXPECT_FLOAT_EQ(results[1].compute_time_ratio, 0.0f);
     EXPECT_FLOAT_EQ(results[1].weight_update_ratio, 0.0f);
@@ -495,6 +497,7 @@ TEST_F(PostgresMetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQue
     EXPECT_FLOAT_EQ(results[1].attention_entropy, -1.0f);
     EXPECT_FLOAT_EQ(results[1].padding_efficiency, -1.0f);
     EXPECT_TRUE(results[1].layer_gradient_norms_json.empty());
+    EXPECT_TRUE(results[1].gate_values_json.empty());
 }
 
 TEST_F(PostgresMetricsDatabaseTest, GradientVarianceHistoryInsertsUnthrottledPerCall) {

@@ -389,6 +389,7 @@ TEST_F(MetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQueryHistor
     rec.attention_entropy = 2.1f;
     rec.padding_efficiency = 0.91f;
     rec.layer_gradient_norms_json = R"({"encoder":[0.5,0.4,0.3],"decoder":[0.6,0.5,0.4]})";
+    rec.gate_values_json = R"({"world_model":[0.25,null],"memory":[]})";  // TD-341
     db.insert_metrics_record("td013-test", rec);
 
     // A second record with no TD-013 diagnostics reported this call (matches a
@@ -411,6 +412,7 @@ TEST_F(MetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQueryHistor
     EXPECT_FLOAT_EQ(results[0].padding_efficiency, 0.91f);
     EXPECT_EQ(results[0].layer_gradient_norms_json,
              R"({"encoder":[0.5,0.4,0.3],"decoder":[0.6,0.5,0.4]})");
+    EXPECT_EQ(results[0].gate_values_json, R"({"world_model":[0.25,null],"memory":[]})");
 
     EXPECT_FLOAT_EQ(results[1].compute_time_ratio, 0.0f);
     EXPECT_FLOAT_EQ(results[1].weight_update_ratio, 0.0f);
@@ -418,6 +420,7 @@ TEST_F(MetricsDatabaseTest, TD013DiagnosticsRoundTripThroughInsertAndQueryHistor
     EXPECT_FLOAT_EQ(results[1].attention_entropy, -1.0f);
     EXPECT_FLOAT_EQ(results[1].padding_efficiency, -1.0f);
     EXPECT_TRUE(results[1].layer_gradient_norms_json.empty());
+    EXPECT_TRUE(results[1].gate_values_json.empty());
 }
 
 // Regression test for the migration path: a database created before the
@@ -743,9 +746,12 @@ TEST_F(MetricsDatabaseTest, MigratesPreExistingDatabaseWithTD178ButMissingAdvanc
     rec.predictor_target_cosine_sim = 0.6f;
     rec.sigreg_variance_mean = 1.1f;
     rec.sigreg_variance_stddev = 0.05f;
+    rec.gate_values_json =
+        R"({"world_model":[0.1],"memory":[null]})";  // TD-341's column, migrated in
     db.insert_metrics_record("pre-advanced", rec);
     auto results2 = db.query_history("pre-advanced", std::nullopt, std::nullopt, 0);
     ASSERT_EQ(results2.size(), 2u);
+    EXPECT_EQ(results2[1].gate_values_json, R"({"world_model":[0.1],"memory":[null]})");
     EXPECT_FLOAT_EQ(results2[1].masking_ratio, 0.30f);
     EXPECT_FLOAT_EQ(results2[1].predictor_target_cosine_sim, 0.6f);
     EXPECT_FLOAT_EQ(results2[1].sigreg_variance_mean, 1.1f);

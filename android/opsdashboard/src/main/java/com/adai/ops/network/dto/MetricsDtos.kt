@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-14
 
 
 import kotlinx.serialization.Serializable
@@ -66,6 +66,10 @@ data class CurrentMetricsDto(
     val current_rougeL: Double = -1.0,
     val current_predictor_loss: Double = -1.0,
     val current_sigreg_loss: Double = -1.0,
+    // TD-341: each decoder layer's tanh(gate) for the gated world-model and hippocampal-memory paths,
+    // null where the layer has no such path or nothing is attached. Empty for a model without one.
+    val world_model_gates: List<Double?> = emptyList(),
+    val memory_gates: List<Double?> = emptyList(),
 )
 
 @Serializable

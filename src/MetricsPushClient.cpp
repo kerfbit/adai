@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-14
 
 #include "MetricsPushClient.hpp"
 #include <algorithm>
@@ -472,6 +472,21 @@ void MetricsPushClient::update_layer_gradient_norms(const std::vector<float>& en
     }
     json << "]}";
     enqueue({EventPriority::Epoch, "/metrics/layer-gradients", json.str()});
+}
+
+// TD-341: per-layer tanh(gate), sent directly like the layer gradient norms; a layer without the
+// path is NaN, which jnum() writes as null.
+void MetricsPushClient::update_gate_values(const std::vector<float>& world_model_gates,
+                                           const std::vector<float>& memory_gates) {
+    std::ostringstream json;
+    json << "{\"world_model_gates\":[";
+    for (size_t i = 0; i < world_model_gates.size(); ++i)
+        json << (i > 0 ? "," : "") << jnum(world_model_gates[i]);
+    json << "],\"memory_gates\":[";
+    for (size_t i = 0; i < memory_gates.size(); ++i)
+        json << (i > 0 ? "," : "") << jnum(memory_gates[i]);
+    json << "]}";
+    enqueue({EventPriority::Epoch, "/metrics/gate-values", json.str()});
 }
 
 void MetricsPushClient::update_padding_efficiency(float efficiency) {

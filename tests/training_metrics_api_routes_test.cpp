@@ -414,6 +414,38 @@ TEST_F(TrainingMetricsAPIRoutesTest, LayerGradientNormsRoundTripThroughPostAndGe
         << get_res->body;
 }
 
+// TD-341: per-layer gate values reach the current-metrics JSON (null where a layer has no gated
+// path, which is how the push client sends a NaN), and the epoch's record stores them.
+TEST_F(TrainingMetricsAPIRoutesTest, GateValuesRoundTripThroughPostAndGet) {
+    auto client = make_client();
+    ASSERT_TRUE(client.Post("/api/sessions/gates1/start",
+                            R"({"session_id":607,"total_epochs":2,"total_samples":100})",
+                            "application/json"));
+    auto post_res = client.Post("/api/sessions/gates1/metrics/gate-values",
+                                R"({"world_model_gates":[0.25,null],"memory_gates":[null,-0.5]})",
+                                "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200) << post_res->body;
+
+    auto get_res = client.Get("/api/sessions/gates1/metrics/current");
+    ASSERT_TRUE(get_res);
+    ASSERT_EQ(get_res->status, 200);
+    const auto j = nlohmann::json::parse(get_res->body, nullptr, false);
+    ASSERT_FALSE(j.is_discarded()) << get_res->body;
+    ASSERT_TRUE(j.contains("world_model_gates")) << get_res->body;
+    ASSERT_EQ(j["world_model_gates"].size(), 2u);
+    EXPECT_NEAR(j["world_model_gates"][0].get<double>(), 0.25, 1e-6);
+    EXPECT_TRUE(j["world_model_gates"][1].is_null());
+    ASSERT_EQ(j["memory_gates"].size(), 2u);
+    EXPECT_TRUE(j["memory_gates"][0].is_null());
+    EXPECT_NEAR(j["memory_gates"][1].get<double>(), -0.5, 1e-6);
+
+    auto bad = client.Post("/api/sessions/gates1/metrics/gate-values",
+                           R"({"world_model_gates":"open"})", "application/json");
+    ASSERT_TRUE(bad);
+    EXPECT_EQ(bad->status, 400) << "a field that isn't an array of numbers is refused";
+}
+
 TEST_F(TrainingMetricsAPIRoutesTest, LejepaMetricsRoundTripThroughEpochEndAndGet) {
     auto client = make_client();
 
@@ -952,6 +984,7 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
         pc.update_activation_saturation(0.1f);
         pc.update_attention_entropy(2.0f);
         pc.update_layer_gradient_norms({0.1f, 0.2f}, {0.3f});
+        pc.update_gate_values({0.1f}, {std::numeric_limits<float>::quiet_NaN()});  // TD-341
         pc.update_padding_efficiency(0.9f);
         pc.update_generation_quality_metrics(0.1f, 0.2f, 0.3f, 0.4f);
         pc.update_lejepa_metrics(0.5f, 0.01f);
@@ -993,7 +1026,7 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
     }
     // The recorder saw the lifecycle and the per-event endpoints, not just a few of them.
     for (const char* e : {"/start", "/epoch/start", "/metrics/sample", "/metrics/abnormal",
-                          "/metrics/sample-quality", "/end"})
+                          "/metrics/sample-quality", "/metrics/gate-values", "/end"})
         EXPECT_EQ(endpoints.count(e), 1u) << e << " was never posted";
 }
 
@@ -1381,6 +1414,7 @@ TEST(TrainingMetricsServiceJsonl, LinesAreValidJsonWithEveryField) {
         service.update_padding_efficiency(0.75f);
         service.update_lejepa_metrics(0.5f, -0.01f);
         service.update_layer_gradient_norms({1.0f, std::numeric_limits<float>::quiet_NaN()}, {2.0f});
+        service.update_gate_values({0.5f, std::numeric_limits<float>::quiet_NaN()}, {});  // TD-341
         service.update_sample_metrics(1, std::numeric_limits<float>::quiet_NaN(), 1.0f, 1e-7f);
         service.update_sample_metrics(2, 2.5f, 1.0f, 1e-7f);
         service.end_epoch(1, 2.5f, 2.6f, 1e-7f);  // the epoch record carries the epoch-level fields
@@ -1406,6 +1440,11 @@ TEST(TrainingMetricsServiceJsonl, LinesAreValidJsonWithEveryField) {
             EXPECT_FLOAT_EQ(j["padding_efficiency"].get<float>(), 0.75f) << line;
             EXPECT_FLOAT_EQ(j["predictor_loss"].get<float>(), 0.5f) << line;
             EXPECT_TRUE(j["layer_gradient_norms"]["encoder"][1].is_null()) << line;
+            // TD-341: the epoch record carries the gate values, null for a layer without the path.
+            ASSERT_TRUE(j.contains("gate_values")) << line;
+            EXPECT_FLOAT_EQ(j["gate_values"]["world_model"][0].get<float>(), 0.5f) << line;
+            EXPECT_TRUE(j["gate_values"]["world_model"][1].is_null()) << line;
+            EXPECT_TRUE(j["gate_values"]["memory"].empty()) << line;
         }
     }
     EXPECT_GE(lines, 3);

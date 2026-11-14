@@ -1,13 +1,13 @@
 # `TrainingMetricsAPI` — Source File Reference
 
-- **Files:** [`src/TrainingMetricsAPI.hpp`](../../../../src/TrainingMetricsAPI.hpp) (185 lines), [`src/TrainingMetricsAPI.cpp`](../../../../src/TrainingMetricsAPI.cpp) (2,760 lines)
+- **Files:** [`src/TrainingMetricsAPI.hpp`](../../../../src/TrainingMetricsAPI.hpp) (222 lines), [`src/TrainingMetricsAPI.cpp`](../../../../src/TrainingMetricsAPI.cpp) (2,884 lines)
 - **Namespace:** global
 - **Built into:** `adai_metrics_api`; served by `metrics_api_server` (port 8081, `0.0.0.0`; see [MetricsApiServerArgs.md](MetricsApiServerArgs.md)). Public through `metrics.kerfbit.dev` behind Cloudflare Access
 - **Clients:** [`MetricsPushClient`](MetricsPushClient.md) (trainer pushes), the Android ops dashboard, the Tizen watch app, Prometheus scrapes
 - **Endpoint reference (user-facing, kept):** [TRAINING_METRICS_API.md](../../TRAINING_METRICS_API.md)
-- **Status tag:** `@adai-status: beta` ("capped by TD-039 — large, actively evolving"), `@adai-version: 0.9.1`, `@adai-reviewed: 2026-09-23`
-- **Tests:** [`tests/training_metrics_api_routes_test.cpp`](../../../../tests/training_metrics_api_routes_test.cpp) (18, `trainingMetricsApiRoutesTests`), [`tests/training_metrics_api_live_test.cpp`](../../../../tests/training_metrics_api_live_test.cpp) (44, `trainingMetricsApiLiveTests`, against a running server); all pass
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: beta` ("capped by TD-039 — large, actively evolving"), `@adai-version: 0.18.0` (hpp) / `0.19.0` (cpp), `@adai-reviewed: 2026-11-14`
+- **Tests:** [`tests/training_metrics_api_routes_test.cpp`](../../../../tests/training_metrics_api_routes_test.cpp) (47, `trainingMetricsApiRoutesTests`), [`tests/training_metrics_api_live_test.cpp`](../../../../tests/training_metrics_api_live_test.cpp) (44, `trainingMetricsApiLiveTests`, against a running server); all pass
+- **Last traced against the code:** 2026-10-17, with the addenda below
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against the real `metrics_api_server` binary with `curl`.
 
@@ -195,3 +195,9 @@ was changed`), and the live settings stay as they were.
 - `GET …/metrics/sample-quality` returns the service's reports; `GET …/metrics/db-sample-quality[?limit=N]` the database's. Both are
   written with nlohmann/json, so a non-finite statistic is `null`.
 - `EveryPushClientEndpointHasAPostRoute` now drives `report_sample_quality()` too.
+
+## Addendum (November 14, 2026): POST …/metrics/gate-values (TD-341)
+
+`handle_post_gate_values()` parses `world_model_gates` and `memory_gates` with `PushBody::get_float_array()` (`null` elements become
+NaN, anything else that isn't a number is a 400 naming the field) and passes them to `TrainingMetricsService::update_gate_values()`.
+Tests: `GateValuesRoundTripThroughPostAndGet`, and `EveryPushClientEndpointHasAPostRoute` now pushes gate values too.

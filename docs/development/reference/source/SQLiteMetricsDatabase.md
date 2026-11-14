@@ -1,12 +1,12 @@
 # `SQLiteMetricsDatabase` — Source File Reference
 
-- **Files:** [`src/SQLiteMetricsDatabase.hpp`](../../../../src/SQLiteMetricsDatabase.hpp) (64 lines), [`src/SQLiteMetricsDatabase.cpp`](../../../../src/SQLiteMetricsDatabase.cpp) (875 lines; also defines `MetricsDatabaseFactory::create()`)
+- **Files:** [`src/SQLiteMetricsDatabase.hpp`](../../../../src/SQLiteMetricsDatabase.hpp) (94 lines), [`src/SQLiteMetricsDatabase.cpp`](../../../../src/SQLiteMetricsDatabase.cpp) (1,107 lines; also defines `MetricsDatabaseFactory::create()`)
 - **Namespace:** global
 - **Built into:** `adai_core`; the default store of `metrics_api_server` (`--storage-backend sqlite`, `training_sessions/metrics.db` unless `--db-path`)
 - **Implements:** [IMetricsDatabase](MetricsDatabase.md) (the shared contract, retention and query gaps are documented there)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0` (hpp) / `1.0.2` (cpp), `@adai-reviewed: 2026-09-10` / `2026-09-23`
-- **Tests:** [`tests/MetricsDatabaseTest.cpp`](../../../../tests/MetricsDatabaseTest.cpp) (30 tests, `metricsDatabaseTests`; all pass)
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0` (hpp) / `1.6.0` (cpp), `@adai-reviewed: 2026-11-04` / `2026-11-14`
+- **Tests:** [`tests/MetricsDatabaseTest.cpp`](../../../../tests/MetricsDatabaseTest.cpp) (49 tests, `metricsDatabaseTests`; all pass)
+- **Last traced against the code:** 2026-10-17, with the addenda below
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real class on a scratch database.
 
@@ -122,3 +122,10 @@ Tests: `CreatesMissingParentDirectory`, `WriteWaitsForAnotherConnectionsTransact
 
 Implements `insert_sample_quality()`/`query_sample_quality()` on a new `sample_quality` table, included in `archive_session()` and
 retention; see [MetricsDatabase.md](MetricsDatabase.md)'s addendum. A NaN statistic reads back as NaN.
+
+## Addendum (November 14, 2026): `gate_values_json` column (TD-341)
+
+`metrics_history` gains `gate_values_json TEXT` (last column; bound as `?22`, read back as column 20, NULL when the record has no
+gate values). An existing database gets it from the migration table (`TD-341 gate values column`, probed by the column itself).
+Tests: `TD013DiagnosticsRoundTripThroughInsertAndQueryHistory` (round trip and NULL) and the pre-LeJEPA-advanced migration test, which
+now writes and reads the column on a migrated database.

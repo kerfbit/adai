@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-477, TD-480; opt-in, not built by default — see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-14
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -243,7 +243,8 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
             masking_ratio               REAL,
             predictor_target_cosine_sim REAL,
             sigreg_variance_mean        REAL,
-            sigreg_variance_stddev      REAL
+            sigreg_variance_stddev      REAL,
+            gate_values_json            TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -366,6 +367,11 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
     res = PQexec(conn,
                  "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
                  "layer_gradient_norms_json TEXT;");
+    PQclear(res);
+
+    // Migration: TD-341 gate values.
+    res =
+        PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS gate_values_json TEXT;");
     PQclear(res);
 
     // Migration: TD-178 LeJEPA loss columns.
@@ -629,13 +635,15 @@ static bool pg_insert_metrics_row(PGconn* conn, const std::string& session_key,
     const char* lg_json = rec.layer_gradient_norms_json.empty()
                               ? nullptr
                               : rec.layer_gradient_norms_json.c_str();
+    const char* gv_json =
+        rec.gate_values_json.empty() ? nullptr : rec.gate_values_json.c_str();  // TD-341
 
-    const char* params[] = {
-        session_key.c_str(), ts.c_str(),    epoch.c_str(),   sample.c_str(),  loss.c_str(),
-        vloss.c_str(),       lr.c_str(),    gnorm.c_str(),   ppl.c_str(),     ctr.c_str(),
-        wur.c_str(),         asr.c_str(),   aent.c_str(),    peff.c_str(),    lg_json,
-        ploss.c_str(),       sloss.c_str(), mratio.c_str(), pcossim.c_str(), svmean.c_str(),
-        svstddev.c_str()};
+    const char* params[] = {session_key.c_str(), ts.c_str(),     epoch.c_str(),   sample.c_str(),
+                            loss.c_str(),        vloss.c_str(),  lr.c_str(),      gnorm.c_str(),
+                            ppl.c_str(),         ctr.c_str(),    wur.c_str(),     asr.c_str(),
+                            aent.c_str(),        peff.c_str(),   lg_json,         ploss.c_str(),
+                            sloss.c_str(),       mratio.c_str(), pcossim.c_str(), svmean.c_str(),
+                            svstddev.c_str(),    gv_json};
 
     PGresult* res = PQexecParams(
         conn,
@@ -644,10 +652,10 @@ static bool pg_insert_metrics_row(PGconn* conn, const std::string& session_key,
         "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
         "attention_entropy, padding_efficiency, layer_gradient_norms_json, "
         "predictor_loss, sigreg_loss, masking_ratio, predictor_target_cosine_sim, "
-        "sigreg_variance_mean, sigreg_variance_stddev) "
+        "sigreg_variance_mean, sigreg_variance_stddev, gate_values_json) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, "
-        "$18, $19, $20, $21)",
-        21, nullptr, params, nullptr, nullptr, 0);
+        "$18, $19, $20, $21, $22)",
+        22, nullptr, params, nullptr, nullptr, 0);
 
     bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
     if (!ok)
@@ -852,7 +860,7 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
             "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss, "
             "masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean, "
-            "sigreg_variance_stddev "
+            "sigreg_variance_stddev, gate_values_json "
             "FROM metrics_history WHERE session_key = $1";
 
         std::vector<std::string> param_strs;
@@ -928,6 +936,9 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             rec.predictor_target_cosine_sim = opt_float(i, 17, -1.0f);
             rec.sigreg_variance_mean = opt_float(i, 18, -1.0f);
             rec.sigreg_variance_stddev = opt_float(i, 19, -1.0f);
+            if (!PQgetisnull(res, i, 20)) {
+                rec.gate_values_json = PQgetvalue(res, i, 20);  // TD-341
+            }
             results.push_back(rec);
         }
 

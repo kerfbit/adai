@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-14
 
 #include <atomic>
 #include <chrono>
@@ -275,6 +275,8 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_adaptive_clip_epoch(float avg_clip_threshold, int total_spike_count) override;
     void update_activation_saturation(float ratio) override;
     void update_attention_entropy(float entropy) override;
+    void update_gate_values(const std::vector<float>& world_model_gates,
+                            const std::vector<float>& memory_gates) override;  // TD-341
     void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
                                      const std::vector<float>& decoder_layer_norms) override;
     void update_padding_efficiency(float efficiency) override;

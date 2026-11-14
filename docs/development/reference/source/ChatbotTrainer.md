@@ -1,9 +1,9 @@
 # `ChatbotTrainer` — Source File Reference
 
-- **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp) (709 lines), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp) (2,627 lines)
+- **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp) (709 lines), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp) (2,641 lines)
 - **Built into:** compiled directly into `incremental_trainer`, `training_metrics_example` and `chatbottrainerTests`; it isn't part of a static library
-- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.23.0` (2026-11-13)
-- **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (99; `friend class ChatbotTrainerCacheTest` for the cache and internals); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md)
+- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.24.0` (2026-11-14)
+- **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (100; `friend class ChatbotTrainerCacheTest` for the cache and internals); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md)
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (its only production caller), [GPUOptimizer.md](GPUOptimizer.md), [PassHeartbeat.md](PassHeartbeat.md)
 - **Last traced against the code:** 2026-11-13
 
@@ -153,7 +153,10 @@ so a failure is attributed to it. Off by default, when it only records.
 
 At epoch end: no update at all throws `EpochTrainedNothingError` (unless aborted, TD-566); otherwise the average loss and gradient norm over the
 updates, perplexity, the history vectors, and the advanced metrics, saturation, entropy, per-layer gradient norms (LayerNorms included, TD-356),
-padding efficiency and adaptive-clip averages.
+padding efficiency and adaptive-clip averages. For a model with gated paths it logs each decoder layer's `tanh(gate)` for the world-model
+and hippocampal-memory paths (TD-341), a path only when its world model or memory is attached (a world-model-injected block allocates both
+paths, and an unattached one's gate means nothing), and sends the same values to the reporter, `update_gate_values()`, NaN where a layer
+has no attached path, before the epoch ends.
 
 ---
 
@@ -214,5 +217,7 @@ fails with the check moved back.
 - **November 8, 2026:** dropout (TD-344), turn tokens and history (TD-295).
 - **November 10, 2026:** a lost GPU stops the pass (TD-566).
 - **November 13, 2026:** TD-574's engine-reset diagnostics (§7).
+- **November 14, 2026:** gate values to the reporter, and only attached paths logged (TD-341, §7); test
+  `ReportsTheGateValuesOncePerEpochForAGatedModel`.
 - **November 11, 2026:** progress notes (TD-569); the early-stop check after the epoch callback (TD-571). This document was re-traced against the code, replacing its October sections and folding in
   its addenda.

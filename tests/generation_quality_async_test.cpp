@@ -53,6 +53,7 @@ class RecordingMetricsReporter final : public IMetricsReporter {
     void update_attention_entropy(float) override {}
     void update_layer_gradient_norms(const std::vector<float>&,
                                      const std::vector<float>&) override {}
+    void update_gate_values(const std::vector<float>&, const std::vector<float>&) override {}
     void update_padding_efficiency(float) override {}
     void update_generation_quality_metrics(float bleu4, float, float, float, float = -1.0f,
                                            float = -1.0f) override {

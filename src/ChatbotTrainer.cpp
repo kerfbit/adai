@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-11-14
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -1658,24 +1658,38 @@ float ChatbotTrainer::train_epoch(int epoch) {
                               " - Tokens: " + std::to_string(epoch_tokens));
 
     // TD-341: per-layer tanh(gate) of the gated world-model/hippocampal paths, so a gate that
-    // isn't learning (stuck at 0, its path a no-op) shows in the log. Logged only when a path
-    // exists.
+    // isn't learning (stuck at 0, its path a no-op) shows in the log. Logged only for a path that
+    // exists and has its world model or memory attached.
+    // Since November 14, 2026 the same values also go to the metrics reporter, one entry per
+    // decoder layer, NaN where the layer has no such path or nothing is attached to it (a
+    // world-model-injected block allocates both paths, and an unattached path's gate stays 0
+    // without meaning anything), so the dashboards show them.
     if (LLMDecoder* decoder = model->get_decoder()) {
         std::ostringstream gates;
-        for (int l = 0; l < decoder->get_num_layers(); ++l) {
+        const int layers = decoder->get_num_layers();
+        const bool world_attached = model->get_world_model() != nullptr;
+        const bool memory_attached = model->get_hippocampal_memory() != nullptr;
+        std::vector<float> world_gates(static_cast<size_t>(layers), std::nanf(""));
+        std::vector<float> memory_gates(static_cast<size_t>(layers), std::nanf(""));
+        for (int l = 0; l < layers; ++l) {
             DecoderBlock* block = decoder->get_decoder_block(l);
             if (!block) {
                 continue;
             }
-            if (block->get_world_model_cross_attention()) {
-                gates << " L" << l << " world=" << std::tanh(block->current_gate());
+            if (world_attached && block->get_world_model_cross_attention()) {
+                world_gates[l] = std::tanh(block->current_gate());
+                gates << " L" << l << " world=" << world_gates[l];
             }
-            if (block->get_hippocampal_cross_attention()) {
-                gates << " L" << l << " memory=" << std::tanh(block->current_gate_h());
+            if (memory_attached && block->get_hippocampal_cross_attention()) {
+                memory_gates[l] = std::tanh(block->current_gate_h());
+                gates << " L" << l << " memory=" << memory_gates[l];
             }
         }
         if (!gates.str().empty()) {
             adai::Logger::info("Epoch {} gates tanh(gate):{}", epoch + 1, gates.str());
+            if (metrics_reporter_) {
+                metrics_reporter_->update_gate_values(world_gates, memory_gates);
+            }
         }
     }
 

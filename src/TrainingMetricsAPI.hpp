@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-11-14
 
 #include <atomic>
 #include <memory>
@@ -183,6 +183,8 @@ class TrainingMetricsAPI {
     std::string handle_post_abnormal_sample(const std::string& session_key, const std::string& body);
     std::string handle_post_advanced_metrics(const std::string& session_key,
                                              const std::string& body);
+    std::string handle_post_gate_values(const std::string& session_key,
+                                        const std::string& body);  // TD-341
     std::string handle_post_layer_gradient_norms(const std::string& session_key,
                                                  const std::string& body);
     std::string handle_post_generation_quality_metrics(const std::string& session_key,

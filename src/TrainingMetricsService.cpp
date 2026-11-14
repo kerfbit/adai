@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-14
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
@@ -344,6 +344,18 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
             lg << "]}";
             record.layer_gradient_norms_json = lg.str();
         }
+        if (!current_snapshot_.world_model_gates.empty() ||
+            !current_snapshot_.memory_gates.empty()) {  // TD-341
+            std::ostringstream gv;
+            gv << "{\"world_model\":[";
+            for (size_t i = 0; i < current_snapshot_.world_model_gates.size(); ++i)
+                gv << (i > 0 ? "," : "") << JsonlFloat{current_snapshot_.world_model_gates[i]};
+            gv << "],\"memory\":[";
+            for (size_t i = 0; i < current_snapshot_.memory_gates.size(); ++i)
+                gv << (i > 0 ? "," : "") << JsonlFloat{current_snapshot_.memory_gates[i]};
+            gv << "]}";
+            record.gate_values_json = gv.str();
+        }
         add_record(record);
 
         // Persist if needed
@@ -625,6 +637,15 @@ std::string TrainingMetricsService::to_json() const {
             oss << ",";
         oss << snapshot.decoder_layer_grad_norms[i];
     }
+    oss << "],\n";
+    // TD-341: per-layer tanh(gate), null where a layer has no such path.
+    oss << "  \"world_model_gates\": [";
+    for (size_t i = 0; i < snapshot.world_model_gates.size(); ++i)
+        oss << (i > 0 ? "," : "") << JsonlFloat{snapshot.world_model_gates[i]};
+    oss << "],\n";
+    oss << "  \"memory_gates\": [";
+    for (size_t i = 0; i < snapshot.memory_gates.size(); ++i)
+        oss << (i > 0 ? "," : "") << JsonlFloat{snapshot.memory_gates[i]};
     oss << "],\n";
     oss << "  \"current_bleu4\": " << snapshot.current_bleu4 << ",\n";
     oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
@@ -941,6 +962,8 @@ void TrainingMetricsService::persist_metrics() {
             file << "\"sigreg_variance_stddev\":" << JsonlFloat{r.sigreg_variance_stddev};
             if (!r.layer_gradient_norms_json.empty())
                 file << ",\"layer_gradient_norms\":" << r.layer_gradient_norms_json;
+            if (!r.gate_values_json.empty())  // TD-341
+                file << ",\"gate_values\":" << r.gate_values_json;
             file << "}\n";
         }
 
@@ -1553,6 +1576,15 @@ void TrainingMetricsService::update_layer_gradient_norms(
     current_snapshot_.decoder_layer_grad_norms = decoder_layer_norms;
     adai::Logger::debug("Per-layer gradient norms: {} encoder, {} decoder layers reported",
                         encoder_layer_norms.size(), decoder_layer_norms.size());
+}
+
+void TrainingMetricsService::update_gate_values(const std::vector<float>& world_model_gates,
+                                                const std::vector<float>& memory_gates) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.world_model_gates = world_model_gates;
+    current_snapshot_.memory_gates = memory_gates;
+    adai::Logger::debug("Gate values: {} world-model, {} memory entries reported",
+                        world_model_gates.size(), memory_gates.size());
 }
 
 // ── TD-017: Adaptive gradient clipping metrics ────────────────────────────────

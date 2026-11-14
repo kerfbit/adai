@@ -7,8 +7,8 @@
    ============================================================ */
 
 // @adai-status: beta        (capped by TD-559; tests/tizen covers its helpers, not the dashboard-update, polling or settings UI — see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-14
 
 (function(window) {
     'use strict';
@@ -91,6 +91,7 @@
         weightUpdateValue:  $('weight-update-value'),
         saturationValue:    $('activation-saturation-value'),
         attnEntropyValue:   $('attention-entropy-value'),
+        gateValuesValue:    $('gate-values-value'),  /* TD-341 */
         paddingEffValue:    $('padding-efficiency-value'),
 
         /* Adaptive gradient clipping (TD-017) */
@@ -151,6 +152,21 @@
         if (val === null || val === undefined || isNaN(val)) return '—';
         if (typeof val === 'number') return val.toFixed(decimals !== undefined ? decimals : 4);
         return String(val);
+    }
+
+    /* TD-341: each decoder layer's tanh(gate) as "L0 0.25/— L1 —/-0.50" (world/memory, a path the layer
+       lacks as —), or — when no layer has a gated path. Uses fmt(). */
+    function gateSummary(world, memory) {
+        world = world || [];
+        memory = memory || [];
+        var parts = [];
+        var layers = Math.max(world.length, memory.length);
+        for (var l = 0; l < layers; l++) {
+            var w = world[l], m = memory[l];
+            if ((w === null || w === undefined) && (m === null || m === undefined)) continue;
+            parts.push('L' + l + ' ' + fmt(w, 2) + '/' + fmt(m, 2));
+        }
+        return parts.length ? parts.join(' ') : '—';
     }
 
     function fmtInt(val) {
@@ -478,6 +494,9 @@
             else if (ent >= 0.1) UI.attnEntropyValue.classList.add('val-warn');
             else                 UI.attnEntropyValue.classList.add('val-error');
         }
+
+        /* --- Gates (TD-341): a gate near 0 means its path isn't learning --- */
+        setText(UI.gateValuesValue, gateSummary(current.world_model_gates, current.memory_gates));
 
         /* --- Batch Padding Efficiency --- */
         var padEff = current.current_padding_efficiency;

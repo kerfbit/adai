@@ -9,7 +9,9 @@
 #include <numeric>
 #include <set>
 #include <sstream>
+#include "../src/DecoderBlock.hpp"
 #include "../src/IMetricsReporter.hpp"
+#include "../src/LeJEPAEncoder.hpp"
 #include "../src/Logger.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
@@ -766,6 +768,12 @@ class EpochRecordingReporter final : public IMetricsReporter {
     std::vector<int> started;
     std::vector<Ended> ended;
     std::vector<SampleQualityReport> quality;  // TD-273
+    // TD-341: each update_gate_values() call, and how many epochs had ended before it.
+    struct Gates {
+        std::vector<float> world, memory;
+        size_t ended_before;
+    };
+    std::vector<Gates> gates;
 
     void start_epoch(int epoch, int /*total_samples*/) override { started.push_back(epoch); }
     void end_epoch(int epoch, float loss, float validation_loss, float learning_rate, float perplexity,
@@ -783,6 +791,10 @@ class EpochRecordingReporter final : public IMetricsReporter {
     void update_activation_saturation(float) override {}
     void update_attention_entropy(float) override {}
     void update_layer_gradient_norms(const std::vector<float>&, const std::vector<float>&) override {}
+    void update_gate_values(const std::vector<float>& world,
+                            const std::vector<float>& memory) override {
+        gates.push_back({world, memory, ended.size()});
+    }
     void update_padding_efficiency(float) override {}
     void update_generation_quality_metrics(float, float, float, float, float, float) override {}
     void update_lejepa_metrics(float, float) override {}
@@ -791,6 +803,70 @@ class EpochRecordingReporter final : public IMetricsReporter {
         quality.push_back(report);
     }
 };
+
+// TD-341: a model with a gated world-model path reports each decoder layer's tanh(gate) once per
+// epoch, before the epoch ends, so the metrics server stores it with that epoch; a model without
+// one reports nothing. The values were only in the trainer log.
+TEST_F(MetricsTrackerWiringTest, ReportsTheGateValuesOncePerEpochForAGatedModel) {
+    const std::vector<std::string> corpus = {"hello world",   "how are you",  "I am fine",
+                                             "thank you",     "good morning", "good evening",
+                                             "see you later", "goodbye"};
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n"
+             "{\"input\":\"good morning\",\"response\":\"good evening\"}\n";
+    }
+    TrainingConfig config = tiny_config();
+    config.d_model = 32;
+    config.num_decoder_layers = 2;
+    {
+        ChatbotTrainer plain(config);
+        EpochRecordingReporter reporter;
+        plain.set_metrics_reporter(&reporter);
+        ASSERT_TRUE(plain.build_vocabulary(corpus, 100, vocab_path_.string()));
+        ASSERT_TRUE(plain.load_conversation_data(data_path_.string()));
+        ASSERT_TRUE(plain.train(2));
+        EXPECT_TRUE(reporter.gates.empty()) << "a model without gated paths reports no gate values";
+    }
+
+    // Two decoder layers, the world model injected into every one.
+    auto model = std::make_unique<EncoderDecoderModel>(100, config.d_model, 1, 2, config.num_heads,
+                                                       config.d_ff, config.max_seq_length,
+                                                       /*world_model_inject_every_n_layers=*/1);
+    model->get_tokenizer()->build_vocab(corpus, 100);
+    auto world_model =
+        std::make_unique<LeJEPAEncoder>(100, config.d_model, 1, config.num_heads, 64);
+    world_model->build_tokenizer(corpus, 100);
+    model->set_world_model(std::move(world_model));
+
+    ChatbotTrainer trainer(config);
+    EpochRecordingReporter reporter;
+    trainer.set_metrics_reporter(&reporter);
+    trainer.set_model(std::move(model));
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+    ASSERT_TRUE(trainer.train(2));
+
+    ASSERT_EQ(reporter.gates.size(), 2u) << "once per epoch";
+    for (size_t e = 0; e < reporter.gates.size(); ++e) {
+        const auto& g = reporter.gates[e];
+        EXPECT_EQ(g.ended_before, e) << "reported before epoch " << e + 1 << " ends";
+        ASSERT_EQ(g.world.size(), 2u);
+        ASSERT_EQ(g.memory.size(), 2u);
+        for (int l = 0; l < 2; ++l) {
+            EXPECT_TRUE(std::isfinite(g.world[l])) << "layer " << l << " has the world-model path";
+            EXPECT_LE(std::fabs(g.world[l]), 1.0f) << "tanh(gate)";
+            EXPECT_TRUE(std::isnan(g.memory[l])) << "no hippocampal memory is attached";
+        }
+    }
+    const std::unique_ptr<EncoderDecoderModel> trained = trainer.release_model();
+    LLMDecoder* decoder = trained->get_decoder();
+    for (int l = 0; l < 2; ++l) {
+        EXPECT_FLOAT_EQ(reporter.gates.back().world[l],
+                        std::tanh(decoder->get_decoder_block(l)->current_gate()))
+            << "the last report is the trained gate";
+    }
+}
 
 // TD-344: train() applies DROPOUT while it trains and leaves the model without it, so the saved or
 // reused model never drops; a rate outside [0, 1) is refused.
@@ -1116,6 +1192,7 @@ TEST_F(MetricsTrackerWiringTest, ValidationReportsTokenAccuracy) {
         void update_attention_entropy(float) override {}
         void update_layer_gradient_norms(const std::vector<float>&,
                                          const std::vector<float>&) override {}
+        void update_gate_values(const std::vector<float>&, const std::vector<float>&) override {}
         void update_padding_efficiency(float) override {}
         void update_generation_quality_metrics(float, float, float, float, float, float) override {}
         void update_lejepa_metrics(float, float) override {}

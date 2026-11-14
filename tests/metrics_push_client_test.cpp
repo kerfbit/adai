@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -8,12 +9,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <set>
+#include <limits>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
-#include <unistd.h>
 #include "MetricsPushClient.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -556,6 +557,35 @@ TEST(MetricsPushClientLayerGradientNorms, SendsBothArraysAsJson) {
         << captured_body;
     EXPECT_NE(captured_body.find("\"decoder_layer_grad_norms\":[0.6,0.5]"), std::string::npos)
         << captured_body;
+}
+
+// TD-341: per-layer gate values go to /metrics/gate-values, a layer without the path (NaN) as null.
+TEST(MetricsPushClientGateValues, SendsBothArraysWithNullForAMissingPath) {
+    httplib::Server svr;
+    std::string captured_body;
+    std::mutex body_mtx;
+
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        if (req.path.find("/metrics/gate-values") != std::string::npos) {
+            std::lock_guard<std::mutex> lk(body_mtx);
+            captured_body = req.body;
+        }
+        res.status = 200;
+    });
+
+    int port = 0;
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    client.update_gate_values({0.25f, nan}, {nan, -0.5f});
+    client.end_session();
+
+    svr.stop();
+    svr_thread.join();
+
+    std::lock_guard<std::mutex> lk(body_mtx);
+    EXPECT_EQ(captured_body, "{\"world_model_gates\":[0.25,null],\"memory_gates\":[null,-0.5]}");
 }
 
 #endif  // BUILD_METRICS_API_SERVER

@@ -1,13 +1,13 @@
 # `PostgresMetricsDatabase` — Source File Reference
 
-- **Files:** [`src/PostgresMetricsDatabase.hpp`](../../../../src/PostgresMetricsDatabase.hpp), [`src/PostgresMetricsDatabase.cpp`](../../../../src/PostgresMetricsDatabase.cpp) (1,015 lines together)
+- **Files:** [`src/PostgresMetricsDatabase.hpp`](../../../../src/PostgresMetricsDatabase.hpp), [`src/PostgresMetricsDatabase.cpp`](../../../../src/PostgresMetricsDatabase.cpp) (1,424 lines together)
 - **Namespace:** global (`PostgresMetricsDatabase`, `create_postgres_metrics_database()`)
 - **Built into:** `adai_core`, only with `-DENABLE_POSTGRES_METRICS=ON` (defines `ADAI_ENABLE_POSTGRES`, links libpq); **not built by default**. Selected by `metrics_api_server --storage-backend postgres`
 - **Implements:** [IMetricsDatabase](MetricsDatabase.md)
-- **Status tag:** `@adai-status: beta` ("TD-042 resolved — real test coverage added; still not built by default"), `@adai-version: 0.4.2`, `@adai-reviewed: 2026-09-23`
-- **Tests:** [`tests/postgres_metrics_database_test.cpp`](../../../../tests/postgres_metrics_database_test.cpp) (18 tests against a scratch `initdb`/`pg_ctl` cluster; **all 18 pass** here with PostgreSQL 16)
+- **Status tag:** `@adai-status: beta` (capped by TD-477, TD-480; opt-in, not built by default), `@adai-version: 0.8.0` (hpp) / `0.9.0` (cpp), `@adai-reviewed: 2026-11-10` / `2026-11-14`
+- **Tests:** [`tests/postgres_metrics_database_test.cpp`](../../../../tests/postgres_metrics_database_test.cpp) (23 tests against a scratch `initdb`/`pg_ctl` cluster; **all 23 pass** here with PostgreSQL 16, `build/debug-postgres`)
 - **Schema:** also in [`scripts/setup_postgres.sql`](../../../../scripts/setup_postgres.sql)
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-17, with the addenda below
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against a real PostgreSQL 16 cluster, through the real
 > `TrainingMetricsService` write path.
@@ -103,3 +103,9 @@ gap above.
 
 Implements `insert_sample_quality()`/`query_sample_quality()` on a new `sample_quality` table, included in `archive_session()` and
 retention; see [MetricsDatabase.md](MetricsDatabase.md)'s addendum. A NaN statistic reads back as NaN.
+
+## Addendum (November 14, 2026): `gate_values_json` column (TD-341)
+
+`metrics_history` gains `gate_values_json TEXT`, added to an existing database by `ADD COLUMN IF NOT EXISTS` in the startup
+migration; the insert sends it as `$22` (SQL NULL when empty) and `query_history()` reads it as column 20. Test: the TD-013
+round-trip test now also checks the gate values (23 pass against PostgreSQL 16).

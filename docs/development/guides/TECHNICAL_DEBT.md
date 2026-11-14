@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 14, 2026
-**Active Items:** 102 (8 high, 22 medium, 72 low)
+**Active Items:** 101 (7 high, 22 medium, 72 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 472 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 473 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 102 open items:
+**Where things stand.** Of the 101 open items:
 - **24 wait on something outside a coding session:** 11 on a run on ai-machine (the GPU test package built from `86181ca5` covers
   TD-574, TD-050, TD-033 and TD-301; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **78 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **77 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -158,7 +158,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (102 since TD-411 moved), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (101 since TD-411 and TD-341 moved), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -208,7 +208,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) (HIGH): report each layer's `tanh(gate)` as a metrics series, so a stuck gate is visible on the dashboards.
 - [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) (MEDIUM): show the run's `global_step` in the MNS record.
 - [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): re-queue in the Android ops dashboard's Registry tab (CLI parity).
 - Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
@@ -311,7 +310,6 @@ as TD-426 and TD-467 were:
   - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
   - [TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data](#td-335-datasetregistry-dead-code-and-unused-integrity-data)
   - [TD-340: `DataTransport` Robustness and Header Hygiene](#td-340-datatransport-robustness-and-header-hygiene)
-  - [TD-341: World-Model and Hippocampal Gates Never Train in Production](#td-341-world-model-and-hippocampal-gates-never-train-in-production)
   - [TD-345: `DecoderBlock` Persistence Gaps for Gated State](#td-345-decoderblock-persistence-gaps-for-gated-state)
   - [TD-348: `LLMDecoder` Dead Code and Robustness Gaps](#td-348-llmdecoder-dead-code-and-robustness-gaps)
   - [TD-351: `DocumentStore` Embedding and Housekeeping Gaps](#td-351-documentstore-embedding-and-housekeeping-gaps)
@@ -2795,72 +2793,6 @@ Files to Modify:
 
 - `src/DataTransport.hpp`
 - `src/IncrementalTrainingTool.cpp`
-
----
-
-### TD-341: World-Model and Hippocampal Gates Never Train in Production
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| **HIGH** | Open — code fix landed October 20, 2026 | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
-
-Description:
-Found while writing the code-traced reference [DecoderBlock.md](../reference/source/DecoderBlock.md) and confirmed by running the real class.
-`DecoderBlock`'s TD-180 gates (`gate`, `gate_h`) are plain floats updated only by plain SGD inside
-`DecoderBlock::update_weights()`; `register_parameters_with_optimizer()` doesn't register them
-(`Optimizer` takes only `Matrix` groups). `ChatbotTrainer` never calls `update_weights()`: it
-registers the model with one optimizer and calls `optimizer->step()` directly (which is also how it
-avoids TD-297). So **nothing ever updates the gates**.
-
-A block with the world-model path enabled, trained 50 steps the way `ChatbotTrainer` does, ended at
-`gate = 0.000000` (gradients up to 34 were computed, then zeroed). With `tanh(gate) = 0` the gated
-cross-attention's own gradient is also zero, so its weights didn't change at all. The same 50 steps
-via `update_weights()` moved the gate to −1.04. World-model injection (TD-180/181/186) and
-hippocampal memory (TD-185/194) therefore remain exact no-ops in every trained model, whatever MNS
-links. Nothing reads `get_gate()` outside tests, so no metric reveals it.
-
-Action Items:
-
-- [x] Make each gate a 1×1 `Matrix` (value + gradient) and register it in `register_parameters_with_optimizer()`; drop the plain-SGD gate step from `update_weights()` (or keep it only for the no-optimizer case).
-- [ ] Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible. (Partly: logged per epoch; a metrics-pipeline series still needs a reporter method, server storage and a dashboard view.)
-- [x] Test: training via the trainer's optimizer-only path moves a gate off zero.
-
-Location in code: `src/DecoderBlock.cpp` (`update_weights()`, `register_parameters_with_optimizer()`), `src/DecoderBlock.hpp` (gate members); tagged `TODO: See TD-341`.
-
-Files to Modify:
-
-- `src/DecoderBlock.{hpp,cpp}`
-- `src/ChatbotTrainer.cpp` (metrics)
-- `tests/decoderblock_test.cpp`
-
-**Fix (October 20, 2026).**
-- **Registered gates:** `gate`/`gate_h` (and their gradients) are 1×1 `Matrix` members.
-  `register_parameters_with_optimizer()` adds each as a parameter group when its path is allocated, so
-  `ChatbotTrainer`'s `optimizer->step()` moves them. `update_weights()` keeps its plain-SGD gate step only when no
-  optimizer is registered (`gate_optimizer_`). The accessors and the checkpoint format (one float per gate) are
-  unchanged.
-- **Visibility:** at the end of each epoch, `ChatbotTrainer` logs per-layer `tanh(gate)`/`tanh(gate_h)`
-  (`Epoch N gates tanh(gate): L0 world=… L0 memory=…`), only for a model with gated paths. A stuck gate now shows in
-  the trainer log and `/admin/logs`.
-- **Optimizer state:** a gated model has two more parameter groups per gated block, so a `<checkpoint>.optimizer`
-  saved before this fix no longer matches. `Optimizer::load_state()` warns and keeps fresh moments once (TD-269's
-  existing mismatch handling). AdamW's global weight decay (TD-469) also applies to the gates.
-- **GPU training:** the gated paths still don't run there (TD-342), so the gates get no gradient and stay at 0 on a
-  GPU pass. They are host groups of `GPUOptimizer`. This fix makes them learn in CPU training.
-
-Tests:
-- `decoderblock_test.cpp`:
-  - `OptimizerOnlyTrainingOpensBothGates`: 30 optimizer-only steps open both gates, and the gated inputs then change
-    the output.
-  - `UpdateWeightsStillStepsGatesWithoutAnOptimizer`.
-- `encoderdecoder_test.cpp`:
-  - `TrainerStyleOptimizerStepsOpenTheGates`: a model with a `LeJEPAEncoder` attached, trained the way
-    `ChatbotTrainer` does, opens every block's world-model gate.
-
-The first and third fail on the old code (gates exactly 0, output unchanged).
-
-**Follow-up (October 20, 2026, TD-342).** The gates now train on the GPU too, as device parameters, and the per-epoch log
-reads their live device values.
 
 ---
 
@@ -5615,7 +5547,7 @@ Related: TD-566, TD-569, TD-572, TD-468, TD-547, TD-344.
 
 ## Resolved Items
 
-472 items resolved (254 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+473 items resolved (255 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---
@@ -6141,16 +6073,16 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed November 14, 2026 from the 102 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
+Recomputed November 14, 2026 from the 101 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
 that list when an item moves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|8|8%|
+|High|7|7%|
 |Medium|22|22%|
 |Low|72|71%|
 
-**Total Active Items:** 102
+**Total Active Items:** 101
 
 ### By Component
 
@@ -6174,7 +6106,7 @@ that list when an item moves or a new one is filed.
 |NLP / Tokenizer|2|
 |RLHF / PPOOptimizer|2|
 |RLHF / RLHFTrainer|2|
-|Transformer / DecoderBlock|2|
+|Transformer / DecoderBlock|1|
 |Transformer / EncoderBlock|2|
 |Transformer / FeedForward|2|
 |Transformer / LLMEncoder|2|
@@ -6234,18 +6166,18 @@ that list when an item moves or a new one is filed.
 
 ### Effort Distribution
 
-Each entry's own estimate, made when it was filed. For the 30 entries whose fix has landed in code, most of it is spent; what remains
+Each entry's own estimate, made when it was filed. For the 29 entries whose fix has landed in code, most of it is spent; what remains
 there is a run, a measurement or a retraining.
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|49|
-|2-4 hours|30|
+|2-4 hours|29|
 |4-8 hours|8|
 |8+ hours|7|
 |Not estimated|8|
 
-**Total Estimated Effort (Active Items):** 262-456 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
+**Total Estimated Effort (Active Items):** 260-452 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
 TD-039 (none given), TD-171 and TD-563 (large: an architecture project and the retraining), TD-554 (1-2 days), TD-573 (2-4 days,
 plus devices and a release), TD-574 (its tooling is done; runs on ai-machine remain) and TD-050 (only reading an ai-machine run remains).
 

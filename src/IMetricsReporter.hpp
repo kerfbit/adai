@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-14
 
 #include <chrono>
 #include <string>
@@ -173,6 +173,15 @@ class IMetricsReporter {
     virtual void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
                                              const std::vector<float>& decoder_layer_norms) = 0;
 
+    /// TD-341: once per epoch, before end_epoch(), each decoder layer's tanh(gate) for the gated
+    /// world-model path and for the hippocampal-memory path, in layer order, NaN where the layer
+    /// has no such path (sent as null). Called only for a model with at least one gated path. A
+    /// gate that stays near 0 means its path never learned and does nothing.
+    /// @param world_model_gates One entry per decoder layer
+    /// @param memory_gates One entry per decoder layer
+    virtual void update_gate_values(const std::vector<float>& world_model_gates,
+                                    const std::vector<float>& memory_gates) = 0;
+
     // ── Batch padding efficiency ──────────────────────────────────────────────
 
     /// Update epoch-average batch padding efficiency.
@@ -255,6 +264,8 @@ class NullMetricsReporter final : public IMetricsReporter {
     void update_attention_entropy(float /*entropy*/) override {}
     void update_layer_gradient_norms(const std::vector<float>& /*encoder_layer_norms*/,
                                      const std::vector<float>& /*decoder_layer_norms*/) override {}
+    void update_gate_values(const std::vector<float>& /*world_model_gates*/,
+                            const std::vector<float>& /*memory_gates*/) override {}
     void update_padding_efficiency(float /*efficiency*/) override {}
     void update_generation_quality_metrics(float /*bleu4*/, float /*rouge1*/, float /*rouge2*/,
                                            float /*rougeL*/, float /*bleu1*/ = -1.0f,

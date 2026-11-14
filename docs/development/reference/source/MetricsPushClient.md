@@ -1,14 +1,14 @@
 # `MetricsPushClient` — Source File Reference
 
-- **Files:** [`src/MetricsPushClient.hpp`](../../../../src/MetricsPushClient.hpp), [`src/MetricsPushClient.cpp`](../../../../src/MetricsPushClient.cpp) (895 lines together)
+- **Files:** [`src/MetricsPushClient.hpp`](../../../../src/MetricsPushClient.hpp), [`src/MetricsPushClient.cpp`](../../../../src/MetricsPushClient.cpp) (1,262 lines together)
 - **Namespace:** global
 - **Built into:** `adai_core`; HTTP only when `BUILD_METRICS_API_SERVER` is defined (otherwise every POST returns 0)
 - **Used by:** `IncrementalTrainer` (chatbot passes) and `run_lejepa_training_pass()` in `LeJEPATrainingPass.cpp` (in `IncrementalTrainingTool.cpp` before November 12, 2026), both inside `incremental_trainer`
 - **Implements:** [IMetricsReporter](IMetricsReporter.md)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-23` (both files)
-- **Tests:** [`tests/metrics_push_client_test.cpp`](../../../../tests/metrics_push_client_test.cpp) (12 tests)
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.7.0`, `@adai-reviewed: 2026-11-14` (both files)
+- **Tests:** [`tests/metrics_push_client_test.cpp`](../../../../tests/metrics_push_client_test.cpp) (20 tests)
 - **Server side:** [TRAINING_METRICS_API.md](../../TRAINING_METRICS_API.md) (push endpoints), [MetricsDatabase.md](MetricsDatabase.md)
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-10-14, with the addenda below
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linked against
 > the real class, pushing to a real `metrics_api_server` (or to a closed port).
@@ -57,7 +57,7 @@ save final checkpoint, mark files trained
 | Priority | Methods | Under backpressure (queue ≥ 1024) |
 |---|---|---|
 | `Sample` | `update_sample_metrics()` (`/metrics/sample`), `update_advanced_epoch_metrics()` (`/metrics/advanced`, every optimizer step) | **Dropped**, with one warning per overflow episode |
-| `Epoch` | `start_epoch()`, `end_epoch()`, `update_validation_metrics()`, `update_best_metrics()`, `flag_abnormal_sample()`, `update_layer_gradient_norms()`, `update_generation_quality_metrics()` | Evicts the oldest `Sample` event; never dropped (the queue grows past its limit if there's nothing to evict) |
+| `Epoch` | `start_epoch()`, `end_epoch()`, `update_validation_metrics()`, `update_best_metrics()`, `flag_abnormal_sample()`, `update_layer_gradient_norms()`, `update_gate_values()` (TD-341), `update_generation_quality_metrics()` | Evicts the oldest `Sample` event; never dropped (the queue grows past its limit if there's nothing to evict) |
 | `Session` | `/end` | Same as `Epoch` |
 
 **Buffered, not sent on their own:** activation saturation, attention entropy, padding efficiency, the
@@ -213,3 +213,10 @@ Tests: `ParsesSemicolonSeparatedHeaders`, `SendsExtraHeadersOnEveryRequest`, `Re
 
 Posts a `SampleQualityReport` to `…/metrics/sample-quality` at epoch priority (not dropped under backpressure). Non-finite
 statistics go as `null` (TD-443's `jnum()`), and each lowest pair's texts are cut to 4 KiB on a UTF-8 boundary before queueing.
+
+## Addendum (November 14, 2026): gate values (TD-341)
+
+`update_gate_values(world, memory)` enqueues an `Epoch` event to `…/metrics/gate-values`:
+`{"world_model_gates":[…],"memory_gates":[…]}`, each value through `jnum()`, so a NaN (a layer without the path) is `null`. Like
+`update_layer_gradient_norms()` it sends the arrays directly instead of folding them into the next `end_epoch()`. Test:
+`MetricsPushClientGateValues.SendsBothArraysWithNullForAMissingPath`.

@@ -189,3 +189,17 @@ test('applyLRColor: the healthy learning-rate band is [1e-5, 1e-3]', () => {
     applyLRColor(el, 5e-2);
     assert.ok(el.classList.contains('val-error'));
 });
+
+test('gateSummary (TD-341): one entry per layer with a gated path, world/memory, a missing path as the dash', () => {
+    const { gateSummary } = extractFunctions(APP_JS, ['fmt', 'gateSummary']);
+    assert.equal(gateSummary([0.25, null, null], [null, -0.5, null]), 'L0 0.25/— L1 —/-0.50');
+    assert.equal(gateSummary([0.1234], [0.5]), 'L0 0.12/0.50');
+});
+
+test('gateSummary (TD-341): no gated path, or an older server without the fields, is the dash', () => {
+    const { gateSummary } = extractFunctions(APP_JS, ['fmt', 'gateSummary']);
+    assert.equal(gateSummary([], []), '—');
+    assert.equal(gateSummary(undefined, undefined), '—');
+    assert.equal(gateSummary([null, null], [null]), '—');
+    assert.equal(gateSummary([], [null, 0.1]), 'L1 —/0.10', 'arrays of different lengths are read to the longer one');
+});

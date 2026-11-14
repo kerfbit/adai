@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-14
 
 #include <atomic>
 #include <chrono>
@@ -87,6 +87,12 @@ struct TrainingMetricsSnapshot {
     // only the whole-model aggregate norm. Empty until the first epoch reports.
     std::vector<float> encoder_layer_grad_norms;
     std::vector<float> decoder_layer_grad_norms;
+
+    // TD-341: each decoder layer's tanh(gate) for the gated world-model and hippocampal-memory
+    // paths, NaN where a layer has no such path. Empty until a model with a gated path reports an
+    // epoch.
+    std::vector<float> world_model_gates;
+    std::vector<float> memory_gates;
 
     // Generation quality metrics (BLEU/ROUGE, -1 = not computed)
     float current_bleu4 = -1.0f;   ///< Corpus BLEU-4 score for the current validation epoch
@@ -187,6 +193,9 @@ struct PersistentMetricsRecord {
     // (rather than as vectors) since this is the exact form persisted to and
     // read back from the DB's TEXT column.
     std::string layer_gradient_norms_json;
+    // TD-341: JSON string {"world_model":[...],"memory":[...]} of per-layer tanh(gate), null where
+    // a layer has no such path, or empty when the model has no gated path.
+    std::string gate_values_json;
 };
 
 // TD-440: rotates a JSONL metrics file to <path>.1 … <path>.<backups> once it reaches max_mb MB
@@ -377,6 +386,8 @@ class TrainingMetricsService {
     /// Report per-layer gradient norms for the current epoch (TD-013 extension).
     /// @param encoder_layer_norms One entry per encoder layer, in layer order
     /// @param decoder_layer_norms One entry per decoder layer, in layer order
+    void update_gate_values(const std::vector<float>& world_model_gates,
+                            const std::vector<float>& memory_gates);  // TD-341
     void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
                                      const std::vector<float>& decoder_layer_norms);
 

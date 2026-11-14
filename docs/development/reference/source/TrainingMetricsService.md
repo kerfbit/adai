@@ -1,12 +1,12 @@
 # `TrainingMetricsService` — Source File Reference
 
-- **Files:** [`src/TrainingMetricsService.hpp`](../../../../src/TrainingMetricsService.hpp) (508 lines), [`src/TrainingMetricsService.cpp`](../../../../src/TrainingMetricsService.cpp) (1,856 lines)
+- **Files:** [`src/TrainingMetricsService.hpp`](../../../../src/TrainingMetricsService.hpp) (528 lines), [`src/TrainingMetricsService.cpp`](../../../../src/TrainingMetricsService.cpp) (1,786 lines)
 - **Namespace:** global (`TrainingMetricsSnapshot`, `PersistentMetricsRecord`, `MetricsServiceConfig`, `TrainingMetricsService`, `GlobalMetricsService`)
 - **Built into:** `adai_core`
 - **Used by:** `metrics_api_server` only: one instance per session in [`MetricsSessionRegistry`](MetricsSessionRegistry.md), driven by [`TrainingMetricsAPI`](TrainingMetricsAPI.md)'s push routes. Trainers don't use it (they push through [`MetricsPushClient`](MetricsPushClient.md)); `MetricsServiceConfig` is also read by `ChatbotTrainer` for its outlier thresholds and generation-quality settings
-- **Status tag:** `@adai-status: beta` ("capped by TD-039 — large, actively evolving"), `@adai-version: 0.9.2`, `@adai-reviewed: 2026-09-23` (both files)
+- **Status tag:** `@adai-status: beta` ("capped by TD-039 — large, actively evolving"), `@adai-version: 0.16.0`, `@adai-reviewed: 2026-11-14` (both files)
 - **Tests:** [`training_metrics_service_resume_test.cpp`](../../../../tests/training_metrics_service_resume_test.cpp) (5), [`stale_detection_test.cpp`](../../../../tests/stale_detection_test.cpp) (16), [`lejepa_metrics_test.cpp`](../../../../tests/lejepa_metrics_test.cpp) (18), [`padding_efficiency_test.cpp`](../../../../tests/padding_efficiency_test.cpp) (16), [`adaptive_clipping_test.cpp`](../../../../tests/adaptive_clipping_test.cpp) (12), plus the database suites; all pass
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-17, with the addenda below
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linking `libadai_core.a` (and the real SQLite backend).
 
@@ -22,7 +22,7 @@ to JSONL/summary/Prometheus files and the metrics database.
 | Type | Contents |
 |---|---|
 | `TrainingMetricsSnapshot` | Live state: session identity/label/config, epoch and sample progress, current and running losses, perplexities, per-epoch histories (losses, LR, durations, gradient norms, validation accuracy/perplexity, BLEU/ROUGE, padding efficiency, LeJEPA losses and diagnostics, adaptive-clip thresholds), throughput and ETA, the TD-013 diagnostics, staleness (`is_stale`, `seconds_since_last_update`, `effective_is_training`) |
-| `PersistentMetricsRecord` | One history row: timestamp, session, epoch, sample, losses, LR, gradient norm, perplexity, diagnostics, LeJEPA fields, per-layer gradient JSON |
+| `PersistentMetricsRecord` | One history row: timestamp, session, epoch, sample, losses, LR, gradient norm, perplexity, diagnostics, LeJEPA fields, per-layer gradient JSON, gate-values JSON (TD-341) |
 | `MetricsServiceConfig` | Persistence files and cadence (`persist_every_samples` 100, `persist_every_seconds` 30), `max_records_in_memory` 10,000, `max_records_on_disk` 100,000 (**unused**, TD-440), `compress_old_records` (**unused**), Prometheus, a push section (`enable_push`, URL, key, timeout; see §2), trainer-side outlier thresholds and generation-quality settings, `staleness_threshold_seconds` 60 |
 
 ### Behaviour
@@ -165,3 +165,11 @@ Test: `TrainingMetricsServiceJsonl.LinesAreValidJsonWithEveryField`.
 
 `record_sample_quality()` keeps the newest `kMaxSampleQualityReports` (500) reports in memory and inserts each into the database
 (`insert_sample_quality()`), logging a failure; `get_sample_quality()` returns the in-memory copy.
+
+## Addendum (November 14, 2026): gate values (TD-341)
+
+`update_gate_values(world, memory)` stores the arrays in the snapshot (`world_model_gates`, `memory_gates`). `to_json()` writes both,
+`null` for a NaN entry (a layer without the path), so `metrics/current` stays valid JSON. `end_epoch()`'s record carries them as
+`gate_values_json`, `{"world_model":[…],"memory":[…]}`, when either is set, which goes to the DB (`gate_values_json` column) and to
+the JSONL file as `gate_values`. Tests: `TrainingMetricsAPIRoutesTest.GateValuesRoundTripThroughPostAndGet` and the JSONL test in
+`training_metrics_api_routes_test.cpp`.

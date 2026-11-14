@@ -1,8 +1,8 @@
 package com.adai.ops.ui.metrics
 
 // @adai-status: beta        (TD-048 — SessionDetailScreenConfirmActionTest.kt now covers the admin-action confirm-dialog flow; real-device run still unverified, see below)
-// @adai-version: 0.3.2
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-14
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -290,6 +290,24 @@ private fun AdvancedDiagnosticsSection(current: CurrentMetricsDto) {
     MetricRow("Activation saturation", String.format(Locale.US, "%.4f", current.activation_saturation_ratio))
     if (current.attention_entropy >= 0.0) {
         MetricRow("Attention entropy", String.format(Locale.US, "%.4f", current.attention_entropy))
+    }
+    // TD-341: a gate near 0 means its path isn't learning and does nothing.
+    for ((label, value) in gateRows(current.world_model_gates, current.memory_gates)) {
+        MetricRow(label, value)
+    }
+}
+
+/**
+ * TD-341: one row per decoder layer with a gated path, as ("Gate L<n> tanh", "world 0.1234 · memory 0.5678"),
+ * a path the layer lacks shown as "—". Empty when no layer has one (a model without gated paths).
+ */
+internal fun gateRows(world: List<Double?>, memory: List<Double?>): List<Pair<String, String>> {
+    fun fmt(v: Double?) = if (v == null) "—" else String.format(Locale.US, "%.4f", v)
+    val layers = maxOf(world.size, memory.size)
+    return (0 until layers).mapNotNull { l ->
+        val w = world.getOrNull(l)
+        val m = memory.getOrNull(l)
+        if (w == null && m == null) null else "Gate L$l tanh" to "world ${fmt(w)} · memory ${fmt(m)}"
     }
 }
 

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-11-14
 
 #include "TrainingMetricsAPI.hpp"
 #include "BrowserWriteGuard.hpp"
@@ -812,6 +812,23 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_post_advanced_metrics(req.matches[1], req.body);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    // TD-341: per-layer gate values of the gated world-model and hippocampal paths.
+    server_impl_->server.Post(
+        "/api/sessions/" + key_pattern + "/metrics/gate-values",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_post_gate_values(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const ApiRequestError& e) {
@@ -2498,6 +2515,17 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
     service->update_advanced_epoch_metrics(b.get_float("gradient_variance", 0.0f),
                                            b.get_float("compute_time_ratio", 0.0f),
                                            b.get_float("weight_update_ratio", 0.0f));
+    return R"({"status":"ok"})";
+}
+
+std::string TrainingMetricsAPI::handle_post_gate_values(const std::string& session_key,
+                                                        const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
+    // {"world_model_gates": [float|null, ...], "memory_gates": [float|null, ...]}, one per decoder
+    // layer
+    const PushBody b(body);
+    service->update_gate_values(b.get_float_array("world_model_gates"),
+                                b.get_float_array("memory_gates"));
     return R"({"status":"ok"})";
 }
 

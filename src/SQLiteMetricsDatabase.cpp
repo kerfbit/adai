@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-14
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
@@ -144,7 +144,8 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
             masking_ratio               REAL,
             predictor_target_cosine_sim REAL,
             sigreg_variance_mean        REAL,
-            sigreg_variance_stddev      REAL
+            sigreg_variance_stddev      REAL,
+            gate_values_json            TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -239,16 +240,28 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
         std::vector<const char*> columns;  // "name TYPE"
     };
     const Migration migrations[] = {
-        {"sessions", "final_loss", "final_loss / final_validation_loss",
+        {"sessions",
+         "final_loss",
+         "final_loss / final_validation_loss",
          {"final_loss REAL", "final_validation_loss REAL"}},
-        {"metrics_history", "compute_time_ratio", "TD-013 diagnostic columns",
+        {"metrics_history",
+         "compute_time_ratio",
+         "TD-013 diagnostic columns",
          {"compute_time_ratio REAL", "weight_update_ratio REAL", "activation_saturation_ratio REAL",
           "attention_entropy REAL", "padding_efficiency REAL", "layer_gradient_norms_json TEXT"}},
-        {"metrics_history", "predictor_loss", "TD-178 LeJEPA loss columns",
+        {"metrics_history",
+         "predictor_loss",
+         "TD-178 LeJEPA loss columns",
          {"predictor_loss REAL", "sigreg_loss REAL"}},
-        {"metrics_history", "masking_ratio", "LeJEPA advanced diagnostic columns",
+        {"metrics_history",
+         "masking_ratio",
+         "LeJEPA advanced diagnostic columns",
          {"masking_ratio REAL", "predictor_target_cosine_sim REAL", "sigreg_variance_mean REAL",
           "sigreg_variance_stddev REAL"}},
+        {"metrics_history",
+         "gate_values_json",
+         "TD-341 gate values column",
+         {"gate_values_json TEXT"}},
     };
     for (const auto& m : migrations) {
         if (has_column(m.table, m.probe_column))
@@ -323,9 +336,10 @@ void SQLiteMetricsDatabase::prepare_statements() {
                                      attention_entropy, padding_efficiency,
                                      layer_gradient_norms_json, predictor_loss, sigreg_loss,
                                      masking_ratio, predictor_target_cosine_sim,
-                                     sigreg_variance_mean, sigreg_variance_stddev)
+                                     sigreg_variance_mean, sigreg_variance_stddev,
+                                     gate_values_json)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                ?18, ?19, ?20, ?21);
+                ?18, ?19, ?20, ?21, ?22);
     )SQL",
          &stmt_insert_metrics_);
 
@@ -575,6 +589,12 @@ void SQLiteMetricsDatabase::insert_metrics_record_locked(const std::string& sess
                         static_cast<double>(rec.sigreg_variance_mean));
     sqlite3_bind_double(stmt_insert_metrics_, 21,
                         static_cast<double>(rec.sigreg_variance_stddev));
+    if (rec.gate_values_json.empty()) {  // TD-341
+        sqlite3_bind_null(stmt_insert_metrics_, 22);
+    } else {
+        sqlite3_bind_text(stmt_insert_metrics_, 22, rec.gate_values_json.c_str(), -1,
+                          SQLITE_TRANSIENT);
+    }
 
     check_sqlite(sqlite3_step(stmt_insert_metrics_), db_, "insert_metrics_record");
 }
@@ -699,7 +719,7 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
         "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss, "
         "masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean, "
-        "sigreg_variance_stddev "
+        "sigreg_variance_stddev, gate_values_json "
         "FROM metrics_history WHERE session_key = ?";
 
     int param_idx = 2;
@@ -762,6 +782,9 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         rec.predictor_target_cosine_sim = sqlite_nan_float(stmt, 17);
         rec.sigreg_variance_mean = sqlite_nan_float(stmt, 18);
         rec.sigreg_variance_stddev = sqlite_nan_float(stmt, 19);
+        if (const auto* gv_text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 20))) {
+            rec.gate_values_json = gv_text;  // TD-341
+        }
         results.push_back(rec);
     }
 
