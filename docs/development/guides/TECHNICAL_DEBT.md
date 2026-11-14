@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 14, 2026
-**Active Items:** 101 (7 high, 22 medium, 72 low)
+**Active Items:** 100 (7 high, 22 medium, 71 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 473 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 474 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,9 +17,9 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 101 open items:
-- **24 wait on something outside a coding session:** 11 on a run on ai-machine (the GPU test package built from `86181ca5` covers
-  TD-574, TD-050, TD-033 and TD-301; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
+**Where things stand.** Of the 100 open items:
+- **23 wait on something outside a coding session:** 10 on a run on ai-machine (TD-574's next step, a bounded GPU queue, is code
+  work here first; most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
 - **77 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
@@ -29,24 +29,21 @@ The order to take them in is in [Recommended Execution Order](#recommended-execu
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 13, 2026:** Fixed [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) in code: the GPU paths of
-`CrossAttention` and `MultiHeadAttention` refuse attached LoRA adapters instead of ignoring them, check widths and mask shapes, and
-refuse `gpu_backward()` without a forward (it segfaulted); weight setters (now shape-checked), loads, `merge_lora()` and
-`update_weights()` keep the device copy of the weights current.
-Needs a run on ai-machine (the package built from `86181ca5`).
-
 **November 13, 2026:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) and
 [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode): added `gpu_decode_bench` to the GPU
 test package. It checks the GPU KV-cached decode step by step against the GPU full recompute it replaced, then times both, the CPU
 cache, and the CPU with each large multiply sent to the GPU (`chatbot_api_server` before TD-033), for 50 and 100 tokens at a small
 shape and at `config.trainer.conf`'s architecture. The cached GPU decode already matched the CPU on ai-machine's Arc on November 10
-and 12 (`EncoderDecoderGPUTest`). Needs a run on ai-machine.
+and 12 (`EncoderDecoderGPUTest`). Its first run, November 14, lost the device to TD-574's engine resets in all four attempts;
+it waits on TD-574's bounded queue.
 
 **November 13, 2026:** Filed [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
 (MEDIUM) from the November 12 GPU run: Arc engine resets happen only when training runs our own device kernels (the LeJEPA pass, which
 sends the GPU one waited-for GEMM at a time, ran 220 passes without one). Added diagnostics to find the work they interrupt:
 `ADAI_GPU_SYNC`, `ADAI_GPU_HOST_KERNELS`, `ADAI_GPU_TRACE_FILE`, a forward-only `gpu_encode_soak`, crash-dump capture and an
-engine-reset bisection in the GPU test package. Needs a run on ai-machine.
+engine-reset bisection in the GPU test package. **November 14:** the second round found the resets stop when the GPU queue is waited
+on at least every 8 operations (0 losses in 567 s across both runs, against about one a minute otherwise), and that GPU inference
+resets far more often than training; a bounded queue as the default is next.
 
 **November 12, 2026:** Filed [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): no Android file is `stable`, and
 TD-047/TD-048 cap them without saying what `stable` would take. It sets that bar for `app` and `opsdashboard` (a first release, the
@@ -158,21 +155,22 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (101 since TD-411 and TD-341 moved), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (100 since TD-411, TD-341 and TD-301 moved), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
 
 ### 1. Runs on ai-machine (the user runs them; packages are built here)
 
-The GPU test package built from `86181ca5` (`build/adai-sycl-gpu-tests-86181ca5-20261113.tar.gz`) covers the first four; a full
-`./run_gpu_tests.sh` runs them all.
+The November 14, 2026 run (package `f19c0aee`) closed TD-301 and gave TD-574's second round; the decode benchmark reset before any
+result. A full `./run_gpu_tests.sh` runs everything here.
 
-- [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) (MEDIUM): the second-round engine-reset bisection (`--bisect-only --engine-tuning`), then fix what it points at or report
-  it upstream with the crash dumps. First, since the resets also cut short every other GPU run.
+- [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) (MEDIUM): first. The resets stop when the GPU queue is waited on at least every 8 operations;
+  make that bounded queue the default on SYCL (code work here), then rerun the decode benchmark and the bisection with it, and run the
+  `--engine-tuning` round for an upstream report. The resets cut short every other GPU run, inference most of all.
 - [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) (MEDIUM) and [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (MEDIUM): `gpu_decode_bench` checks the GPU KV-cached decode against GPU full recompute and gives
-  the before/after latency; both close on its `decode_benchmark.txt`.
-- [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) (LOW): the attention GPU-path tests (LoRA refusal, shape checks, the device copy kept current) on the Arc.
+  the before/after latency; both close on its `decode_benchmark.txt`. Its November 14 run lost the device in all four attempts, so it
+  waits on TD-574's bounded queue.
 - [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (MEDIUM): the over-length prompt already runs on the Arc without throwing; a test comparing its output with the CPU path's
   is still to be written.
 - Measurements of fixes that landed in code: [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) (MEDIUM, a training pass's wall time with the `icpx` SIMD flags),
@@ -302,7 +300,6 @@ as TD-426 and TD-467 were:
   - [TD-263: `chatbot_gui` Freezes While Generating](#td-263-chatbot_gui-freezes-while-generating)
   - [TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
   - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
-  - [TD-301: `CrossAttention` GPU Path Diverges from the CPU Path](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path)
   - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
   - [TD-314: `DataFetcher` Source Coverage and Hygiene Gaps](#td-314-datafetcher-source-coverage-and-hygiene-gaps)
@@ -548,7 +545,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench` packaged November 13, 2026 for the direct check against GPU full recompute and the benchmark, which need a run on ai-machine | GPU / Inference / Training | July 4, 2026 | Only an ai-machine run and reading its results remain |
+| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench`'s November 14 run lost the device to TD-574's engine resets in all four attempts, so the direct check and the benchmark wait on TD-574's bounded queue | GPU / Inference / Training | July 4, 2026 | Only an ai-machine run and reading its results remain |
 
 Description:
 The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU.
@@ -704,8 +701,8 @@ Action Items:
 - [x] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps. Done — no new kernels needed, built from existing primitives (see Update above).
 - [x] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache). Done.
 - [x] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step. Done — for every strategy except beam search, which keeps the full-recompute path deliberately (see Update above).
-- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026; needs a run on ai-machine.**
-- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. `gpu_decode_bench`'s `RESULT` lines, for TD-033's before/after too. **Packaged November 13, 2026; needs a run on ai-machine.**
+- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026. Run November 14, 2026: every attempt (two shapes, each retried) lost the device to an engine reset about 4 s in, during validation, before any result; waits on TD-574's bounded queue.**
+- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. `gpu_decode_bench`'s `RESULT` lines, for TD-033's before/after too. **Packaged November 13, 2026; the November 14 run reset before it got this far (see the item above).**
 - [x] Fix the flagged CPU `generate_response()` beam-vs-cache gap (and the identical gap in
   `generate_response_with_strategy()`'s unrecognized-strategy fallback). Done — see the
   September 14, 2026 (same day, later) update above.
@@ -731,7 +728,7 @@ Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 20
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark packaged November 13, 2026 (`gpu_decode_bench`, TD-050), needs a run on ai-machine | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
+| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark packaged November 13, 2026 (`gpu_decode_bench`, TD-050); its November 14 run lost the device to engine resets (TD-574), so it waits on TD-574's bounded queue | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
 
 Description:
 Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
@@ -799,7 +796,9 @@ Action Items:
   tests since November 10, 2026 (`chatbotapiTests` in the GPU test package), and the GPU test
   package's `gpu_decode_bench` (TD-050) now times the before and after on SYCL: `cpu_dispatch` is
   this item's "before" (the CPU path with each large multiply sent to the GPU on its own) and
-  `gpu_cached` its "after". Needs a run on ai-machine; CUDA stays compile-checked only.
+  `gpu_cached` its "after". Needs a run on ai-machine; CUDA stays compile-checked only. **November 14, 2026:**
+  the run lost the device to engine resets in every attempt (TD-574), as did `chatbotapiTests`'s beam-search echo
+  test, so GPU inference on the Arc needs TD-574's bounded queue before this can be measured.
 - [x] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix`
   data and no persistent-residency alternative — untouched; this item routed the identified hot
   path around them rather than removing them.
@@ -2542,64 +2541,6 @@ Files to Modify:
 
 - `src/ConversationContext.{hpp,cpp}`
 - `src/ChatbotTrainer.cpp`
----
-
-### TD-301: `CrossAttention` GPU Path Diverges from the CPU Path
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open — code fix landed November 13, 2026 | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
-
-Description:
-Found alongside TD-297, by inspection (no GPU in the environment it was traced in). The
-`ADAI_ENABLE_GPU` path:
-- ignores LoRA adapters entirely, with no guard or warning (the header notes it);
-- does no shape validation on `query`/`kv` widths or mask dimensions (`masked_fill_inplace` uses only
-  the element count);
-- holds weight snapshots that go stale after any CPU-side change (`update_weights()`, `load()`,
-  `set_W*()`, `merge_lora()`) until the owner calls `EncoderDecoderModel::gpu_sync_weights()`;
-- doesn't refresh `get_last_attention_weights()`.
-
-`DecoderBlock`'s GPU path also runs only the main cross-attention; the world-model and hippocampal
-instances are CPU-only.
-
-**Fix (November 13, 2026), in `CrossAttention` and `MultiHeadAttention` alike:**
-- **LoRA:** `gpu_forward()`/`gpu_forward_with_cache()` throw `std::logic_error` while adapters are
-  attached (`merge_lora()` first).
-- **Shapes:** the GPU forwards check the input widths (`kv` on a cross-attention cache's filling call
-  only) and the mask's, and `score_bias`'s, exact shape, throwing `std::invalid_argument` before
-  anything changes, a cache included. `gpu_backward()` throws `std::logic_error` without a
-  `gpu_forward()` before it (verified: the old code dereferenced a null `GPUState` and segfaulted) and
-  `std::invalid_argument` for a `dout` of the wrong shape.
-- **Device mirror:** the weight setters, now defined in the `.cpp`, need a `d_model × d_model` matrix
-  (a wrong one would have overflowed the device buffer on upload), and they, the loads,
-  `merge_lora()` and `update_weights()` refresh the mirror through a private `refresh_gpu_mirror()`,
-  as `LayerNorm` does since TD-426. A dirty flag wasn't needed: every CPU-side change that goes
-  through the layer refreshes the mirror at once. The one change that can't be seen from the layer,
-  an optimizer step taken by its owner (the blocks, decoder and model step a shared optimizer
-  themselves, TD-297), is documented in both headers: its owner calls
-  `EncoderDecoderModel::gpu_sync_weights()`. GPU training steps the device copy itself (TD-468).
-- `get_last_attention_weights()` stays CPU-only, documented; `gpu_last_mean_attention_weights()`
-  (TD-342) gives the GPU forward's.
-- `DecoderBlock`'s world-model and hippocampal instances have run on the GPU since TD-342.
-
-Tests: `MultiHeadAttentionSetterTest`, `CrossAttentionSetterTest`, and in a GPU build
-`MultiHeadAttentionGPUContractTest` and `CrossAttentionGPUContractTest` (four each). All ten fail on
-the old code, the two backward tests with a segfault, and pass on the oneAPI CPU device.
-
-Action Items:
-
-- [x] Throw or warn in `gpu_forward()`/`gpu_forward_with_cache()` when `has_lora()`; add the same shape checks as the CPU path.
-- [x] Document (or track) the snapshot contract; consider a dirty flag set by CPU-side weight changes. (Refreshed on every change through the layer; the outside-optimizer case documented.)
-- [ ] Run the GPU test package on ai-machine with these tests.
-
-Location in code: `src/CrossAttention.cpp`, `src/MultiHeadAttention.cpp` (`gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()`, the setters, `refresh_gpu_mirror()`; in `CrossAttention` it became `weights_changed()` with TD-300).
-
-Files to Modify:
-
-- `src/CrossAttention.{hpp,cpp}`
-- `src/MultiHeadAttention.cpp`
-
 ---
 
 ### TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms
@@ -5463,7 +5404,7 @@ Related: TD-047, TD-048.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — first bisection run November 13, 2026; second round packaged | GPU / Testing | November 13, 2026 | 1 day of tooling (done), then runs on ai-machine |
+| MEDIUM | Open — second bisection round November 14, 2026: the resets stop when the queue is waited on every 8 operations or fewer; a bounded queue as the default is next | GPU / Testing | November 13, 2026 | 1 day of tooling (done), then runs on ai-machine |
 
 Description:
 ai-machine's Arc Pro B60 has engine resets (`GT0: Engine reset: engine_class=ccs`) during chatbot training, which end a pass with a
@@ -5524,6 +5465,45 @@ the GPU and losses per minute per variant, and with `--engine-tuning` (opt-in, s
 (the driver copies them into each new exec queue), capped at the driver's maxima and restored after every pass and on exit. A sharp drop
 under either would confirm the context-switch reading.
 
+**Second round on ai-machine (November 14, 2026, package `f19c0aee`, 20 rounds, Level Zero v2; `--engine-tuning` not used).**
+
+| Variant | Passes | Device lost | Hung | Seconds on the GPU | Losses per minute |
+|---|---|---|---|---|---|
+| `control` | 40 | 2 | 0 | 124 | 0.97 |
+| `sync_kernel` | 40 | **0** | 0 | 253 | 0 |
+| `sync_step` | 20 | **0** | 0 | 60 | 0 |
+| `sync_every_8` | 20 | **0** | 0 | 65 | 0 |
+| `sync_every_64` | 20 | 1 | 0 | 65 | 0.92 |
+| `sync_every_512` | 20 | 1 | 0 | 63 | 0.95 |
+| `full_priority` | 20 | 0 | 0 | 28 | 0 (too little time to tell) |
+| `no_dropout` | 20 | 2 | 1 | 661 (600 of it the hang) | 0.27 |
+| `host_embedding` | 20 | 1 | 0 | 72 | 0.83 |
+| `host_optimizer` | 20 | 2 | 0 | 113 | 1.06 |
+| `host_all` | 20 | 0 | 0 | 120 | 0 (4 losses on November 13) |
+| `encode_soak` | 20 | 2 | 0 | 208 | 0.58 |
+
+- **The resets need a deep queue.** The variants that wait before at most 8 queued operations or at every training phase lost the
+  device 0 times in 378 s this run, and `sync_kernel` 0 times in 189 s on November 13: 0 in 567 s, where the other variants' rate,
+  about 1 per minute (11 losses and 1 hang in about 706 s outside the hang), would expect about 9; 0 is about a 0.01% chance by luck.
+  Waiting every 64 or 512 operations doesn't help. The host-kernel variants are as likely to reset as `control` (`host_all`'s 0 here
+  and 4 on November 13 are noise), so no kernel family of ours is the cause, and the failed passes' last work is spread over ordinary
+  copies, transposes, zeroing, uploads and downloads in every phase.
+- **Cost:** `sync_every_8` about 5% slower per pass than `control`, `sync_step` no measurable cost, `sync_kernel` about twice as long.
+- **Inference resets far more often.** All four `gpu_decode_bench` runs (TD-050, small and configured shapes, each retried) and
+  `chatbotapiTests`' `PlainCpuBeamSearchEchoesExactly` (each large multiply sent to the GPU on its own, then a device loss; every later
+  test's setup failed with `OUT_OF_DEVICE_MEMORY` on the dead device) lost the device within about 4 s of starting, each with a crash
+  dump. The benchmark reports `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` first, but it's the reset: the kernel log has an engine reset 4 s
+  into each run, and the dumps have the same signature as training's.
+- **Every dump the same.** All 30 crash dumps (bisection, soak, decode, `chatbotapiTests`) are again `Reason: LR job cleanup`,
+  `IPEHR 0x10400002`, `RING_ESR`/`RING_EIR` clear, time slice 1 ms.
+- **Level Zero soak:** v2 lost the device in 10 of 20 passes, v1 in 2 of 20 plus one hang (900 s, the soak's own limit; `trainer_service`
+  stops one after `TRAINER_PASS_STALL_MINUTES`, TD-569). Every one of the 12 losses was handled as TD-566 expects. The LeJEPA lifecycle
+  and its 20 soak passes were all fine again (one waited-for oneMKL GEMM at a time).
+- **Next:** a bounded queue as the default on SYCL, for training and serving alike: wait for the queue at least every 8 operations
+  (what `ADAI_GPU_SYNC=kernel:8` does today as a diagnostic), then rerun the decode benchmark and the bisection with it. The
+  `--engine-tuning` round is still worth running, since it tests the context-switch reading directly and, if it holds, an upstream
+  report.
+
 Tests: `gpuDebugSyncTests` (11 on the oneAPI CPU device, 7 of them in every build: parsing including `kernel:N`, which operations wait under it, the record and trace file, each host family against its device kernel
 with the host path's run count checked, and kernel mode naming the kernel);
 `package_sycl_gpu_tests_test.sh` (the new options and the kernel-event pattern).
@@ -5534,8 +5514,11 @@ Action items:
   above).
 - [x] Second round: `kernel:N`, priority, engine-setting variants, more control/`sync_kernel` passes, event-count fix (November 13,
   2026).
-- [ ] Run `run_gpu_tests.sh --bisect-only --engine-tuning` on ai-machine.
-- [ ] From the result: fix the kernel or pattern involved, or, if every variant resets alike, report it upstream with the dumps.
+- [x] Run the second-round bisection on ai-machine (November 14, 2026; results above, without `--engine-tuning`).
+- [ ] Make a bounded GPU queue the default on SYCL (a wait at least every 8 operations, for training and serving), measure its cost,
+  and rerun the decode benchmark (TD-050) and the bisection with it.
+- [ ] Run `run_gpu_tests.sh --bisect-only --engine-tuning` on ai-machine, and report the resets upstream with the dumps if raising the
+  preempt timeout or time slice stops them.
 
 Location in code: `src/gpu/GPUDebugSync.{hpp,cpp}`, `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`trace_kernel()` calls, host versions),
 `src/gpu/sycl/GPUUtils_SYCL.hpp` (`trace_kernel()`, `debug_sync_point()`), `src/ChatbotTrainer.cpp` (sync points),
@@ -5547,7 +5530,7 @@ Related: TD-566, TD-569, TD-572, TD-468, TD-547, TD-344.
 
 ## Resolved Items
 
-473 items resolved (255 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+474 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---
@@ -6073,23 +6056,23 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed November 14, 2026 from the 101 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
+Recomputed November 14, 2026 from the 100 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt). Re-derive it from
 that list when an item moves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|7|7%|
 |Medium|22|22%|
-|Low|72|71%|
+|Low|71|71%|
 
-**Total Active Items:** 101
+**Total Active Items:** 100
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |GPU / Kernels|4|
-|Attention / CrossAttention|3|
+|Attention / CrossAttention|2|
 |GPU / GPUManager|3|
 |GPU / GPUMatrix|3|
 |Attention / LoRA|2|
@@ -6166,18 +6149,18 @@ that list when an item moves or a new one is filed.
 
 ### Effort Distribution
 
-Each entry's own estimate, made when it was filed. For the 29 entries whose fix has landed in code, most of it is spent; what remains
+Each entry's own estimate, made when it was filed. For the 28 entries whose fix has landed in code, most of it is spent; what remains
 there is a run, a measurement or a retraining.
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|49|
-|2-4 hours|29|
+|2-4 hours|28|
 |4-8 hours|8|
 |8+ hours|7|
 |Not estimated|8|
 
-**Total Estimated Effort (Active Items):** 260-452 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
+**Total Estimated Effort (Active Items):** 258-448 hours as originally estimated. Not counted, having no estimate in hours: TD-014 and
 TD-039 (none given), TD-171 and TD-563 (large: an architecture project and the retraining), TD-554 (1-2 days), TD-573 (2-4 days,
 plus devices and a release), TD-574 (its tooling is done; runs on ai-machine remain) and TD-050 (only reading an ai-machine run remains).
 

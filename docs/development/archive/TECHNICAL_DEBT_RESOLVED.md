@@ -1,10 +1,68 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (473 on November 14, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (474 on November 14, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-301: `CrossAttention` GPU Path Diverges from the CPU Path
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 14, 2026 | Attention / CrossAttention | Code fix November 13, verified on ai-machine's Arc November 14, 2026 (LOW, filed October 10, 2026) |
+
+Description:
+Found alongside TD-297, by inspection (no GPU in the environment it was traced in). The
+`ADAI_ENABLE_GPU` path:
+- ignores LoRA adapters entirely, with no guard or warning (the header notes it);
+- does no shape validation on `query`/`kv` widths or mask dimensions (`masked_fill_inplace` uses only
+  the element count);
+- holds weight snapshots that go stale after any CPU-side change (`update_weights()`, `load()`,
+  `set_W*()`, `merge_lora()`) until the owner calls `EncoderDecoderModel::gpu_sync_weights()`;
+- doesn't refresh `get_last_attention_weights()`.
+
+`DecoderBlock`'s GPU path also runs only the main cross-attention; the world-model and hippocampal
+instances are CPU-only.
+
+**Fix (November 13, 2026), in `CrossAttention` and `MultiHeadAttention` alike:**
+- **LoRA:** `gpu_forward()`/`gpu_forward_with_cache()` throw `std::logic_error` while adapters are
+  attached (`merge_lora()` first).
+- **Shapes:** the GPU forwards check the input widths (`kv` on a cross-attention cache's filling call
+  only) and the mask's, and `score_bias`'s, exact shape, throwing `std::invalid_argument` before
+  anything changes, a cache included. `gpu_backward()` throws `std::logic_error` without a
+  `gpu_forward()` before it (verified: the old code dereferenced a null `GPUState` and segfaulted) and
+  `std::invalid_argument` for a `dout` of the wrong shape.
+- **Device mirror:** the weight setters, now defined in the `.cpp`, need a `d_model × d_model` matrix
+  (a wrong one would have overflowed the device buffer on upload), and they, the loads,
+  `merge_lora()` and `update_weights()` refresh the mirror through a private `refresh_gpu_mirror()`,
+  as `LayerNorm` does since TD-426. A dirty flag wasn't needed: every CPU-side change that goes
+  through the layer refreshes the mirror at once. The one change that can't be seen from the layer,
+  an optimizer step taken by its owner (the blocks, decoder and model step a shared optimizer
+  themselves, TD-297), is documented in both headers: its owner calls
+  `EncoderDecoderModel::gpu_sync_weights()`. GPU training steps the device copy itself (TD-468).
+- `get_last_attention_weights()` stays CPU-only, documented; `gpu_last_mean_attention_weights()`
+  (TD-342) gives the GPU forward's.
+- `DecoderBlock`'s world-model and hippocampal instances have run on the GPU since TD-342.
+
+Tests: `MultiHeadAttentionSetterTest`, `CrossAttentionSetterTest`, and in a GPU build
+`MultiHeadAttentionGPUContractTest` and `CrossAttentionGPUContractTest` (four each). All ten fail on
+the old code, the two backward tests with a segfault, and pass on the oneAPI CPU device.
+
+Action Items:
+
+- [x] Throw or warn in `gpu_forward()`/`gpu_forward_with_cache()` when `has_lora()`; add the same shape checks as the CPU path.
+- [x] Document (or track) the snapshot contract; consider a dirty flag set by CPU-side weight changes. (Refreshed on every change through the layer; the outside-optimizer case documented.)
+- [x] Run the GPU test package on ai-machine with these tests. (November 14, 2026, package `f19c0aee`: all four
+  `MultiHeadAttentionGPUContractTest` and all four `CrossAttentionGPUContractTest` cases pass on the Arc Pro B60, with the rest of both
+  suites.)
+
+Location in code: `src/CrossAttention.cpp`, `src/MultiHeadAttention.cpp` (`gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()`, the setters, `refresh_gpu_mirror()`; in `CrossAttention` it became `weights_changed()` with TD-300).
+
+Files to Modify:
+
+- `src/CrossAttention.{hpp,cpp}`
+- `src/MultiHeadAttention.cpp`
 
 ### TD-341: World-Model and Hippocampal Gates Never Train in Production
 
@@ -23750,6 +23808,15 @@ notes run oldest first in their own block, and the September notes come last. Wh
 they say was true on their date; the entries above are the current record, and notes about items that are still open stay in the
 Overview.
 
+**November 14, 2026:** The GPU test package's run on ai-machine passed [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path)'s
+eight attention GPU-contract tests on the Arc; TD-301 moved here.
+
+**November 13, 2026:** Fixed [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) in code: the GPU paths of
+`CrossAttention` and `MultiHeadAttention` refuse attached LoRA adapters instead of ignoring them, check widths and mask shapes, and
+refuse `gpu_backward()` without a forward (it segfaulted); weight setters (now shape-checked), loads, `merge_lora()` and
+`update_weights()` keep the device copy of the weights current.
+Needs a run on ai-machine (the package built from `86181ca5`).
+
 **November 14, 2026:** Fixed [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production)'s last item: each decoder
 layer's `tanh(gate)` goes from the trainer through `metrics_api_server` (snapshot, SQLite/PostgreSQL, JSONL) to both dashboards, so a
 stuck world-model or memory gate is visible during training. TD-341 moved here.
@@ -25628,7 +25695,7 @@ TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-
 
 **Tier 24 — Newly filed (October 10, 2026): `CrossAttention`.** [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) is the most important:
 fix it at the model level the way TD-178 fixed `LeJEPAEncoder`, since the same pattern spans every
-layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes (both fixed in code, October 26 and November 13, 2026). [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](../guides/TECHNICAL_DEBT.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
+layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes (both fixed in code, October 26 and November 13, 2026). [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
 [TD-302](../guides/TECHNICAL_DEBT.md#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use (TD-300 and TD-301 fixed in code November 13, 2026); [TD-303](../guides/TECHNICAL_DEBT.md#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
 
 **Tier 25 — Newly filed (October 11, 2026): `DaemonConfigStore` and admin config.** [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout)

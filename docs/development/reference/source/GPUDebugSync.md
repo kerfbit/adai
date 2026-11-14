@@ -70,7 +70,9 @@ losses per minute.
 
 The first run (November 13, 2026) had no device loss under `sync_kernel` and losses in every other
 variant, including `encode_soak`; see TD-574 in TECHNICAL_DEBT.md for the numbers and the crash dumps'
-common signature. See the package's
+common signature. The second run (November 14, 2026) had no device loss under `sync_kernel`, `sync_every_8` or `sync_step`
+(0 in 378 s, about one a minute for the others), losses under `sync_every_64` and `sync_every_512`, and resets in every GPU decode
+attempt, so a wait at least every 8 operations is what stops them. See the package's
 [README](../../../../scripts/sycl_gpu_tests/README.md).
 
 How to read it: if the resets stop under `sync_kernel` or `sync_step`, the long un-waited chains
