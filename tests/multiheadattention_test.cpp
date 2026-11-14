@@ -3,6 +3,7 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <memory>
 #include <random>
@@ -1811,6 +1812,25 @@ TEST(AttentionHookTest, HookCalledOncePerForwardPass) {
     EXPECT_EQ(call_count, 3);
 }
 
+// TD-301: a weight setter needs a [d_model, d_model] matrix; a GPU upload of any other size would
+// write past the device buffer. A refused matrix changes nothing.
+TEST(MultiHeadAttentionSetterTest, SettersRejectTheWrongShapeAndKeepTheOldWeights) {
+    MultiHeadAttention mha(8, 2);
+    const Matrix before = mha.get_Wq();
+    EXPECT_THROW(mha.set_Wq(Matrix(8, 4)), std::invalid_argument);
+    EXPECT_THROW(mha.set_Wk(Matrix(4, 8)), std::invalid_argument);
+    EXPECT_THROW(mha.set_Wv(Matrix(9, 9)), std::invalid_argument);
+    EXPECT_THROW(mha.set_Wo(Matrix()), std::invalid_argument);
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 8; ++j)
+            ASSERT_EQ(mha.get_Wq()(i, j), before(i, j));
+
+    Matrix w(8, 8);
+    w.randomize();
+    mha.set_Wo(w);
+    EXPECT_EQ(mha.get_Wo()(3, 5), w(3, 5));
+}
+
 #ifdef ADAI_ENABLE_GPU
 // ============================================================================
 // GPU Attention-Stats Hook Tests (gpu_forward() path — the fix for the
@@ -1902,6 +1922,132 @@ TEST(MultiHeadAttentionGPUStatsHookTest, HookCalledOncePerForwardPass) {
     mha.gpu_forward(input);
 
     EXPECT_EQ(call_count, 3);
+}
+
+// TD-301: the GPU path refuses a layer with LoRA adapters (it ran the base weights silently),
+// checks shapes as the CPU path does, and keeps its device mirror current when the host weights
+// change.
+namespace {
+// The largest difference, relative to b's largest magnitude (plus 1).
+float max_abs_diff(const Matrix& a, const Matrix& b) {
+    float d = 0.0f, scale = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j) {
+            d = std::max(d, std::fabs(a(i, j) - b(i, j)));
+            scale = std::max(scale, std::fabs(b(i, j)));
+        }
+    return d / (1.0f + scale);
+}
+
+Matrix random_matrix(int rows, int cols) {
+    Matrix m(rows, cols);
+    m.randomize(1.0f);
+    return m;
+}
+}  // namespace
+
+TEST(MultiHeadAttentionGPUContractTest, LoRAIsRefusedUntilMerged) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    MultiHeadAttention mha(16, 4);
+    const Matrix x = random_matrix(5, 16);
+    adai::gpu::GPUMatrix gx = x.to_gpu();
+    mha.gpu_forward(gx);  // the mirror exists before the adapters
+    mha.enable_lora(LoRAConfig{});
+    EXPECT_THROW(mha.gpu_forward(gx), std::logic_error);
+    adai::gpu::GPUKVCache cache(8, 16);
+    EXPECT_THROW(mha.gpu_forward_with_cache(gx, nullptr, &cache), std::logic_error);
+    EXPECT_EQ(cache.size(), 0);
+
+    // Merged, the GPU path runs and gives the adapted output: merge_lora() refreshes the mirror.
+    // Trained a little first, so the adapters change something.
+    for (int step = 0; step < 3; ++step) {
+        mha.forward(x);
+        mha.backward(random_matrix(5, 16));
+        mha.get_lora_q()->update(0.1f);
+        mha.get_lora_o()->update(0.1f);
+    }
+    const Matrix adapted = mha.forward(x);
+    mha.merge_lora();
+    EXPECT_LT(max_abs_diff(Matrix::from_gpu(mha.gpu_forward(gx)), adapted), 1e-4f);
+}
+
+TEST(MultiHeadAttentionGPUContractTest, ShapesAreCheckedBeforeAnythingChanges) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    MultiHeadAttention mha(16, 4);
+    adai::gpu::GPUMatrix narrow = random_matrix(5, 8).to_gpu();
+    EXPECT_THROW(mha.gpu_forward(narrow), std::invalid_argument);
+
+    adai::gpu::GPUMatrix x = random_matrix(5, 16).to_gpu();
+    // Same element count as [5, 5], the old check; the wrong shape.
+    adai::gpu::GPUMatrix flat_mask = Matrix(1, 25).to_gpu();
+    EXPECT_THROW(mha.gpu_forward(x, &flat_mask), std::invalid_argument);
+
+    adai::gpu::GPUKVCache cache(8, 16);
+    adai::gpu::GPUMatrix one = random_matrix(1, 16).to_gpu();
+    adai::gpu::GPUMatrix wrong_mask = Matrix(1, 3).to_gpu();  // the cache will hold 1, not 3
+    EXPECT_THROW(mha.gpu_forward_with_cache(one, &wrong_mask, &cache), std::invalid_argument);
+    EXPECT_EQ(cache.size(), 0);
+    Matrix ones(1, 1);
+    ones(0, 0) = 1.0f;
+    adai::gpu::GPUMatrix right_mask = ones.to_gpu();
+    EXPECT_NO_THROW(mha.gpu_forward_with_cache(one, &right_mask, &cache));
+    EXPECT_EQ(cache.size(), 1);
+}
+
+TEST(MultiHeadAttentionGPUContractTest, BackwardNeedsAForwardOfTheSameShape) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    MultiHeadAttention mha(16, 4);
+    adai::gpu::GPUMatrix dout = random_matrix(5, 16).to_gpu();
+    EXPECT_THROW(mha.gpu_backward(dout), std::logic_error);  // used to dereference null
+
+    adai::gpu::GPUMatrix x = random_matrix(5, 16).to_gpu();
+    mha.gpu_forward(x);
+    adai::gpu::GPUMatrix wrong = random_matrix(4, 16).to_gpu();
+    EXPECT_THROW(mha.gpu_backward(wrong), std::invalid_argument);
+    EXPECT_NO_THROW(mha.gpu_backward(dout));
+}
+
+TEST(MultiHeadAttentionGPUContractTest, HostWeightChangesReachTheDeviceMirror) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    MultiHeadAttention mha(16, 4);
+    const Matrix x = random_matrix(5, 16);
+    adai::gpu::GPUMatrix gx = x.to_gpu();
+    mha.gpu_forward(gx);  // creates the mirror
+    auto gpu_matches_cpu = [&] {
+        return max_abs_diff(Matrix::from_gpu(mha.gpu_forward(gx)), mha.forward(x)) < 1e-4f;
+    };
+
+    mha.set_Wq(random_matrix(16, 16));
+    mha.set_Wo(random_matrix(16, 16));
+    EXPECT_TRUE(gpu_matches_cpu()) << "setters";
+
+    const std::string path = "td301_mha_weights.bin";
+    MultiHeadAttention other(16, 4);
+    other.save_weights(path);
+    mha.load_weights(path);
+    std::remove(path.c_str());
+    EXPECT_TRUE(gpu_matches_cpu()) << "load_weights";
+
+    mha.forward(x);  // the CPU step without an optimizer: plain SGD
+    mha.backward(random_matrix(5, 16));
+    mha.update_weights();
+    EXPECT_TRUE(gpu_matches_cpu()) << "update_weights";
 }
 #endif  // ADAI_ENABLE_GPU
 

@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -2247,6 +2248,163 @@ TEST(CrossAttentionPersistenceTest, TruncatedOrEmptyFileThrowsAndLeavesTheLayerU
     EXPECT_EQ(layer.get_Wo()(5, 9), saved.get_Wo()(5, 9));
     std::filesystem::remove(path);
 }
+
+// TD-301: a weight setter needs a [d_model, d_model] matrix; a GPU upload of any other size would
+// write past the device buffer. A refused matrix changes nothing.
+TEST(CrossAttentionSetterTest, SettersRejectTheWrongShapeAndKeepTheOldWeights) {
+    CrossAttention ca(8, 2);
+    const Matrix before = ca.get_Wk();
+    EXPECT_THROW(ca.set_Wq(Matrix(8, 4)), std::invalid_argument);
+    EXPECT_THROW(ca.set_Wk(Matrix(4, 8)), std::invalid_argument);
+    EXPECT_THROW(ca.set_Wv(Matrix(9, 9)), std::invalid_argument);
+    EXPECT_THROW(ca.set_Wo(Matrix()), std::invalid_argument);
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 8; ++j)
+            ASSERT_EQ(ca.get_Wk()(i, j), before(i, j));
+
+    Matrix w(8, 8);
+    w.randomize();
+    ca.set_Wv(w);
+    EXPECT_EQ(ca.get_Wv()(2, 7), w(2, 7));
+}
+
+#ifdef ADAI_ENABLE_GPU
+// TD-301: the GPU path refuses a layer with LoRA adapters (it ran the base weights silently),
+// checks shapes as the CPU path does, and keeps its device mirror current when the host weights
+// change.
+namespace {
+// The largest difference, relative to b's largest magnitude (plus 1).
+float ca_max_abs_diff(const Matrix& a, const Matrix& b) {
+    float d = 0.0f, scale = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j) {
+            d = std::max(d, std::fabs(a(i, j) - b(i, j)));
+            scale = std::max(scale, std::fabs(b(i, j)));
+        }
+    return d / (1.0f + scale);
+}
+
+Matrix ca_random(int rows, int cols) {
+    Matrix m(rows, cols);
+    m.randomize(1.0f);
+    return m;
+}
+}  // namespace
+
+TEST(CrossAttentionGPUContractTest, LoRAIsRefusedUntilMerged) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    CrossAttention ca(16, 4);
+    const Matrix q = ca_random(3, 16);
+    const Matrix kv = ca_random(6, 16);
+    adai::gpu::GPUMatrix gq = q.to_gpu();
+    adai::gpu::GPUMatrix gkv = kv.to_gpu();
+    ca.gpu_forward(gq, gkv);  // the mirror exists before the adapters
+    ca.enable_lora(LoRAConfig{});
+    EXPECT_THROW(ca.gpu_forward(gq, gkv), std::logic_error);
+    adai::gpu::GPUKVCache cache(8, 16);
+    EXPECT_THROW(ca.gpu_forward_with_cache(gq, gkv, nullptr, &cache), std::logic_error);
+    EXPECT_TRUE(cache.is_empty());
+
+    // Merged, the GPU path gives the adapted output: merge_lora() refreshes the mirror.
+    for (int step = 0; step < 3; ++step) {
+        ca.forward(q, kv);
+        Matrix dq, dkv;
+        ca.backward(ca_random(3, 16), dq, dkv);
+        ca.get_lora_q()->update(0.1f);
+        ca.get_lora_k()->update(0.1f);
+        ca.get_lora_o()->update(0.1f);
+    }
+    const Matrix adapted = ca.forward(q, kv);
+    ca.merge_lora();
+    EXPECT_LT(ca_max_abs_diff(Matrix::from_gpu(ca.gpu_forward(gq, gkv)), adapted), 1e-4f);
+}
+
+TEST(CrossAttentionGPUContractTest, ShapesAreChecked) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    CrossAttention ca(16, 4);
+    adai::gpu::GPUMatrix q = ca_random(3, 16).to_gpu();
+    adai::gpu::GPUMatrix kv = ca_random(6, 16).to_gpu();
+    adai::gpu::GPUMatrix narrow = ca_random(6, 8).to_gpu();
+    EXPECT_THROW(ca.gpu_forward(narrow, kv), std::invalid_argument);
+    EXPECT_THROW(ca.gpu_forward(q, narrow), std::invalid_argument);
+    // Same element count as [3, 6], the old check; the wrong shape.
+    adai::gpu::GPUMatrix flat = Matrix(6, 3).to_gpu();
+    EXPECT_THROW(ca.gpu_forward(q, kv, &flat), std::invalid_argument);
+    EXPECT_THROW(ca.gpu_forward(q, kv, nullptr, &flat), std::invalid_argument);  // score_bias
+
+    adai::gpu::GPUKVCache cache(8, 16);
+    adai::gpu::GPUMatrix one = ca_random(1, 16).to_gpu();
+    adai::gpu::GPUMatrix wrong_mask = Matrix(1, 5).to_gpu();
+    EXPECT_THROW(ca.gpu_forward_with_cache(one, kv, &wrong_mask, &cache), std::invalid_argument);
+    EXPECT_TRUE(cache.is_empty());
+    EXPECT_THROW(ca.gpu_forward_with_cache(one, narrow, nullptr, &cache), std::invalid_argument);
+    EXPECT_NO_THROW(ca.gpu_forward_with_cache(one, kv, nullptr, &cache));
+    EXPECT_EQ(cache.size(), 6);
+    // kv isn't read once the cache is filled, so its width doesn't matter then.
+    EXPECT_NO_THROW(ca.gpu_forward_with_cache(one, narrow, nullptr, &cache));
+}
+
+TEST(CrossAttentionGPUContractTest, BackwardNeedsAForwardOfTheSameShape) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    CrossAttention ca(16, 4);
+    adai::gpu::GPUMatrix dout = ca_random(3, 16).to_gpu();
+    EXPECT_THROW(ca.gpu_backward(dout), std::logic_error);  // used to dereference null
+
+    adai::gpu::GPUMatrix q = ca_random(3, 16).to_gpu();
+    adai::gpu::GPUMatrix kv = ca_random(6, 16).to_gpu();
+    ca.gpu_forward(q, kv);
+    adai::gpu::GPUMatrix wrong = ca_random(6, 16).to_gpu();
+    EXPECT_THROW(ca.gpu_backward(wrong), std::invalid_argument);
+    EXPECT_NO_THROW(ca.gpu_backward(dout));
+}
+
+TEST(CrossAttentionGPUContractTest, HostWeightChangesReachTheDeviceMirror) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    CrossAttention ca(16, 4);
+    const Matrix q = ca_random(3, 16);
+    const Matrix kv = ca_random(6, 16);
+    adai::gpu::GPUMatrix gq = q.to_gpu();
+    adai::gpu::GPUMatrix gkv = kv.to_gpu();
+    ca.gpu_forward(gq, gkv);  // creates the mirror
+    auto gpu_matches_cpu = [&] {
+        return ca_max_abs_diff(Matrix::from_gpu(ca.gpu_forward(gq, gkv)), ca.forward(q, kv)) <
+               1e-4f;
+    };
+
+    ca.set_Wk(ca_random(16, 16));
+    ca.set_Wv(ca_random(16, 16));
+    EXPECT_TRUE(gpu_matches_cpu()) << "setters";
+
+    const std::string path = "td301_cross_attention.bin";
+    CrossAttention other(16, 4);
+    other.save(path);
+    ca.load(path);
+    std::remove(path.c_str());
+    EXPECT_TRUE(gpu_matches_cpu()) << "load";
+
+    ca.forward(q, kv);  // the CPU step without an optimizer: plain SGD
+    Matrix dq, dkv;
+    ca.backward(ca_random(3, 16), dq, dkv);
+    ca.update_weights();
+    EXPECT_TRUE(gpu_matches_cpu()) << "update_weights";
+}
+#endif  // ADAI_ENABLE_GPU
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

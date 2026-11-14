@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050, TD-300, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.5
+// @adai-status: beta        (capped by TD-050, TD-300 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-11-13
 
 #include "CrossAttention.hpp"
@@ -30,6 +30,19 @@ int checked_head_dim(int d_model, int num_heads) {
                                     std::to_string(num_heads) + ")");
     }
     return d_model / num_heads;
+}
+
+std::string shape(int rows, int cols) {
+    return "[" + std::to_string(rows) + ", " + std::to_string(cols) + "]";
+}
+
+// TD-301: a weight setter's matrix must be [d_model, d_model]; a GPU upload of any other size would
+// write past the device buffer.
+void require_square(const Matrix& m, int d_model, const char* what) {
+    if (m.rows != d_model || m.cols != d_model) {
+        throw std::invalid_argument(std::string("CrossAttention::") + what + ": expected " +
+                                    shape(d_model, d_model) + ", got " + shape(m.rows, m.cols));
+    }
 }
 
 }  // namespace
@@ -577,6 +590,7 @@ void CrossAttention::update_weights() {
 
     // Zero gradients after update
     zero_grad();
+    refresh_gpu_mirror();  // TD-301
 }
 
 void CrossAttention::zero_grad() {
@@ -654,6 +668,42 @@ void CrossAttention::merge_lora() {
         W_o = lora_o_->merge_with_base(W_o);
         lora_o_.reset();
     }
+    refresh_gpu_mirror();  // TD-301
+}
+
+// TD-301: every CPU-side weight change reaches the device mirror, when there is one; the GPU path
+// used to keep running the old weights until the owner called
+// EncoderDecoderModel::gpu_sync_weights().
+void CrossAttention::set_Wq(const Matrix& m) {
+    require_square(m, d_model, "set_Wq");
+    W_q = m;
+    refresh_gpu_mirror();
+}
+
+void CrossAttention::set_Wk(const Matrix& m) {
+    require_square(m, d_model, "set_Wk");
+    W_k = m;
+    refresh_gpu_mirror();
+}
+
+void CrossAttention::set_Wv(const Matrix& m) {
+    require_square(m, d_model, "set_Wv");
+    W_v = m;
+    refresh_gpu_mirror();
+}
+
+void CrossAttention::set_Wo(const Matrix& m) {
+    require_square(m, d_model, "set_Wo");
+    W_o = m;
+    refresh_gpu_mirror();
+}
+
+void CrossAttention::refresh_gpu_mirror() {
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_) {
+        gpu_upload_weights();
+    }
+#endif
 }
 
 // TODO: See TD-302 in TECHNICAL_DEBT.md - excludes LoRA adapter gradients
@@ -718,6 +768,7 @@ void CrossAttention::load(const std::string& filepath) {
     W_k = std::move(k);
     W_v = std::move(v);
     W_o = std::move(o);
+    refresh_gpu_mirror();  // TD-301
 }
 
 #ifdef ADAI_ENABLE_GPU
@@ -807,13 +858,45 @@ void ca_gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
             src.device_ptr() + i * src.cols, dst.device_ptr() + i * dst.cols + start, src.cols);
     }
 }
+
+// TD-301: the GPU path runs only the base weights, so it refuses a layer with LoRA adapters (it
+// used to run without them, silently), and it checks shapes as the CPU path does (a mask was only
+// checked by its element count).
+void ca_check_gpu_lora(const char* what, bool has_lora) {
+    if (has_lora) {
+        throw std::logic_error(std::string("CrossAttention::") + what +
+                               ": the GPU path doesn't apply LoRA adapters; merge_lora() first or "
+                               "use the CPU path");
+    }
+}
+
+void ca_check_gpu_width(const char* what, const char* name, const adai::gpu::GPUMatrix& m,
+                        int d_model) {
+    if (m.cols != d_model) {
+        throw std::invalid_argument(std::string("CrossAttention::") + what + ": " + name + " is " +
+                                    shape(m.rows, m.cols) + ", expected width " +
+                                    std::to_string(d_model));
+    }
+}
+
+void ca_check_gpu_shape(const char* what, const char* name, const adai::gpu::GPUMatrix* m, int rows,
+                        int cols) {
+    if (m != nullptr && (m->rows != rows || m->cols != cols)) {
+        throw std::invalid_argument(std::string("CrossAttention::") + what + ": " + name + " is " +
+                                    shape(m->rows, m->cols) + ", expected " + shape(rows, cols));
+    }
+}
 }  // namespace
 
-// TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation
 adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& query,
                                                  const adai::gpu::GPUMatrix& kv,
                                                  const adai::gpu::GPUMatrix* mask,
                                                  const adai::gpu::GPUMatrix* score_bias) {
+    ca_check_gpu_lora("gpu_forward", has_lora());
+    ca_check_gpu_width("gpu_forward", "query", query, d_model);
+    ca_check_gpu_width("gpu_forward", "kv", kv, d_model);
+    ca_check_gpu_shape("gpu_forward", "mask", mask, query.rows, kv.rows);
+    ca_check_gpu_shape("gpu_forward", "score_bias", score_bias, query.rows, kv.rows);
     if (!gpu_)
         gpu_upload_weights();
     const int tgt = query.rows;
@@ -887,7 +970,6 @@ Matrix CrossAttention::gpu_last_mean_attention_weights() const {
     return mean;
 }
 
-// TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation
 adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPUMatrix& query,
                                                             const adai::gpu::GPUMatrix& kv,
                                                             const adai::gpu::GPUMatrix* mask,
@@ -896,6 +978,13 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPU
     if (!use_cache || kv_cache == nullptr) {
         return gpu_forward(query, kv, mask);
     }
+    ca_check_gpu_lora("gpu_forward_with_cache", has_lora());
+    ca_check_gpu_width("gpu_forward_with_cache", "query", query, d_model);
+    if (kv_cache->is_empty()) {
+        ca_check_gpu_width("gpu_forward_with_cache", "kv", kv, d_model);  // read only to fill
+    }
+    ca_check_gpu_shape("gpu_forward_with_cache", "mask", mask, query.rows,
+                       kv_cache->is_empty() ? kv.rows : kv_cache->size());
     if (!gpu_)
         gpu_upload_weights();
 
@@ -942,6 +1031,15 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPU
 
 std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> CrossAttention::gpu_backward(
     const adai::gpu::GPUMatrix& dout) {
+    // TD-301: it reads what the last gpu_forward() cached (it used to dereference a null state).
+    if (!gpu_ || gpu_->cached_head_weights.size() != static_cast<size_t>(num_heads)) {
+        throw std::logic_error("CrossAttention::gpu_backward: no gpu_forward() to go back through");
+    }
+    if (dout.rows != gpu_->cached_Q.rows || dout.cols != d_model) {
+        throw std::invalid_argument("CrossAttention::gpu_backward: dout is " +
+                                    shape(dout.rows, dout.cols) + ", expected " +
+                                    shape(gpu_->cached_Q.rows, d_model));
+    }
     const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
 
     gpu_->dWo.add_inplace(gpu_->cached_attn_out.transpose() * dout);

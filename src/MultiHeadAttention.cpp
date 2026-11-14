@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-11-13
 
 #include "MultiHeadAttention.hpp"
@@ -33,6 +33,19 @@ int checked_head_dim(int d_model, int num_heads) {
                                     std::to_string(num_heads) + ")");
     }
     return d_model / num_heads;
+}
+
+std::string shape(int rows, int cols) {
+    return "[" + std::to_string(rows) + ", " + std::to_string(cols) + "]";
+}
+
+// TD-301: a weight setter's matrix must be [d_model, d_model]; a GPU upload of any other size would
+// write past the device buffer.
+void require_square(const Matrix& m, int d_model, const char* what) {
+    if (m.rows != d_model || m.cols != d_model) {
+        throw std::invalid_argument(std::string("MultiHeadAttention::") + what + ": expected " +
+                                    shape(d_model, d_model) + ", got " + shape(m.rows, m.cols));
+    }
 }
 
 }  // namespace
@@ -531,6 +544,7 @@ void MultiHeadAttention::update_weights() {
 
     // Zero gradients after update
     zero_grad();
+    refresh_gpu_mirror();  // TD-301
 }
 
 void MultiHeadAttention::zero_grad() {
@@ -607,6 +621,42 @@ void MultiHeadAttention::merge_lora() {
         W_o = lora_o_->merge_with_base(W_o);
         lora_o_.reset();
     }
+    refresh_gpu_mirror();  // TD-301
+}
+
+// TD-301: every CPU-side weight change reaches the device mirror, when there is one; the GPU path
+// used to keep running the old weights until the owner called
+// EncoderDecoderModel::gpu_sync_weights().
+void MultiHeadAttention::set_Wq(const Matrix& m) {
+    require_square(m, d_model, "set_Wq");
+    W_q = m;
+    refresh_gpu_mirror();
+}
+
+void MultiHeadAttention::set_Wk(const Matrix& m) {
+    require_square(m, d_model, "set_Wk");
+    W_k = m;
+    refresh_gpu_mirror();
+}
+
+void MultiHeadAttention::set_Wv(const Matrix& m) {
+    require_square(m, d_model, "set_Wv");
+    W_v = m;
+    refresh_gpu_mirror();
+}
+
+void MultiHeadAttention::set_Wo(const Matrix& m) {
+    require_square(m, d_model, "set_Wo");
+    W_o = m;
+    refresh_gpu_mirror();
+}
+
+void MultiHeadAttention::refresh_gpu_mirror() {
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_) {
+        gpu_upload_weights();
+    }
+#endif
 }
 
 void MultiHeadAttention::print_config(const std::string& name) const {
@@ -653,6 +703,7 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
     W_k = std::move(k);
     W_v = std::move(v);
     W_o = std::move(o);
+    refresh_gpu_mirror();  // TD-301
     adai::Logger::debug("Loaded MultiHeadAttention weights from {}", filename);
 }
 
@@ -787,10 +838,36 @@ void gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
             src.device_ptr() + i * src.cols, dst.device_ptr() + i * dst.cols + start, src.cols);
     }
 }
+// TD-301: the GPU path runs only the base weights, so it refuses a layer with LoRA adapters (it
+// used to run without them, silently), and it checks shapes as the CPU path does (a mask was only
+// checked by its element count).
+void check_gpu_input(const char* what, bool has_lora, const adai::gpu::GPUMatrix& input,
+                     int d_model) {
+    if (has_lora) {
+        throw std::logic_error(std::string("MultiHeadAttention::") + what +
+                               ": the GPU path doesn't apply LoRA adapters; merge_lora() first or "
+                               "use the CPU path");
+    }
+    if (input.cols != d_model) {
+        throw std::invalid_argument(std::string("MultiHeadAttention::") + what + ": input is " +
+                                    shape(input.rows, input.cols) + ", expected width " +
+                                    std::to_string(d_model));
+    }
+}
+
+void check_gpu_mask(const char* what, const adai::gpu::GPUMatrix* mask, int rows, int cols) {
+    if (mask != nullptr && (mask->rows != rows || mask->cols != cols)) {
+        throw std::invalid_argument(std::string("MultiHeadAttention::") + what + ": mask is " +
+                                    shape(mask->rows, mask->cols) + ", expected " +
+                                    shape(rows, cols));
+    }
+}
 }  // namespace
 
 adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix& input,
                                                      const adai::gpu::GPUMatrix* mask) {
+    check_gpu_input("gpu_forward", has_lora(), input, d_model);
+    check_gpu_mask("gpu_forward", mask, input.rows, input.rows);
     if (!gpu_)
         gpu_upload_weights();
     const int seq = input.rows;
@@ -870,6 +947,8 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward_with_cache(const adai::gpu:
     if (!use_cache || kv_cache == nullptr) {
         return gpu_forward(input, mask);
     }
+    check_gpu_input("gpu_forward_with_cache", has_lora(), input, d_model);
+    check_gpu_mask("gpu_forward_with_cache", mask, input.rows, kv_cache->size() + input.rows);
     if (!gpu_)
         gpu_upload_weights();
 
@@ -915,6 +994,16 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward_with_cache(const adai::gpu:
 }
 
 adai::gpu::GPUMatrix MultiHeadAttention::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    // TD-301: it reads what the last gpu_forward() cached (it used to dereference a null state).
+    if (!gpu_ || gpu_->cached_head_weights.size() != static_cast<size_t>(num_heads)) {
+        throw std::logic_error(
+            "MultiHeadAttention::gpu_backward: no gpu_forward() to go back through");
+    }
+    if (dout.rows != gpu_->cached_Q.rows || dout.cols != d_model) {
+        throw std::invalid_argument("MultiHeadAttention::gpu_backward: dout is " +
+                                    shape(dout.rows, dout.cols) + ", expected " +
+                                    shape(gpu_->cached_Q.rows, d_model));
+    }
     const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
 
     // dW_o += attn_out^T * dout

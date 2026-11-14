@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.1
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-11-13
 
 #include <functional>
@@ -64,8 +64,16 @@
  * TD-038 (September 13, 2026): LoRA adapters (see enable_lora() below) are applied only on
  * this CPU path (forward()/forward_parallel()/forward_with_cache()/backward()) — the separate
  * gpu_forward()/gpu_backward() persistent-residency path (TD-033's decode route) does not
- * apply them. Enabling LoRA while a caller uses that GPU path silently runs the unmodified
- * base weights instead; not currently guarded against here.
+ * apply them. Since TD-301 (November 13, 2026) gpu_forward()/gpu_forward_with_cache() throw
+ * std::logic_error while adapters are attached (they used to run the base weights silently);
+ * merge_lora() first to use the GPU path.
+ *
+ * TD-301, the device mirror: gpu_forward() uploads the weights on its first call and keeps them on
+ * the device. The setters, load_weights(), merge_lora() and update_weights() update that mirror;
+ * an optimizer step taken elsewhere (the blocks, encoder, decoder and model step their optimizer
+ * themselves) doesn't, so its owner calls EncoderDecoderModel::gpu_sync_weights() before using the
+ * GPU path again. During GPU training the mirror is the live copy and the host weights catch up
+ * through gpu_download_weights(). get_attention_weights() reflects CPU forwards only.
  */
 /// Callback invoked after softmax in every forward() pass, receiving the
 /// attention weight matrix [seq_len × seq_len].
@@ -135,6 +143,9 @@ class MultiHeadAttention {
     // GPU-path equivalent, fired after softmax in gpu_forward() (see GPUAttentionStatsHookFn).
     GPUAttentionStatsHookFn gpu_attention_stats_hook_;
 #endif
+
+    // TD-301: uploads W_q/W_k/W_v/W_o to the device mirror, when there is one.
+    void refresh_gpu_mirror();
 
    public:
     float learning_rate{0.001f};  // Learning rate for weight updates
@@ -359,18 +370,12 @@ class MultiHeadAttention {
     const Matrix& get_Wo() const {
         return W_o;
     }
-    void set_Wq(const Matrix& m) {
-        W_q = m;
-    }
-    void set_Wk(const Matrix& m) {
-        W_k = m;
-    }
-    void set_Wv(const Matrix& m) {
-        W_v = m;
-    }
-    void set_Wo(const Matrix& m) {
-        W_o = m;
-    }
+    // TD-301: each needs a [d_model, d_model] matrix (std::invalid_argument otherwise) and also
+    // updates the device mirror, when there is one.
+    void set_Wq(const Matrix& m);
+    void set_Wk(const Matrix& m);
+    void set_Wv(const Matrix& m);
+    void set_Wo(const Matrix& m);
 
     /**
      * Save weights to file
@@ -495,8 +500,11 @@ class MultiHeadAttention {
     void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
+    // TD-301: input must be [seq, d_model] and mask [seq, seq]; std::logic_error with LoRA
+    // attached.
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
                                      const adai::gpu::GPUMatrix* mask = nullptr);
+    // TD-301: needs a gpu_forward() first (std::logic_error) and dout [seq, d_model].
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
 
     /**
@@ -510,7 +518,9 @@ class MultiHeadAttention {
      *
      * @param input New-token(s) input [num_new_tokens, d_model] (typically 1 row during
      *   generation)
-     * @param mask Optional mask, shape [num_new_tokens, total_seq_len_after_append]
+     * @param mask Optional mask, shape [num_new_tokens, total_seq_len_after_append]; any other
+     *   shape, an input not d_model wide, or attached LoRA adapters throw before the cache changes
+     *   (TD-301)
      * @param kv_cache Cache to append to and read from; nullptr or use_cache=false falls back
      *   to plain gpu_forward()
      * @param use_cache Whether to actually use/update the cache

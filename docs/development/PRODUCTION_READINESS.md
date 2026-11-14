@@ -200,8 +200,8 @@ None — every in-scope file carries a tag.
 | `src/ChildProcess.hpp` | beta | 0.6.0 | 2026-11-10 | — |
 | `src/ConversationFormat.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ConversationFormat.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/CrossAttention.cpp` | beta | 0.15.5 | 2026-11-13 | TD-050 |
-| `src/CrossAttention.hpp` | beta | 0.15.1 | 2026-11-13 | TD-050 |
+| `src/CrossAttention.cpp` | beta | 0.16.0 | 2026-11-13 | TD-050 |
+| `src/CrossAttention.hpp` | beta | 0.16.0 | 2026-11-13 | TD-050 |
 | `src/Decoder.cpp` | beta | 0.19.1 | 2026-11-10 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.19.0 | 2026-11-10 | TD-050 |
 | `src/Dropout.cpp` | beta | 0.1.1 | 2026-11-10 | — |
@@ -236,8 +236,8 @@ None — every in-scope file carries a tag.
 | `src/MnsCliCommands.hpp` | beta | 0.5.0 | 2026-11-10 | — |
 | `src/MnsServerArgs.cpp` | beta | 0.2.0 | 2026-11-10 | — |
 | `src/MnsServerArgs.hpp` | beta | 0.2.0 | 2026-11-10 | — |
-| `src/MultiHeadAttention.cpp` | beta | 0.14.0 | 2026-11-13 | TD-050 |
-| `src/MultiHeadAttention.hpp` | beta | 0.13.1 | 2026-11-13 | TD-050 |
+| `src/MultiHeadAttention.cpp` | beta | 0.15.0 | 2026-11-13 | TD-050 |
+| `src/MultiHeadAttention.hpp` | beta | 0.14.0 | 2026-11-13 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.4.0 | 2026-09-13 | TD-038 |
 | `src/PassHeartbeat.cpp` | beta | 0.1.0 | 2026-11-11 | — |
 | `src/PassHeartbeat.hpp` | beta | 0.1.0 | 2026-11-11 | — |

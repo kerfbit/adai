@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050, TD-300, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.1
+// @adai-status: beta        (capped by TD-050, TD-300 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-11-13
 
 #include <memory>
@@ -58,9 +58,14 @@
  *
  * TD-038 (September 13, 2026): LoRA adapters (see enable_lora() below) are applied only on
  * this CPU path (forward()/forward_with_cache()/backward()) — the separate
- * gpu_forward()/gpu_backward() persistent-residency path does not apply them. Enabling LoRA
- * while a caller uses that GPU path silently runs the unmodified base weights instead; not
- * currently guarded against here. See MultiHeadAttention.hpp's identical note.
+ * gpu_forward()/gpu_backward() persistent-residency path does not apply them. Since TD-301
+ * (November 13, 2026) gpu_forward()/gpu_forward_with_cache() throw std::logic_error while adapters
+ * are attached (they used to run the base weights silently); merge_lora() first.
+ *
+ * TD-301, the device mirror: as MultiHeadAttention's (see its class comment). The setters, load(),
+ * merge_lora() and update_weights() update it; an optimizer step taken elsewhere needs
+ * EncoderDecoderModel::gpu_sync_weights(). get_last_attention_weights() reflects CPU forwards
+ * only; gpu_last_mean_attention_weights() gives the last gpu_forward()'s.
  */
 class CrossAttention {
    private:
@@ -107,6 +112,9 @@ class CrossAttention {
     std::unique_ptr<LoRAAdapter> lora_k_;
     std::unique_ptr<LoRAAdapter> lora_v_;
     std::unique_ptr<LoRAAdapter> lora_o_;
+
+    // TD-301: uploads W_q/W_k/W_v/W_o to the device mirror, when there is one.
+    void refresh_gpu_mirror();
 
    public:
     float learning_rate{
@@ -298,18 +306,12 @@ class CrossAttention {
     const Matrix& get_Wo() const {
         return W_o;
     }
-    void set_Wq(const Matrix& m) {
-        W_q = m;
-    }
-    void set_Wk(const Matrix& m) {
-        W_k = m;
-    }
-    void set_Wv(const Matrix& m) {
-        W_v = m;
-    }
-    void set_Wo(const Matrix& m) {
-        W_o = m;
-    }
+    // TD-301: each needs a [d_model, d_model] matrix (std::invalid_argument otherwise) and also
+    // updates the device mirror, when there is one.
+    void set_Wq(const Matrix& m);
+    void set_Wk(const Matrix& m);
+    void set_Wv(const Matrix& m);
+    void set_Wo(const Matrix& m);
 
     /**
      * Save model weights to file
@@ -412,7 +414,8 @@ class CrossAttention {
     void gpu_zero_grads();
     // Returns attention output; query from decoder, kv from encoder. score_bias ([tgt, src], same
     // for every head, added after scaling and before the mask, as forward_with_scores()) is the
-    // hippocampal path's coverage/cross-reference bias (TD-342).
+    // hippocampal path's coverage/cross-reference bias (TD-342). TD-301: query and kv must be
+    // d_model wide, mask and score_bias [tgt, src]; std::logic_error with LoRA attached.
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& query,
                                      const adai::gpu::GPUMatrix& kv,
                                      const adai::gpu::GPUMatrix* mask = nullptr,
@@ -421,7 +424,8 @@ class CrossAttention {
     /// ([tgt, src], as get_last_attention_weights()). The hippocampal coverage update needs them
     /// on the host; small (query rows × memory slots).
     Matrix gpu_last_mean_attention_weights() const;
-    // Returns {d_query, d_kv}
+    // Returns {d_query, d_kv}. TD-301: needs a gpu_forward() first (std::logic_error) and dout
+    // [tgt, d_model].
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
 
@@ -438,7 +442,9 @@ class CrossAttention {
      *
      * @param query New decoder-token(s) query input [num_new_tokens, d_model]
      * @param kv Raw encoder output [encoder_seq_len, d_model] — read only when kv_cache is empty
-     * @param mask Optional mask, shape [num_new_tokens, encoder_seq_len]
+     * @param mask Optional mask, shape [num_new_tokens, encoder_seq_len]; any other shape, a
+     *   query (or, on the first call, a kv) not d_model wide, or attached LoRA adapters throw
+     *   (TD-301)
      * @param kv_cache Cache holding the one-time-computed encoder K/V; nullptr or
      *   use_cache=false falls back to plain gpu_forward()
      * @param use_cache Whether to actually use the cache
