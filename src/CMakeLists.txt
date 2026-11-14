@@ -1031,4 +1031,7 @@ if(ENABLE_GPU OR ENABLE_SYCL)
     add_executable(gpu_encode_soak ../benchmarks/GpuEncodeSoak.cpp)
     target_link_libraries(gpu_encode_soak adai_lejepa adai_nlp adai_core)
     target_include_directories(gpu_encode_soak PRIVATE ${CMAKE_SOURCE_DIR}/external)  # nlohmann/json
+    # TD-050/TD-033: GPU KV-cached decode validated and timed against full recompute and the CPU.
+    add_executable(gpu_decode_bench ../benchmarks/GpuDecodeBenchmark.cpp)
+    target_link_libraries(gpu_decode_bench adai_models adai_nlp adai_core)
 endif()

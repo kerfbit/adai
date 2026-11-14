@@ -18,6 +18,13 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 13, 2026:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) and
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode): added `gpu_decode_bench` to the GPU
+test package. It checks the GPU KV-cached decode step by step against the GPU full recompute it replaced, then times both, the CPU
+cache, and the CPU with each large multiply sent to the GPU (`chatbot_api_server` before TD-033), for 50 and 100 tokens at a small
+shape and at `config.trainer.conf`'s architecture. The cached GPU decode already matched the CPU on ai-machine's Arc on November 10
+and 12 (`EncoderDecoderGPUTest`). Needs a run on ai-machine.
+
 **November 13, 2026:** Fixed [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads),
 [TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) and
 [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) in code: `LayerNorm`'s setters, `forward()`, `backward()`
@@ -1730,9 +1737,10 @@ assumption was removed), and the GPU-resident cache itself is designed and imple
 day — `GPUKVCache`/`GPUDecoderKVCache` plus incremental `gpu_forward_with_cache()`/
 `gpu_decode_step()` methods throughout the attention/decoder stack, built entirely from
 already-verified primitives (no new kernels), compile-verified under both the `gpu` and `sycl`
-presets. What remains is purely the on-device numeric validation and latency benchmark — both
-blocked on real GPU hardware not available in this environment, same as TD-033's own remaining
-item.
+presets. What remains is the direct check against the GPU full recompute and the latency
+benchmark, both in `gpu_decode_bench` in the GPU test package since November 13, 2026 (the cache
+already matches the CPU on ai-machine's Arc), which needs a run on ai-machine; the same run gives
+TD-033's before/after.
 
 **Tier 6 — Process, not code:** [TD-047](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)'s
 remaining items are cutting the first real Android release (small, whenever desired) and
@@ -2864,7 +2872,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); correctness validation and benchmark blocked on real GPU hardware | GPU / Inference / Training | July 4, 2026 | 4-6 hours (revised down again — only the hardware-blocked validation/benchmark remain) |
+| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench` packaged November 13, 2026 for the direct check against GPU full recompute and the benchmark, which need a run on ai-machine | GPU / Inference / Training | July 4, 2026 | Only an ai-machine run and reading its results remain |
 
 Description:
 The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU.
@@ -2977,6 +2985,38 @@ already proved, not by new, unverifiable kernel code.
   the two safe, non-cached paths are deterministic and must agree). Full `ctest` suite: 129/129
   passing.
 
+**Update (November 13, 2026): validation and benchmark packaged.** The hardware block is gone:
+ai-machine's Arc Pro B60 has run the GPU test package since November 10, 2026, and its
+`EncoderDecoderGPUTest` cases already cover this cache on the device. `CachedGpuDecodeMatchesCpuOverALongGeneration`
+(TD-388: 20 greedy tokens, 2+2 layers, 4 heads) and `GpuAndCpuGenerationAgree` (TD-362) passed there
+on November 10 and November 12, 2026: the GPU KV-cached decode gives the same tokens as the CPU,
+whose cache was itself checked against full recompute (September 14 above). What the tests don't
+do is compare the GPU cache directly with the GPU full recompute it replaced, or time anything.
+`benchmarks/GpuDecodeBenchmark.cpp` (`gpu_decode_bench`, GPU builds only) does both, on a randomly
+initialized `EncoderDecoderModel` decoding greedily with no stop tokens:
+
+- **Validation:** the GPU cache (`gpu_decode_step()` with one `GPUDecoderKVCache`), the GPU full
+  recompute (`gpu_decode()` every step) and the CPU cache (`forward_with_cache()` under
+  `ScopedCpuOnly`) run in lockstep on the full recompute's tokens. At every step the cache's
+  last-row logits must be within 1e-3 × (1 + the largest |logit|) of the full recompute's and pick
+  the same token; a different pick is allowed only at a near tie (the top two logits closer than
+  twice the difference). Checked against two deliberately broken caches on the oneAPI CPU device:
+  one that re-feeds tokens overflows the cache and fails; one that forgets its history (logits
+  1.7 apart, 8 of 12 different picks inside the old near-tie rule) failed only once the logit
+  tolerance was added. The real cache passes at 7e-7.
+- **Benchmark:** each path then generates on its own, one warm-up and three timed runs for 50 and
+  100 tokens, encoding included: `gpu_cached`, `gpu_full`, `cpu_cached`, and `cpu_dispatch` (the CPU
+  cache with `Matrix::operator*` sending each large product to the GPU on its own, which is what
+  `chatbot_api_server` did on a GPU host before TD-033).
+
+The GPU test package runs it (`run_gpu_tests.sh`'s benchmark section, skipped by
+`--skip-benchmark`, one timed run under `--quick`) at a small shape (256/8/1024, 4+4 layers) and at
+`config.trainer.conf`'s architecture (768/12/3072, 8+24 layers, `max_seq` 512, vocabulary 16,000),
+retrying once in a fresh process after a lost device (TD-574's engine resets reach forward-only
+work too), and writes `decode_benchmark.txt`. On the oneAPI CPU device (no GPU, so its timings
+say nothing about the Arc) at 128/4/256, 2+4 layers: validation passed with a largest logit
+difference of 9.5e-7, and per token `gpu_cached` 31–34 ms against `gpu_full` 104–111 ms.
+
 Action Items:
 
 - [x] Root-cause the existing CPU `DecoderKVCache` correctness bug (self-attention and/or
@@ -2988,8 +3028,8 @@ Action Items:
 - [x] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps. Done — no new kernels needed, built from existing primitives (see Update above).
 - [x] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache). Done.
 - [x] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step. Done — for every strategy except beam search, which keeps the full-recompute path deliberately (see Update above).
-- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding) — the CPU path is already confirmed correct and every new GPU method reuses already-verified primitives, but genuine on-device numeric validation still needs real hardware. **Blocked on real GPU hardware** — not available in this environment.
-- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. **Blocked on real GPU hardware**, same as TD-033's own remaining benchmark item — not available in this environment.
+- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026; needs a run on ai-machine.**
+- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. `gpu_decode_bench`'s `RESULT` lines, for TD-033's before/after too. **Packaged November 13, 2026; needs a run on ai-machine.**
 - [x] Fix the flagged CPU `generate_response()` beam-vs-cache gap (and the identical gap in
   `generate_response_with_strategy()`'s unrecognized-strategy fallback). Done — see the
   September 14, 2026 (same day, later) update above.
@@ -3004,7 +3044,8 @@ Files to Modify:
 - `src/gpu/MatrixGPU.hpp` — done: new `GPUKVCache`/`GPUDecoderKVCache` types (backend-agnostic, one definition for both CUDA and SYCL)
 - `src/MultiHeadAttention.{hpp,cpp}` / `src/CrossAttention.{hpp,cpp}` — done: `gpu_forward_with_cache()` on both
 - `src/DecoderBlock.{hpp,cpp}` / `src/Decoder.{hpp,cpp}` (GPU) — done: `gpu_forward_with_cache()` / `gpu_decode_step()`
-- `tests/` — not done: no test can exercise the new GPU code paths without real hardware (compile-verified only, under both `gpu` and `sycl` presets)
+- `tests/` — done since: `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration` (TD-388) and `GpuAndCpuGenerationAgree` (TD-362), run on the oneAPI CPU device and on ai-machine's Arc
+- `benchmarks/GpuDecodeBenchmark.cpp`, `src/CMakeLists.txt` (`gpu_decode_bench`), `scripts/package_sycl_gpu_tests.sh`, `scripts/sycl_gpu_tests/run_gpu_tests.sh` and its README — done November 13, 2026: the direct check against GPU full recompute and the benchmark
 
 Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 2026), which GPU-accelerated validation loss and BLEU/ROUGE scoring — see git history around that change for the full-recompute implementation this replaces.
 
@@ -3014,7 +3055,7 @@ Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 20
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark not performed (no GPU hardware in this environment) | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
+| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark packaged November 13, 2026 (`gpu_decode_bench`, TD-050), needs a run on ai-machine | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
 
 Description:
 Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
@@ -3078,7 +3119,11 @@ Action Items:
   GPU device in either configuration (confirmed directly — see TD-041's writeup for the same
   finding), so `GPUManager::is_available()` never becomes true here and the new branch, while
   compiled and reachable, has never actually executed end-to-end on real hardware. Needs the
-  user's own GPU-equipped machine.
+  user's own GPU-equipped machine. **November 13, 2026:** ai-machine's Arc has run this branch's
+  tests since November 10, 2026 (`chatbotapiTests` in the GPU test package), and the GPU test
+  package's `gpu_decode_bench` (TD-050) now times the before and after on SYCL: `cpu_dispatch` is
+  this item's "before" (the CPU path with each large multiply sent to the GPU on its own) and
+  `gpu_cached` its "after". Needs a run on ai-machine; CUDA stays compile-checked only.
 - [x] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix`
   data and no persistent-residency alternative — untouched; this item routed the identified hot
   path around them rather than removing them.

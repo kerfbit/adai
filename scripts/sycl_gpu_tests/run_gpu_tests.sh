@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.4.0
+# @adai-version: 0.5.0
 # @adai-reviewed: 2026-11-13
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
@@ -21,8 +21,8 @@
 #                      [--allow-shared-gpu] [--allow-runtime-mismatch] [--no-sudo]
 #                      [--allow-cpu-device]
 #
-# --quick             only the GPU-specific test binaries, a 3-repeat benchmark, one seed pair and
-#                     a 3-pass soak
+# --quick             only the GPU-specific test binaries, a 3-repeat benchmark, a 1-repeat decode
+#                     benchmark, one seed pair and a 3-pass soak
 # --soak-passes N     training passes per Level Zero variant in the soak (default 20; 0 = no soak)
 # --soak-epochs N     epochs per soak pass (default 10)
 # --lejepa-only       only the device check and the LeJEPA world-model passes (TD-572)
@@ -467,7 +467,7 @@ if [[ $RUN_TESTS == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     done
 fi
 
-# ── 4. TD-171 benchmark ───────────────────────────────────────────────────────
+# ── 4. TD-171 and TD-050 benchmarks ───────────────────────────────────────────
 
 if [[ $RUN_BENCHMARK == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     log ""
@@ -475,6 +475,44 @@ if [[ $RUN_BENCHMARK == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
     repeats=15
     [[ $QUICK == 1 ]] && repeats=3
     step stacked_gemm_benchmark 5400 "$BIN/stacked_gemm_benchmark" 768 3072 12 "$repeats"
+
+    # TD-050/TD-033: the GPU KV-cached decode, checked step by step against full recompute and
+    # timed against it and the CPU, at a small shape and at config.trainer.conf's architecture.
+    log ""
+    log "TD-050 GPU decode benchmark (results in decode_benchmark.txt)"
+    decode_repeats=3
+    [[ $QUICK == 1 ]] && decode_repeats=1
+    decode_shapes=(
+        "small --d-model 256 --heads 8 --d-ff 1024 --encoder-layers 4 --decoder-layers 4 --max-seq 256 --vocab 8000"
+        "configured --d-model 768 --heads 12 --d-ff 3072 --encoder-layers 8 --decoder-layers 24 --max-seq 512 --vocab 16000")
+    for shape in "${decode_shapes[@]}"; do
+        read -r -a args <<<"$shape"
+        name="decode_${args[0]}"
+        # A lost device (rc 2, TD-574's engine resets) is retried once in a fresh process, as
+        # <name>_retry.
+        for run in "$name" "${name}_retry"; do
+            step "$run" 3600 "$BIN/gpu_decode_bench" --lengths 50,100 --repeats "$decode_repeats" \
+                "${args[@]:1}"
+            [[ $? -eq 2 && $run == "$name" ]] || break
+            log "  $name lost the device; trying once more"
+            FAILURES=$((FAILURES - 1))
+        done
+    done
+    {
+        echo "TD-050/TD-033 GPU decode benchmark: greedy decoding without stop tokens, a random model."
+        echo "gpu_cached = GPU KV cache (gpu_decode_step), gpu_full = GPU full recompute every step"
+        echo "(before TD-050), cpu_cached = CPU KV cache, cpu_dispatch = CPU KV cache with each large"
+        echo "multiply sent to the GPU on its own (chatbot_api_server before TD-033)."
+        for shape in "${decode_shapes[@]}"; do
+            for run in "decode_${shape%% *}" "decode_${shape%% *}_retry"; do
+                [[ -f "$RESULTS/$run.log" ]] || continue
+                echo
+                echo "== $run"
+                grep -h -E '^(model:|VALIDATE|RESULT|MISMATCH|FAILED|Last GPU work|the GPU)' \
+                    "$RESULTS/$run.log" || echo "  (no output)"
+            done
+        done
+    } >"$RESULTS/decode_benchmark.txt"
 fi
 
 # ── 5. TD-368 seed replay and TD-391 backend line ─────────────────────────────
