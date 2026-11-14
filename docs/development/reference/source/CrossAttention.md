@@ -1,12 +1,12 @@
 # `CrossAttention` — Source File Reference
 
-- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp)
+- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp) (453 lines), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp) (992 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_attention` (linked by `adai_transformer` → `adai_models`), so every binary that builds a model
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.13.1` (`.hpp`) / `0.13.0` (`.cpp`), `@adai-reviewed: 2026-09-15`
-- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (51 tests), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-300, TD-301), `@adai-version: 0.15.1` (`.hpp`) / `0.15.5` (`.cpp`), `@adai-reviewed: 2026-11-13`
+- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (53 tests), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
 - **Origin:** original encoder-decoder design; TD-059 (real per-head split), TD-038 (LoRA), TD-050 (GPU incremental cache), TD-174 (`forward_with_scores`), TD-180 (`get_last_attention_weights`)
-- **Last traced against the code:** 2026-10-10
+- **Last traced against the code:** 2026-10-10, with the addenda below; construction (§4) re-traced 2026-11-13
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (scratch program linked against `libadai_attention`/`libadai_layers`/`libadai_core`), including a
@@ -84,16 +84,16 @@ for gradients and, with Adam/AdamW, twice that for moments).
 
 ### Construction
 
-`CrossAttention(d_model, num_heads)` throws `std::invalid_argument` if `d_model % num_heads != 0`.
-The check runs in the constructor **body**, after the initializer list has already computed
-`d_model / num_heads`.
+`CrossAttention(d_model, num_heads)` initializes `d_k` from `checked_head_dim(d_model, num_heads)`, a
+file-local helper that throws `std::invalid_argument` when either value is below 1 or
+`d_model % num_heads != 0`, before dividing.
 
-> **Verified:** `CrossAttention(8, 0)` kills the process with **SIGFPE** (integer division by zero)
-> instead of throwing. A negative `num_heads` that divides `d_model` (e.g. `(9, −3)`) passes the check
-> and yields a negative `d_k`. Callers derive `num_heads` from config or MNS. `mns_server` rejects
-> 0 at register time and `ConfigLoader::validate()` rejects values outside 1–64, but
-> `chatbot_api_server` never runs `validate()` at startup (TD-241). So a local `NUM_HEADS=0` with no
-> MNS crashes the process instead of giving a clear error.
+> **Fixed November 13, 2026 (TD-299).** The divisibility check used to run in the constructor body,
+> after the initializer list had computed `d_model / num_heads`, so `CrossAttention(8, 0)` killed the
+> process with SIGFPE (verified, and verified again by the new test on the old code) and a negative
+> `num_heads` that divides `d_model` (e.g. `(9, −3)`) was accepted with a negative `d_k`.
+> `MultiHeadAttention` had the same defect (TD-467) and has the same helper. (`chatbot_api_server` also
+> runs `ConfigLoader::validate()` at startup since TD-241.)
 
 ### Forward family
 
@@ -263,7 +263,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | `update_weights()` calls a possibly **shared** optimizer's `step()`, which steps every registered layer; double `set_optimizer()` double-registers (§4) | Public `EncoderDecoderModel::train_step()`/`update_weights()` over-step every parameter when an optimizer is registered; shipped trainers unaffected | **Verified** | [TD-297](../../guides/TECHNICAL_DEBT.md#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) |
 | `load()` doesn't check reads; truncated file → NaN weights, no error; `learning_rate` clobbered before the mismatch check; `save()` unchecked (§4) | A damaged legacy `.cross_attn` file silently produces a NaN model | **Verified** | [TD-298](../../guides/TECHNICAL_DEBT.md#td-298-crossattentionload-loads-truncated-files-as-nan-weights) |
-| `num_heads == 0` → SIGFPE before the validation runs; negative heads accepted (§4) | A local `NUM_HEADS=0` crashes the process where `validate()` isn't run (TD-241); MNS rejects 0 | **Verified** | [TD-299](../../guides/TECHNICAL_DEBT.md#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) |
+| `num_heads == 0` → SIGFPE before the validation runs; negative heads accepted (§4) | **Fixed in code November 13, 2026**: checked before `d_k` is computed | **Verified** by test | [TD-299](../../guides/TECHNICAL_DEBT.md#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) |
 | `forward_with_cache()` silently ignores a new `kv` once the cache is filled; no staleness check (§4) | Wrong attention if a caller reuses a cache across inputs or after enabling LoRA; production is safe today | **Verified** | [TD-300](../../guides/TECHNICAL_DEBT.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
 | GPU path ignores LoRA, skips validation, holds weight snapshots, doesn't refresh `get_last_attention_weights()` (§5) | Silent CPU/GPU divergence when LoRA is used or weights change without a sync | By inspection | [TD-301](../../guides/TECHNICAL_DEBT.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) |
 | LoRA adapters aren't persisted by `save()` or SafeTensors; `get_gradient_norm()` excludes LoRA grads (§4) | Unmerged LoRA training lost on save; gradient clipping ignores adapters. LoRA has no production caller yet | By inspection | [TD-302](../../guides/TECHNICAL_DEBT.md#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) |
@@ -328,3 +328,8 @@ dimensions (`cublasSgemm` / oneMKL `gemm`). The cached self- and cross-attention
 cache and to write each head's output into its own columns, with no prefix copies, per-row slices or scatter. A 100-token decode on
 the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.StridedGemmMatchesHostReference`,
 `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`.
+
+## Addendum (November 13, 2026): shape checked before `d_k` (TD-299)
+
+`checked_head_dim()` validates `d_model`/`num_heads` in the initializer list (§4), so `num_heads == 0` throws
+`std::invalid_argument` instead of killing the process. Test: `CrossAttentionConstructionTest.NonPositiveShapesThrowInsteadOfCrashing`.

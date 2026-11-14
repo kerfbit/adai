@@ -1,18 +1,38 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-13
 
 #include "LayerNorm.hpp"
 #include "BinaryIO.hpp"
+#include "Logger.hpp"
 #include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
-#include <fstream>
-#include <iostream>
 #include <stdexcept>
+#include <string>
 #include "Optimizer.hpp"
 
+namespace {
+
+std::string shape(int rows, int cols) {
+    return "[" + std::to_string(rows) + ", " + std::to_string(cols) + "]";
+}
+
+void require_epsilon(float epsilon) {
+    if (!std::isfinite(epsilon) || epsilon <= 0.0f) {
+        throw std::invalid_argument("LayerNorm: epsilon must be a positive finite number, got " +
+                                    std::to_string(epsilon));
+    }
+}
+
+}  // namespace
+
 LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon) {
+    // TD-426: a zero or negative dimension used to build empty matrices that failed later.
+    if (dim <= 0) {
+        throw std::invalid_argument("LayerNorm: dim must be positive, got " + std::to_string(dim));
+    }
+    require_epsilon(epsilon);
     // Initialize gamma to 1.0 (identity scale)
     gamma = Matrix(1, dim);
     for (int j = 0; j < dim; ++j) {
@@ -33,9 +53,13 @@ LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon) {
     learning_rate = 0.001f;
 }
 
-// TODO: See TD-426 in TECHNICAL_DEBT.md - no input.cols == dim check (and none in backward() against the cached
-// forward); mismatches surface as Matrix's generic out_of_range
 Matrix LayerNorm::forward(const Matrix& input) {
+    // TD-426: a width mismatch used to surface as Matrix's generic out_of_range.
+    if (input.cols != gamma.cols) {
+        throw std::invalid_argument("LayerNorm::forward: input " + shape(input.rows, input.cols) +
+                                    " has " + std::to_string(input.cols) + " columns, expected " +
+                                    std::to_string(gamma.cols));
+    }
     int batch_size = input.rows;
     int dim = input.cols;
 
@@ -85,6 +109,15 @@ Matrix LayerNorm::forward(const Matrix& input) {
 }
 
 Matrix LayerNorm::backward(const Matrix& grad_output) {
+    // TD-426: the gradient must match the cached forward input.
+    if (cached_mean.empty() || cached_input.rows != static_cast<int>(cached_mean.size())) {
+        throw std::logic_error("LayerNorm::backward called without a forward pass");
+    }
+    if (grad_output.rows != cached_input.rows || grad_output.cols != cached_input.cols) {
+        throw std::invalid_argument(
+            "LayerNorm::backward: gradient " + shape(grad_output.rows, grad_output.cols) +
+            " doesn't match the forward input " + shape(cached_input.rows, cached_input.cols));
+    }
     int batch_size = grad_output.rows;
     int dim = grad_output.cols;
 
@@ -180,33 +213,35 @@ void LayerNorm::zero_grad() {
     }
 }
 
-// TODO: See TD-426 in TECHNICAL_DEBT.md - a shape mismatch only prints to std::cerr and returns (no exception);
-// also set_beta(). Neither refreshes the GPU mirror
+// TD-426: a shape mismatch throws (it used to print to std::cerr and keep the old values), and a
+// device mirror, if there is one, gets the new values.
 void LayerNorm::set_gamma(const Matrix& new_gamma) {
     if (new_gamma.rows != 1 || new_gamma.cols != gamma.cols) {
-        std::cerr << "Error: gamma dimensions mismatch. Expected [1, " << gamma.cols << "], got ["
-                  << new_gamma.rows << ", " << new_gamma.cols << "]" << '\n';
-        return;
+        throw std::invalid_argument("LayerNorm::set_gamma: expected " + shape(1, gamma.cols) +
+                                    ", got " + shape(new_gamma.rows, new_gamma.cols));
     }
     gamma = new_gamma;
+    refresh_gpu_mirror();
 }
 
 void LayerNorm::set_beta(const Matrix& new_beta) {
     if (new_beta.rows != 1 || new_beta.cols != beta.cols) {
-        std::cerr << "Error: beta dimensions mismatch. Expected [1, " << beta.cols << "], got ["
-                  << new_beta.rows << ", " << new_beta.cols << "]" << '\n';
-        return;
+        throw std::invalid_argument("LayerNorm::set_beta: expected " + shape(1, beta.cols) +
+                                    ", got " + shape(new_beta.rows, new_beta.cols));
     }
     beta = new_beta;
+    refresh_gpu_mirror();
+}
+
+void LayerNorm::refresh_gpu_mirror() {
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_) {
+        gpu_upload_weights();
+    }
+#endif
 }
 
 void LayerNorm::print_config(const std::string& name) const {
-    std::cout << "\n" << name << " Configuration:" << '\n';
-    std::cout << "  Dimension: " << gamma.cols << '\n';
-    std::cout << "  Epsilon: " << eps << '\n';
-    std::cout << "  Learning Rate: " << learning_rate << '\n';
-    std::cout << "  Gamma range: [";
-
     float min_gamma = gamma(0, 0);
     float max_gamma = gamma(0, 0);
     for (int j = 0; j < gamma.cols; ++j) {
@@ -217,9 +252,6 @@ void LayerNorm::print_config(const std::string& name) const {
             max_gamma = gamma(0, j);
         }
     }
-    std::cout << min_gamma << ", " << max_gamma << "]" << '\n';
-
-    std::cout << "  Beta range: [";
     float min_beta = beta(0, 0);
     float max_beta = beta(0, 0);
     for (int j = 0; j < beta.cols; ++j) {
@@ -230,7 +262,9 @@ void LayerNorm::print_config(const std::string& name) const {
             max_beta = beta(0, j);
         }
     }
-    std::cout << min_beta << ", " << max_beta << "]" << '\n';
+    adai::Logger::info("{}: dim {}, epsilon {}, learning rate {}, gamma [{}, {}], beta [{}, {}]",
+                       name, gamma.cols, eps, learning_rate, min_gamma, max_gamma, min_beta,
+                       max_beta);
 }
 
 void LayerNorm::save_weights(const std::string& filename) const {
@@ -240,16 +274,20 @@ void LayerNorm::save_weights(const std::string& filename) const {
     file.matrix(gamma, "gamma");
     file.matrix(beta, "beta");
     file.close();
-    std::cout << "Saved LayerNorm weights to " << filename << '\n';
+    adai::Logger::debug("Saved LayerNorm weights to {}", filename);
 }
 
 void LayerNorm::load_weights(const std::string& filename) {
-    // TD-423/TD-426: checked reads; a truncated file used to keep the old values past the cut. gamma
-    // and beta change only after the whole file has been read.
-    // TODO: See TD-426 in TECHNICAL_DEBT.md - file eps discarded, std::cout in save/load
+    // TD-423/TD-426: checked reads; a truncated file used to keep the old values past the cut.
+    // gamma, beta and epsilon change only after the whole file has been read; the file's epsilon is
+    // the one the weights were trained with (it used to be read and discarded).
     adai::binio::Reader file(filename);
     const int loaded_dim = file.value<int>("dim");
-    file.value<float>("eps");
+    const float loaded_eps = file.value<float>("eps");
+    if (!std::isfinite(loaded_eps) || loaded_eps <= 0.0f) {
+        throw std::runtime_error(filename + ": epsilon " + std::to_string(loaded_eps) +
+                                 " is not a positive finite number");
+    }
 
     if (loaded_dim != gamma.cols) {
         throw std::runtime_error("Dimension mismatch: file has " + std::to_string(loaded_dim) +
@@ -261,7 +299,9 @@ void LayerNorm::load_weights(const std::string& filename) {
     file.expect_end();
     gamma = std::move(loaded_gamma);
     beta = std::move(loaded_beta);
-    std::cout << "Loaded LayerNorm weights from " << filename << '\n';
+    eps = loaded_eps;
+    refresh_gpu_mirror();
+    adai::Logger::debug("Loaded LayerNorm weights from {}", filename);
 }
 
 #ifdef ADAI_ENABLE_GPU
@@ -323,8 +363,16 @@ adai::gpu::GPUMatrix LayerNorm::gpu_forward(const adai::gpu::GPUMatrix& input) {
     return input.layer_norm(gpu_->gamma_g, gpu_->beta_g, eps, gpu_->normed, gpu_->mean, gpu_->rstd);
 }
 
-// TODO: See TD-426 in TECHNICAL_DEBT.md - dereferences gpu_ unchecked (null before any gpu_forward())
 adai::gpu::GPUMatrix LayerNorm::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    // TD-426: gpu_ is null before the first gpu_forward(), and dout must match its cached rows.
+    if (!gpu_) {
+        throw std::logic_error("LayerNorm::gpu_backward called without a gpu_forward pass");
+    }
+    if (dout.rows != gpu_->normed.rows || dout.cols != gpu_->normed.cols) {
+        throw std::invalid_argument(
+            "LayerNorm::gpu_backward: gradient " + shape(dout.rows, dout.cols) +
+            " doesn't match the forward input " + shape(gpu_->normed.rows, gpu_->normed.cols));
+    }
     return dout.layer_norm_backward(gpu_->normed, gpu_->gamma_g, gpu_->mean, gpu_->rstd,
                                     gpu_->dgamma, gpu_->dbeta);
 }

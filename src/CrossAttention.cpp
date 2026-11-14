@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050, TD-299, TD-300, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.4
-// @adai-reviewed: 2026-11-10
+// @adai-status: beta        (capped by TD-050, TD-300, TD-301 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.15.5
+// @adai-reviewed: 2026-11-13
 
 #include "CrossAttention.hpp"
 #include "BinaryIO.hpp"
@@ -13,11 +13,31 @@
 #include <stdexcept>
 #include "Activation.hpp"
 
-// TODO: See TD-299 in TECHNICAL_DEBT.md - d_k is computed before num_heads is validated; num_heads == 0 raises SIGFPE
+namespace {
+
+// TD-299: d_k is computed in the initializer list, so the shape is checked there; num_heads == 0
+// used to divide by zero (SIGFPE) before the body's divisibility check ran, and a negative
+// num_heads that divides d_model was accepted with a negative d_k.
+int checked_head_dim(int d_model, int num_heads) {
+    if (d_model <= 0 || num_heads <= 0) {
+        throw std::invalid_argument("CrossAttention: d_model (" + std::to_string(d_model) +
+                                    ") and num_heads (" + std::to_string(num_heads) +
+                                    ") must be positive");
+    }
+    if (d_model % num_heads != 0) {
+        throw std::invalid_argument("d_model (" + std::to_string(d_model) +
+                                    ") must be divisible by num_heads (" +
+                                    std::to_string(num_heads) + ")");
+    }
+    return d_model / num_heads;
+}
+
+}  // namespace
+
 CrossAttention::CrossAttention(int d_model, int num_heads)
     : d_model(d_model),
       num_heads(num_heads),
-      d_k(d_model / num_heads),
+      d_k(checked_head_dim(d_model, num_heads)),
       W_q(d_model, d_model),
       W_k(d_model, d_model),
       W_v(d_model, d_model),
@@ -26,13 +46,6 @@ CrossAttention::CrossAttention(int d_model, int num_heads)
       W_k_grad(d_model, d_model),
       W_v_grad(d_model, d_model),
       W_o_grad(d_model, d_model) {
-    // Validate that d_model is divisible by num_heads
-    if (d_model % num_heads != 0) {
-        throw std::invalid_argument("d_model (" + std::to_string(d_model) +
-                                    ") must be divisible by num_heads (" +
-                                    std::to_string(num_heads) + ")");
-    }
-
     // Xavier/He initialization for weight matrices
     // Scale factor based on the input dimension
     float scale = std::sqrt(2.0f / static_cast<float>(d_model));

@@ -1,7 +1,12 @@
 #include "LayerNorm.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <filesystem>
+#include <limits>
+#include <stdexcept>
+#include <string>
 #include <vector>
+#include "BinaryIO.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 
@@ -1365,6 +1370,85 @@ TEST(LayerNormOptimizerTest, BackwardCompatibilityNoOptimizer) {
     }
 
     EXPECT_TRUE(changed);
+}
+
+// ============================================================================
+// TD-426: shape and argument checks
+// ============================================================================
+
+TEST(LayerNormValidationTest, ConstructorRejectsBadDimensionAndEpsilon) {
+    EXPECT_THROW(LayerNorm(0), std::invalid_argument);
+    EXPECT_THROW(LayerNorm(-3), std::invalid_argument);
+    EXPECT_THROW(LayerNorm(4, 0.0f), std::invalid_argument);
+    EXPECT_THROW(LayerNorm(4, -1e-5f), std::invalid_argument);
+    EXPECT_THROW(LayerNorm(4, std::numeric_limits<float>::quiet_NaN()), std::invalid_argument);
+}
+
+// The setters used to print to std::cerr and return, so a caller couldn't tell nothing changed.
+TEST(LayerNormValidationTest, SettersThrowOnWrongShapeAndKeepTheOldValues) {
+    LayerNorm ln(4);
+    Matrix wide(1, 5);
+    wide.fill(3.0f);
+    Matrix tall(2, 4);
+    tall.fill(3.0f);
+    EXPECT_THROW(ln.set_gamma(wide), std::invalid_argument);
+    EXPECT_THROW(ln.set_gamma(tall), std::invalid_argument);
+    EXPECT_THROW(ln.set_beta(wide), std::invalid_argument);
+    EXPECT_THROW(ln.set_beta(tall), std::invalid_argument);
+    for (int j = 0; j < 4; ++j) {
+        EXPECT_EQ(ln.get_gamma()(0, j), 1.0f);
+        EXPECT_EQ(ln.get_beta()(0, j), 0.0f);
+    }
+}
+
+// A width mismatch used to surface as Matrix's generic out_of_range.
+TEST(LayerNormValidationTest, ForwardRejectsTheWrongWidth) {
+    LayerNorm ln(4);
+    EXPECT_THROW(ln.forward(Matrix(3, 5)), std::invalid_argument);
+    EXPECT_THROW(ln.forward(Matrix(3, 3)), std::invalid_argument);
+}
+
+TEST(LayerNormValidationTest, BackwardNeedsAForwardOfTheSameShape) {
+    LayerNorm ln(4);
+    EXPECT_THROW(ln.backward(Matrix(3, 4)), std::logic_error);
+    Matrix x(3, 4);
+    x.randomize(1.0f);
+    ln.forward(x);
+    EXPECT_THROW(ln.backward(Matrix(2, 4)), std::invalid_argument);
+    EXPECT_THROW(ln.backward(Matrix(3, 5)), std::invalid_argument);
+    EXPECT_NO_THROW(ln.backward(Matrix(3, 4)));
+}
+
+// The file's epsilon used to be read and discarded.
+TEST(LayerNormValidationTest, LoadAdoptsTheFilesEpsilon) {
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "adai_layernorm_td426_eps.bin").string();
+    LayerNorm saved(4, 1e-3f);
+    saved.save_weights(path);
+    LayerNorm loaded(4);
+    loaded.load_weights(path);
+    EXPECT_EQ(loaded.get_epsilon(), 1e-3f);
+    std::filesystem::remove(path);
+}
+
+TEST(LayerNormValidationTest, LoadRejectsANonPositiveEpsilonAndChangesNothing) {
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "adai_layernorm_td426_bad_eps.bin").string();
+    Matrix gamma(1, 4);
+    gamma.fill(2.0f);
+    for (float bad : {0.0f, -1e-5f, std::numeric_limits<float>::quiet_NaN()}) {
+        adai::binio::Writer file(path);
+        file.value(4, "dim");
+        file.value(bad, "eps");
+        file.matrix(gamma, "gamma");
+        file.matrix(gamma, "beta");
+        file.close();
+        LayerNorm ln(4);
+        EXPECT_THROW(ln.load_weights(path), std::runtime_error) << bad;
+        EXPECT_EQ(ln.get_epsilon(), 1e-5f);
+        EXPECT_EQ(ln.get_gamma()(0, 0), 1.0f);
+    }
+    std::filesystem::remove(path);
 }
 
 // ============================================================================

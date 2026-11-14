@@ -1,12 +1,12 @@
 # `MultiHeadAttention` — Source File Reference
 
-- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,533 lines together)
+- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,497 lines together)
 - **Namespace:** global
 - **Built into:** `adai_attention`; owned by every `EncoderBlock` and `DecoderBlock` (self-attention), hence by `LLMEncoder`, `LLMDecoder`, `LeJEPAEncoder`; saved by `ModelSerializer`
-- **Status tag:** `@adai-status: beta` ("capped by TD-050"; TD-038 LoRA, TD-050 GPU incremental-cache forward, TD-195 accumulating gradients), `@adai-version: 0.12.1`, `@adai-reviewed: 2026-09-18` (both files)
-- **Tests:** [`tests/multiheadattention_test.cpp`](../../../../tests/multiheadattention_test.cpp) (68 tests)
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-301), `@adai-version: 0.13.1` (`.hpp`) / `0.14.0` (`.cpp`), `@adai-reviewed: 2026-11-13`
+- **Tests:** [`tests/multiheadattention_test.cpp`](../../../../tests/multiheadattention_test.cpp) (64 tests; 68 in a GPU build)
 - **Sibling:** [CrossAttention.md](CrossAttention.md), which shares most of this design and already tracks the shared issues (TD-297–TD-303)
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-11-13
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs linked against the real class.
 
@@ -35,7 +35,7 @@ caller builds (`LLMDecoder::create_causal_mask()`, the KV-cached decode mask).
 
 | Member | Behaviour |
 |---|---|
-| `MultiHeadAttention(d_model, num_heads)` | Four `d_model × d_model` weights, `N(0, √(2/d_model))` via the unseeded `Matrix::randomize()` (TD-368); throws if `d_model % num_heads != 0`. **`num_heads == 0` crashes with SIGFPE** before that check (`d_k = d_model / num_heads` in the initializer list), verified, as TD-299 for `CrossAttention` |
+| `MultiHeadAttention(d_model, num_heads)` | Four `d_model × d_model` weights, `N(0, √(2/d_model))` via the unseeded `Matrix::randomize()` (TD-368); `d_k` comes from `checked_head_dim()` in the initializer list, which throws `std::invalid_argument` when `d_model` or `num_heads` is below 1 or `d_model % num_heads != 0` (TD-467: `num_heads == 0` used to die with SIGFPE before the old divisibility check ran; `CrossAttention` has the same helper, TD-299) |
 | `forward(X, mask)` → `forward_parallel(X, mask, true)` | §1. Checks `X.cols == d_model` and the mask shape. Caches `X`, Q/K/V, per-head weights, the head-averaged weights (`get_attention_weights()`) and the concatenated output for `backward()`. Fires the attention hook with the averaged weights |
 | `forward_with_cache(X_new, mask, kv_cache, use_cache)` | Incremental decoding: projects only the new rows, appends K/V to the `KVCache` (whose copy-on-append cost is TD-422), attends over the full cache; mask is `[new × total]`. Does **not** fire the attention hook |
 | `backward(dY)` | Accumulates `W_o`/`W_q`/`W_k`/`W_v` gradients and returns dX, differentiating each head's own softmax; LoRA branches add their parts. **Verified correct** (also covered by `BackwardPassMatchesNumericalGradient`): against central finite differences, dX's error norm was 2.5–8×10⁻⁵ of the gradient's (with and without a causal mask), and `W_q`'s gradient agreed within 0.6% |
@@ -43,40 +43,43 @@ caller builds (`LLMDecoder::create_causal_mask()`, the KV-cached decode mask).
 | `get_gradient_norm()`, `clip_gradients(max)` | Over the four weight gradients only (not LoRA's, TD-302) |
 | `enable_lora()`, `register_lora_parameters()`, `merge_lora()` | LoRA on Q/K/V/O (experimental, no production caller; see [LoRA.md](LoRA.md)) |
 | `set_attention_hook(fn)` | Called after each `forward()` with the averaged weights; used by `ChatbotTrainer` and the LeJEPA pass for attention-entropy metrics (TD-013) |
-| `save_weights()` / `load_weights()` | `d_model`, `num_heads`, then the four matrices. `load_weights()` checks the dimensions but **not its reads** (§3); both print to `std::cout` |
-| Getters/setters for `W_q`…`W_o`, `print_config()` | Setters don't check shape or refresh the GPU copy (as TD-370) |
+| `save_weights()` / `load_weights()` | `d_model`, `num_heads`, then the four matrices, through `adai::binio` (TD-423, addendum): a short or over-long file throws and changes nothing. Both log at debug level |
+| Getters/setters for `W_q`…`W_o` | Setters don't check shape or refresh the GPU copy (as TD-370) |
+| `print_config(name)` | One `adai::Logger::info` line: `d_model`, heads, `d_k`, parameters and megabytes, learning rate. No production caller |
 | GPU (`ADAI_ENABLE_GPU`) | `gpu_upload_weights()`, `gpu_download_grads()`, `gpu_zero_grads()`, `gpu_forward()`, `gpu_backward()` over a persistent `GPUState`; kernels in MatrixGPU_cu.md/MatrixGPU_SYCL_cpp.md (softmax race TD-384) |
 
 ---
 
-## 3. Problems (verified)
+## 3. Problems found October 14, 2026 (fixed)
 
-### A truncated weights file loads silently
+### A truncated weights file loaded silently
 
-`load_weights()` reads the four matrices without checking the stream. A file cut in half loaded **without an error**, and
-**all 256 entries of `W_o`** (in a 16-wide layer) were still the fresh layer's random initialization. Earlier entries came from
-the file, later ones stayed random: a damaged checkpoint sidecar yields a quietly corrupted layer. Same class as TD-298
-(`CrossAttention`, which pre-fills NaN), TD-369 (`FeedForward`), TD-423 (`LanguageModelHead`) and TD-426 (`LayerNorm`): the legacy
-per-layer loaders all need the same checked-read fix.
+`load_weights()` used to read the four matrices without checking the stream: a file cut in half loaded without an error, with
+all 256 entries of a 16-wide layer's `W_o` still random. **Fixed October 26, 2026** (TD-423, addendum below).
 
-### `num_heads == 0` crashes the process
+### `num_heads == 0` crashed the process
 
-`MultiHeadAttention(8, 0)` died with **SIGFPE** (integer division by zero in the initializer list), before the divisibility check
-that would have thrown. Architecture comes from MNS (immutable, and not validated for this, TD-461), so a bad record crashes the
-trainer or server rather than producing an error.
+`MultiHeadAttention(8, 0)` died with SIGFPE (integer division by zero in the initializer list), before the divisibility check
+that would have thrown. **Fixed November 13, 2026** (TD-467): `checked_head_dim()` validates both values before dividing (§2).
+MNS now rejects such architectures too (TD-461).
 
 ---
 
-## 4. Smaller items (by inspection)
+## 4. Smaller items
 
-- **The hot loops use the bounds-checked accessor.** The per-head score, softmax and value loops index `Q(i, …)`, `K(j, …)`,
-  `V(j, …)` through `Matrix::operator()`, which is out-of-line and bounds-checked (2.4× slower than `data[i][j]`, TD-435); the
-  value loop also walks `V` column-wise. Parallelism is over heads only, so at most `num_heads` threads.
+- **Per-head loops (TD-467, fixed November 13, 2026).** `forward_parallel()`'s score, mask, softmax and value loops read and
+  write through row pointers (`Q.data[i].data() + h·d_k`, …) instead of the out-of-line, bounds-checked `Matrix::operator()`
+  (TD-435), handle one query row at a time, and accumulate the value product over `V`'s rows instead of walking it column-wise.
+  Every sum adds the same terms in the same order: forward (with and without a causal mask) and backward outputs hashed bit-for-bit
+  equal before and after for `d_model`/heads/sequence of 64/2/17, 64/8/33 and 96/3/17. The explicit mask-shape check in
+  `forward_parallel()` is what keeps a too-small mask from being read past its end. Parallelism is still over heads only, so at
+  most `num_heads` threads; `backward()`'s loops are unchanged.
 - **Thread safety**: all intermediate state is cached in members, so concurrent `forward()` calls on one instance race; callers
   serialize with `model_mutex_` (TD-156/TD-227 context).
 - **Fully masked rows** become a uniform distribution over the masked positions rather than zeros (all scores −1e9). No current
   caller produces one.
-- **Console output** in `save_weights()`/`load_weights()`/`print_config()`.
+- **Console output** (fixed November 13, 2026, TD-467): `save_weights()`/`load_weights()`/`print_config()` log through
+  `adai::Logger`.
 
 ---
 
@@ -85,9 +88,10 @@ trainer or server rather than producing an error.
 `multiheadattention_test.cpp` (68 tests): construction and divisibility, forward shapes, causal and padding masks, attention
 weights as distributions, a per-head reference implementation and the single-head case (TD-059), numerical-gradient checks with and
 without LoRA, LoRA freezing and merging, gradient accumulation, updates with and without an optimizer, gradient norm and clipping,
-save/load and dimension mismatch, training loops, the attention hook (CPU and GPU).
-
-**Not covered:** truncated weight files, `num_heads == 0`. (The KV-cached forward is covered in `inference_optimization_test.cpp`.)
+save/load and dimension mismatch, training loops, the attention hook (CPU and GPU). `DimensionNotDivisible` also covers zero and
+negative `d_model`/`num_heads` (TD-467; the old code died with SIGFPE), and the `PrintConfig` tests read the log. Truncated weight
+files: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. (The KV-cached forward is covered in
+`inference_optimization_test.cpp`.)
 
 ---
 
@@ -98,10 +102,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `load_weights()` doesn't check reads: a half file loads silently, the rest of the weights stay random (§3) | A damaged checkpoint sidecar yields a corrupted layer with no error | **Verified** | [TD-467](../../guides/TECHNICAL_DEBT.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
-| `num_heads == 0` → SIGFPE before validation (§3) | A bad architecture record crashes the process | **Verified** | [TD-467](../../guides/TECHNICAL_DEBT.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
-| Bounds-checked accessor and column-wise `V` walks in hot loops; member-cached state; uniform fully-masked rows; console output (§4) | Slower CPU attention; not concurrency-safe per instance | By inspection | [TD-467](../../guides/TECHNICAL_DEBT.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
-| Shared-optimizer stepping; LoRA persistence/grad norm; unseeded init; GPU softmax race; KV-cache copying; accessor cost | Already tracked | — | TD-297, TD-302, TD-368, TD-384, TD-422, TD-435 |
+| Unchecked loads, `num_heads == 0` SIGFPE, checked accessor and column-wise `V` walks in the forward loops, console output (§3, §4) | **Fixed in code** (loads October 26, the rest November 13, 2026) | **Verified** | [TD-467](../../guides/TECHNICAL_DEBT.md#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) |
+| Member-cached state (not concurrency-safe per instance); uniform fully masked rows (§4) | Callers serialize with `model_mutex_`; no caller produces a fully masked row | By inspection | Not tracked |
+| LoRA persistence/grad norm; accessor cost elsewhere; GPU/CPU divergence; GPU incremental cache | Open | — | TD-302, TD-435, TD-301, TD-050 |
+| Shared-optimizer stepping; unseeded init; GPU softmax race; KV-cache copying | Fixed in code | — | TD-297, TD-368, TD-384, TD-422 |
 
 ---
 
@@ -134,3 +138,8 @@ dimensions (`cublasSgemm` / oneMKL `gemm`). The cached self- and cross-attention
 cache and to write each head's output into its own columns, with no prefix copies, per-row slices or scatter. A 100-token decode on
 the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.StridedGemmMatchesHostReference`,
 `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`.
+
+## Addendum (November 13, 2026): shape check and per-head loops (TD-467)
+
+Now reflected in §2–§6: the constructor validates `d_model`/`num_heads` before computing `d_k` (no more SIGFPE), the forward's
+per-head loops use row pointers with bit-for-bit identical results, and logging goes through `adai::Logger`.

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
-
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-13
 
 #include <cmath>
 #include <memory>
@@ -55,6 +54,9 @@ class LayerNorm {
     std::vector<float> cached_mean;  // Mean for each sample
     std::vector<float> cached_var;   // Variance for each sample
 
+    // TD-426: uploads gamma/beta to the device mirror, when there is one.
+    void refresh_gpu_mirror();
+
    public:
     float learning_rate;  // Learning rate for parameter updates
 
@@ -63,6 +65,7 @@ class LayerNorm {
      *
      * @param dim Feature dimension (number of features to normalize)
      * @param epsilon Small constant for numerical stability (default: 1e-5)
+     * @throws std::invalid_argument if dim isn't positive or epsilon isn't a positive finite number
      */
     LayerNorm(int dim, float epsilon = 1e-5f);
 
@@ -76,6 +79,8 @@ class LayerNorm {
      *   1. Compute mean and variance across features
      *   2. Normalize: (x - mean) / sqrt(var + eps)
      *   3. Apply affine: gamma * normalized + beta
+     *
+     * @throws std::invalid_argument if input doesn't have dim columns
      */
     Matrix forward(const Matrix& input);
 
@@ -91,6 +96,9 @@ class LayerNorm {
      *
      * Note: This method computes gradients but does NOT update parameters.
      * Call update_weights() separately after backward().
+     *
+     * @throws std::logic_error without a forward pass; std::invalid_argument if grad_output's
+     *         shape differs from the forward input's
      */
     Matrix backward(const Matrix& grad_output);
 
@@ -158,6 +166,7 @@ class LayerNorm {
      * Set gamma parameter (for loading pretrained weights)
      *
      * @param new_gamma Matrix of gamma values [1, dim]
+     * @throws std::invalid_argument on any other shape (nothing changes)
      */
     void set_gamma(const Matrix& new_gamma);
 
@@ -165,6 +174,7 @@ class LayerNorm {
      * Set beta parameter (for loading pretrained weights)
      *
      * @param new_beta Matrix of beta values [1, dim]
+     * @throws std::invalid_argument on any other shape (nothing changes)
      */
     void set_beta(const Matrix& new_beta);
 
@@ -212,12 +222,14 @@ class LayerNorm {
     /** GPU forward pass. Caches input_norm, mean, rstd for backward. */
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);
 
-    /** GPU backward pass. Accumulates dgamma/dbeta. Returns d_input. */
+    /** GPU backward pass. Accumulates dgamma/dbeta. Returns d_input. Throws std::logic_error
+     *  before any gpu_forward() and std::invalid_argument if dout's shape differs from its input.
+     */
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
 #endif
 
     /**
-     * Print layer configuration
+     * Log the layer configuration (adai::Logger, info level)
      *
      * @param name Optional name for the layer
      */
@@ -234,7 +246,10 @@ class LayerNorm {
      * Load weights (gamma and beta) from file
      *
      * @param filename Path to load weights from
-     * @throws std::runtime_error if file cannot be opened or dimensions mismatch
+     * Also adopts the file's epsilon. Nothing changes unless the whole file is read.
+     *
+     * @throws std::runtime_error if the file can't be opened, is short or over-long, or its
+     *         dimension or epsilon is wrong
      */
     void load_weights(const std::string& filename);
 };

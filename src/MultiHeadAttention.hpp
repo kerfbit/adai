@@ -1,9 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050, TD-301, TD-467 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-11-10
-
+// @adai-status: beta        (capped by TD-050, TD-301 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-11-13
 
 #include <functional>
 #include <memory>
@@ -148,7 +147,8 @@ class MultiHeadAttention {
      * @param d_model Dimension of the model (must be divisible by num_heads)
      * @param num_heads Number of attention heads
      *
-     * @throws std::invalid_argument if d_model is not divisible by num_heads
+     * @throws std::invalid_argument if d_model or num_heads isn't positive, or d_model is not
+     *         divisible by num_heads
      */
     MultiHeadAttention(int d_model, int num_heads);
 
@@ -340,7 +340,7 @@ class MultiHeadAttention {
 #endif
 
     /**
-     * Print configuration
+     * Log the configuration (adai::Logger, info level)
      *
      * @param name Optional name for the layer
      */

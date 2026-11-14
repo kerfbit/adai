@@ -2207,6 +2207,17 @@ TEST(CrossAttentionOptimizerTest, BackwardCompatibilityNoOptimizer) {
 // Main
 // ============================================================================
 
+// TD-299: num_heads == 0 used to divide by zero (SIGFPE) in the initializer list, and a negative
+// divisor was accepted with a negative d_k.
+TEST(CrossAttentionConstructionTest, NonPositiveShapesThrowInsteadOfCrashing) {
+    EXPECT_THROW(CrossAttention(8, 0), std::invalid_argument);
+    EXPECT_THROW(CrossAttention(8, -2), std::invalid_argument);
+    EXPECT_THROW(CrossAttention(0, 2), std::invalid_argument);
+    EXPECT_THROW(CrossAttention(-8, 2), std::invalid_argument);
+    EXPECT_THROW(CrossAttention(8, 3), std::invalid_argument);
+    EXPECT_NO_THROW(CrossAttention(8, 2));
+}
+
 // TD-298/TD-423: a truncated or empty file used to load NaN weights (and overwrite learning_rate
 // before validation). It must throw and leave the layer unchanged.
 TEST(CrossAttentionPersistenceTest, TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged) {

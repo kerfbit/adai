@@ -18,6 +18,13 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 13, 2026:** Fixed [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads),
+[TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) and
+[TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) in code: `LayerNorm`'s setters, `forward()`, `backward()`
+and `gpu_backward()` throw on a wrong shape or a missing forward, a load adopts the file's epsilon, and both attention constructors check
+`d_model`/`num_heads` before computing `d_k`, so `num_heads == 0` throws instead of killing the process with SIGFPE.
+`MultiHeadAttention`'s per-head loops use row pointers, with bit-for-bit identical results.
+
 **November 13, 2026:** Filed [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
 (MEDIUM) from the November 12 GPU run: Arc engine resets happen only when training runs our own device kernels (the LeJEPA pass, which
 sends the GPU one waited-for GEMM at a time, ran 220 passes without one). Added diagnostics to find the work they interrupt:
@@ -1971,7 +1978,7 @@ TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-
 
 **Tier 24 — Newly filed (October 10, 2026): `CrossAttention`.** [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) is the most important:
 fix it at the model level the way TD-178 fixed `LeJEPAEncoder`, since the same pattern spans every
-layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes. [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
+layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes (both fixed in code, October 26 and November 13, 2026). [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
 [TD-302](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use; [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
 
 **Tier 25 — Newly filed (October 11, 2026): `DaemonConfigStore` and admin config.** [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout)
@@ -2126,7 +2133,7 @@ TD-398 (`HippocampalMemory::read_all()`'s copy), the same pattern three times. [
 checks to add in the same change.
 
 **Tier 55 — Newly filed (October 14, 2026): `LanguageModelHead`, `LayerNorm`.** Fix [TD-423](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) in the same pass as
-TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) (every legacy per-layer loader). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
+TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) (every legacy per-layer loader; TD-426's other items fixed in code November 13, 2026). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
 "project only the last row" change in the generation callbacks; [TD-425](#td-425-languagemodelhead-hygiene) is cleanup.
 
 **Tier 56 — Newly filed (October 14, 2026): `LeJEPAEncoder`.** Fix [TD-427](#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) before the next
@@ -2208,7 +2215,8 @@ the format T5-faithful, which needs a T5-style architecture variant (RMSNorm, bi
 embedding) as well as serializer changes; do the export-side mappings and relabelling first.
 
 **Tier 75 — Newly filed (October 14, 2026): `MultiHeadAttention`.** Fold [TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)'s loader fix into Tier 55's pass over
-every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (same defect in `CrossAttention`).
+every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (same defect in `CrossAttention`). All of it fixed in
+code (loads October 26, the rest November 13, 2026).
 
 **Tier 76 — Newly filed (October 14, 2026): `Optimizer`.** [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer)'s raw-pointer rewrite is a quick 3× win for CPU training
 and the GPU path's host step; the larger part (a GPU-resident AdamW keeping weights, gradients and moments on the device) should be measured
@@ -8173,7 +8181,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Attention / CrossAttention | October 10, 2026 | 1 hour |
+| LOW | Open — code fix landed November 13, 2026 | Attention / CrossAttention | October 10, 2026 | 1 hour |
 
 Description:
 Found alongside TD-297 and confirmed by running the real class. The constructor validates
@@ -8186,10 +8194,15 @@ no MNS crashes the process. `MultiHeadAttention` should be checked for the same 
 
 Action Items:
 
-- [ ] Validate `d_model > 0` and `num_heads > 0` before computing `d_k` (e.g. via a static helper in the initializer list).
-- [ ] Test: `num_heads` of 0 and negative values throw `std::invalid_argument`.
+- [x] Validate `d_model > 0` and `num_heads > 0` before computing `d_k` (e.g. via a static helper in the initializer list).
+- [x] Test: `num_heads` of 0 and negative values throw `std::invalid_argument`.
 
-Location in code: `src/CrossAttention.cpp` (constructor); tagged `TODO: See TD-299`.
+**Fix (November 13, 2026, with TD-467).** `d_k` is initialized from `checked_head_dim(d_model, num_heads)`, a file-local helper that
+throws `std::invalid_argument` when either is zero or negative or `d_model % num_heads != 0`, so the check runs before the division.
+`MultiHeadAttention` has the same helper. Test `CrossAttentionConstructionTest.NonPositiveShapesThrowInsteadOfCrashing` (0, negative,
+not divisible); on the old code the test process died with SIGFPE.
+
+Location in code: `src/CrossAttention.cpp` (constructor, `checked_head_dim()`).
 
 Files to Modify:
 
@@ -13095,7 +13108,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Layers / LayerNorm | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 13, 2026 | Layers / LayerNorm | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LayerNorm`; the first two items verified:
@@ -13113,11 +13126,20 @@ Found while tracing `LayerNorm`; the first two items verified:
 
 Action Items:
 
-- [ ] Throw `invalid_argument` from the setters and on shape mismatches; check reads and writes (with the other legacy loaders, Tier 55); switch to `adai::Logger`; guard `gpu_backward()`; refresh the GPU mirror in the setters.
+- [x] Throw `invalid_argument` from the setters and on shape mismatches; check reads and writes (with the other legacy loaders, Tier 55); switch to `adai::Logger`; guard `gpu_backward()`; refresh the GPU mirror in the setters.
 
-**Load/save checks (October 26, 2026, with TD-423).** `LayerNorm::save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
+**Load/save checks (October 26, 2026, with TD-423).** `LayerNorm::save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
 
-Location in code: `src/LayerNorm.cpp` (`forward()`, `set_gamma()`/`set_beta()`, `load_weights()`, `gpu_backward()`); tagged `TODO: See TD-426`.
+**Fix (November 13, 2026).** The constructor rejects a dimension below 1 and an epsilon that isn't a positive finite number.
+`set_gamma()`/`set_beta()` throw `std::invalid_argument` on any shape but `[1, dim]` (nothing changes) and upload the new values to the
+device mirror when there is one. `forward()` throws `std::invalid_argument` unless the input has `dim` columns; `backward()` throws
+`std::logic_error` without a forward and `std::invalid_argument` unless the gradient has the forward input's shape; `gpu_backward()`
+does the same against its cached forward (it used to dereference a null `gpu_`). `load_weights()` adopts the file's epsilon (a
+non-positive or non-finite one throws, changing nothing) and refreshes the device mirror. Save/load log at debug level and
+`print_config()` at info through `adai::Logger`. Six new `LayerNormValidationTest` tests, all failing on the old code.
+
+Location in code: `src/LayerNorm.cpp` (constructor, `forward()`, `backward()`, `set_gamma()`/`set_beta()`, `load_weights()`,
+`gpu_backward()`).
 
 Files to Modify:
 
@@ -15005,7 +15027,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Attention / MultiHeadAttention | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 13, 2026 | Attention / MultiHeadAttention | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MultiHeadAttention` (whose per-head backward was verified correct against finite differences):
@@ -15023,10 +15045,18 @@ Action Items:
 - [x] Check every read in `load_weights()` (and writes in `save_weights()`), throwing on a short file; do it with Tier 55's shared loader fix.
 
 **Load/save checks (October 26, 2026, with TD-423).** `save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
-- [ ] Validate `num_heads > 0` before computing `d_k`.
-- [ ] Use raw row pointers in the per-head loops (or per-head GEMMs); replace console output with `Logger`.
+- [x] Validate `num_heads > 0` before computing `d_k`.
+- [x] Use raw row pointers in the per-head loops (or per-head GEMMs); replace console output with `Logger`.
 
-Location in code: `src/MultiHeadAttention.cpp` (constructor, `forward_parallel()`, `load_weights()`); tagged `TODO: See TD-467`.
+**Fix (November 13, 2026, with TD-299).** `d_k` is initialized from `checked_head_dim()`, which throws `std::invalid_argument` for a
+zero or negative `d_model`/`num_heads` or a `d_model` not divisible by `num_heads`; `MultiHeadAttentionConstructorTest.
+DimensionNotDivisible` now also covers 0 and negative values (the old code died with SIGFPE). `forward_parallel()`'s per-head loops
+read and write through row pointers, compute the scaled scores, mask and softmax row by row, and accumulate the value product over
+V's rows; every sum adds the same terms in the same order, and forward (with and without a causal mask) and backward outputs hashed
+bit-for-bit equal before and after across three shapes. `print_config()` logs at info and save/load at debug through `adai::Logger`
+(the `PrintConfig` tests capture the log). The fully masked row case is unchanged (no caller produces one).
+
+Location in code: `src/MultiHeadAttention.cpp` (constructor, `checked_head_dim()`, `forward_parallel()`, `print_config()`).
 
 Files to Modify:
 

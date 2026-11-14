@@ -1,28 +1,46 @@
-// @adai-status: beta        (capped by TD-050, TD-301, TD-467 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.3
-// @adai-reviewed: 2026-11-10
+// @adai-status: beta        (capped by TD-050, TD-301 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-11-13
 
 #include "MultiHeadAttention.hpp"
-#include "BinaryIO.hpp"
-#include "gpu/GPUParamSync.hpp"
 #include <cmath>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <stdexcept>
 #include "Activation.hpp"
+#include "BinaryIO.hpp"
+#include "Logger.hpp"
 #include "Optimizer.hpp"
+#include "gpu/GPUParamSync.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
 #include <cmath>
 #endif
 
+namespace {
+
+// TD-467: d_k is computed in the initializer list, so the shape is checked there; num_heads == 0
+// used to divide by zero (SIGFPE) before the body's divisibility check ran, and a negative
+// num_heads that divides d_model was accepted with a negative d_k.
+int checked_head_dim(int d_model, int num_heads) {
+    if (d_model <= 0 || num_heads <= 0) {
+        throw std::invalid_argument("MultiHeadAttention: d_model (" + std::to_string(d_model) +
+                                    ") and num_heads (" + std::to_string(num_heads) +
+                                    ") must be positive");
+    }
+    if (d_model % num_heads != 0) {
+        throw std::invalid_argument("d_model (" + std::to_string(d_model) +
+                                    ") must be divisible by num_heads (" +
+                                    std::to_string(num_heads) + ")");
+    }
+    return d_model / num_heads;
+}
+
+}  // namespace
+
 MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
-    // TODO: See TD-467 in TECHNICAL_DEBT.md - num_heads == 0 divides by zero here (SIGFPE) before the check below
     : d_model(d_model),
       num_heads(num_heads),
-      d_k(d_model / num_heads),
+      d_k(checked_head_dim(d_model, num_heads)),
       W_q(d_model, d_model),
       W_k(d_model, d_model),
       W_v(d_model, d_model),
@@ -31,13 +49,6 @@ MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
       W_k_grad(d_model, d_model),
       W_v_grad(d_model, d_model),
       W_o_grad(d_model, d_model) {
-    // Validate that d_model is divisible by num_heads
-    if (d_model % num_heads != 0) {
-        throw std::invalid_argument("d_model (" + std::to_string(d_model) +
-                                    ") must be divisible by num_heads (" +
-                                    std::to_string(num_heads) + ")");
-    }
-
     // Xavier/He initialization for weight matrices
     // Scale factor based on the input dimension
     float scale = std::sqrt(2.0f / static_cast<float>(d_model));
@@ -103,9 +114,9 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
     }
     // TD-059: forward() used to validate mask dimensions before forward_parallel() existed
     // as its implementation; keep that check here now that forward() delegates to this
-    // method, so an invalid mask still throws std::invalid_argument rather than the
-    // std::out_of_range Matrix::operator() would throw once the per-head loop below
-    // indexes past a too-small mask.
+    // method, so an invalid mask still throws std::invalid_argument. Since TD-467 the per-head
+    // loop below reads the mask through row pointers, so this check is what keeps a too-small
+    // mask from being read past its end.
     if (mask != nullptr && (mask->rows != seq_len || mask->cols != seq_len)) {
         throw std::invalid_argument("Mask dimensions must match sequence length");
     }
@@ -145,58 +156,55 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
     // Written as raw indexed loops (not Matrix::operator*) so each head's block below
     // can run in its own OpenMP thread without nesting into operator*'s own internal
     // #pragma omp parallel for.
-    // TODO: See TD-467 in TECHNICAL_DEBT.md - hot loops use the bounds-checked operator() (TD-435) and walk V column-wise
+    //
+    // TD-467: the loops read and write through row pointers instead of the bounds-checked,
+    // out-of-line Matrix::operator() (TD-435), and the value product walks V by rows. Every sum
+    // still adds the same terms in the same order, so the results are bit-for-bit unchanged.
     auto compute_head = [&](int h) {
-        int start_dim = h * d_k;
+        const int start_dim = h * d_k;
         Matrix& scores_head = head_weights[h];
-
-        // scores_head = Q_h * K_h^T
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = 0; j < seq_len; ++j) {
-                float sum = 0.0f;
-                for (int k = 0; k < d_k; ++k) {
-                    sum += Q(i, start_dim + k) * K(j, start_dim + k);
-                }
-                scores_head(i, j) = sum;
-            }
-        }
-
-        // Scale by 1/sqrt(d_k) — correct for this width, since the contraction above is
+        // Scale by 1/sqrt(d_k) — correct for this width, since the contraction below is
         // genuinely over d_k dimensions now (TD-059's mismatched-scale half of the bug
         // only existed because the contraction used to be over the full d_model width).
-        float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = 0; j < seq_len; ++j) {
-                scores_head(i, j) *= scale_factor;
-            }
-        }
+        const float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
 
-        // Apply mask if provided (same mask shared across every head)
-        if (mask != nullptr) {
-            for (int i = 0; i < seq_len; ++i) {
+        for (int i = 0; i < seq_len; ++i) {
+            const float* q = Q.data[i].data() + start_dim;
+            float* scores = scores_head.data[i].data();
+            // scores_head = Q_h * K_h^T, scaled
+            for (int j = 0; j < seq_len; ++j) {
+                const float* k_row = K.data[j].data() + start_dim;
+                float sum = 0.0f;
+                for (int k = 0; k < d_k; ++k) {
+                    sum += q[k] * k_row[k];
+                }
+                scores[j] = sum * scale_factor;
+            }
+            // Apply mask if provided (same mask shared across every head)
+            if (mask != nullptr) {
+                const float* m = mask->data[i].data();
                 for (int j = 0; j < seq_len; ++j) {
-                    if ((*mask)(i, j) == 0.0f) {
-                        scores_head(i, j) = -1e9f;
+                    if (m[j] == 0.0f) {
+                        scores[j] = -1e9f;
                     }
                 }
             }
-        }
+            // Softmax in place — scores_head now holds this head's real attention weights
+            // (cached below for backward()).
+            Activation::softmax_row_inplace(scores, seq_len);  // TD-216
 
-        // Softmax row-wise, in place — scores_head now holds this head's real attention
-        // weights (cached below for backward()).
-        for (int i = 0; i < seq_len; ++i) {
-            Activation::softmax_row_inplace(scores_head.data[i].data(), seq_len);  // TD-216
-        }
-
-        // Apply attention to values: output_h = attention_weights_h * V_h, written
-        // directly into this head's column slice of the concatenated output.
-        for (int i = 0; i < seq_len; ++i) {
+            // output_h = attention_weights_h * V_h, written directly into this head's column
+            // slice of the concatenated output.
+            float* out = concatenated.data[i].data() + start_dim;
             for (int k = 0; k < d_k; ++k) {
-                float sum = 0.0f;
-                for (int j = 0; j < seq_len; ++j) {
-                    sum += scores_head(i, j) * V(j, start_dim + k);
+                out[k] = 0.0f;
+            }
+            for (int j = 0; j < seq_len; ++j) {
+                const float w = scores[j];
+                const float* v = V.data[j].data() + start_dim;
+                for (int k = 0; k < d_k; ++k) {
+                    out[k] += w * v[k];
                 }
-                concatenated(i, start_dim + k) = sum;
             }
         }
     };
@@ -602,17 +610,11 @@ void MultiHeadAttention::merge_lora() {
 }
 
 void MultiHeadAttention::print_config(const std::string& name) const {
-    std::cout << name << " Configuration:" << '\n';
-    std::cout << "  Model Dimension (d_model): " << d_model << '\n';
-    std::cout << "  Number of Heads: " << num_heads << '\n';
-    std::cout << "  Dimension per Head (d_k): " << d_k << '\n';
-    std::cout << "  Total Parameters: " << (4 * d_model * d_model) << '\n';
-    std::cout << "  Memory Usage: " << std::fixed << std::setprecision(2)
-              << (static_cast<float>(4) * static_cast<float>(d_model) *
-                  static_cast<float>(d_model) * sizeof(float)) /
-                     1024.0f / 1024.0f
-              << " MB" << '\n';
-    std::cout << "  Learning Rate: " << learning_rate << '\n';
+    // TD-467: through adai::Logger; it used to leave std::cout in fixed two-decimal mode.
+    const double megabytes = 4.0 * d_model * d_model * sizeof(float) / 1024.0 / 1024.0;
+    adai::Logger::info(
+        "{}: d_model {}, {} heads of d_k {}, {} parameters ({:.2f} MB), learning rate {}", name,
+        d_model, num_heads, d_k, 4 * d_model * d_model, megabytes, learning_rate);
 }
 
 void MultiHeadAttention::save_weights(const std::string& filename) const {
@@ -624,8 +626,7 @@ void MultiHeadAttention::save_weights(const std::string& filename) const {
     file.matrix(W_v, "W_v");
     file.matrix(W_o, "W_o");
     file.close();
-
-    std::cout << "Saved MultiHeadAttention weights to " << filename << '\n';
+    adai::Logger::debug("Saved MultiHeadAttention weights to {}", filename);
 }
 
 void MultiHeadAttention::load_weights(const std::string& filename) {
@@ -652,8 +653,7 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
     W_k = std::move(k);
     W_v = std::move(v);
     W_o = std::move(o);
-
-    std::cout << "Loaded MultiHeadAttention weights from " << filename << '\n';
+    adai::Logger::debug("Loaded MultiHeadAttention weights from {}", filename);
 }
 
 float MultiHeadAttention::get_gradient_norm() const {

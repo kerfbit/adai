@@ -1,9 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050, TD-299, TD-300, TD-301 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-10
-
+// @adai-status: beta        (capped by TD-050, TD-300, TD-301 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.15.1
+// @adai-reviewed: 2026-11-13
 
 #include <memory>
 #include <vector>
@@ -121,7 +120,8 @@ class CrossAttention {
      * @param d_model Dimension of the model (must be divisible by num_heads)
      * @param num_heads Number of attention heads
      *
-     * @throws std::invalid_argument if d_model is not divisible by num_heads
+     * @throws std::invalid_argument if d_model or num_heads isn't positive, or d_model is not
+     *         divisible by num_heads
      */
     CrossAttention(int d_model, int num_heads);
 

@@ -1,12 +1,17 @@
 #include "../src/MultiHeadAttention.hpp"
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 #include "../src/Activation.hpp"
+#include "../src/Logger.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 
@@ -43,6 +48,12 @@ TEST(MultiHeadAttentionConstructorTest, DimensionNotDivisible) {
     // d_model must be divisible by num_heads
     EXPECT_THROW(MultiHeadAttention(512, 7), std::invalid_argument);
     EXPECT_THROW(MultiHeadAttention(100, 7), std::invalid_argument);
+    // TD-467: num_heads == 0 used to divide by zero (SIGFPE) in the initializer list, and a
+    // negative divisor was accepted with a negative d_k.
+    EXPECT_THROW(MultiHeadAttention(8, 0), std::invalid_argument);
+    EXPECT_THROW(MultiHeadAttention(8, -2), std::invalid_argument);
+    EXPECT_THROW(MultiHeadAttention(0, 2), std::invalid_argument);
+    EXPECT_THROW(MultiHeadAttention(-8, 2), std::invalid_argument);
 }
 
 TEST(MultiHeadAttentionConstructorTest, SingleHead) {
@@ -1638,24 +1649,41 @@ TEST(MultiHeadAttentionOptimizerTest, GradientClippingWithOptimizer) {
 // Configuration Display Test
 // ============================================================================
 
+// TD-467: print_config() logs through adai::Logger instead of std::cout.
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink =
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() {
+        adai::Logger::get()->sinks().push_back(sink);
+    }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+}  // namespace
+
 TEST(MultiHeadAttentionConfigTest, PrintConfig) {
     MultiHeadAttention mha(512, 8);
 
-    testing::internal::CaptureStdout();
+    LogCapture log;
     mha.print_config();
-    std::string output = testing::internal::GetCapturedStdout();
+    std::string output = log.out.str();
 
     EXPECT_TRUE(output.find("512") != std::string::npos);
     EXPECT_TRUE(output.find("8") != std::string::npos);
-    EXPECT_TRUE(output.find("64") != std::string::npos);  // d_k
+    EXPECT_TRUE(output.find("d_k 64") != std::string::npos) << output;
+    EXPECT_TRUE(output.find("8 heads") != std::string::npos) << output;
 }
 
 TEST(MultiHeadAttentionConfigTest, PrintConfigCustomName) {
     MultiHeadAttention mha(256, 4);
 
-    testing::internal::CaptureStdout();
+    LogCapture log;
     mha.print_config("MyAttentionLayer");
-    std::string output = testing::internal::GetCapturedStdout();
+    std::string output = log.out.str();
 
     EXPECT_TRUE(output.find("MyAttentionLayer") != std::string::npos);
 }
