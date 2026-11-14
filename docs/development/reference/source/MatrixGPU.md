@@ -1,11 +1,11 @@
 # `gpu/MatrixGPU.hpp` — Source File Reference
 
-- **File:** [`src/gpu/MatrixGPU.hpp`](../../../../src/gpu/MatrixGPU.hpp) (header-only, 573 lines)
+- **File:** [`src/gpu/MatrixGPU.hpp`](../../../../src/gpu/MatrixGPU.hpp) (header-only, 630 lines)
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, `GPUMatrix`, `GPUKVCache`, `GPUDecoderKVCache`)
 - **Built into:** everything compiled with `ADAI_ENABLE_GPU`; implementations in [MatrixGPU_cu.md](MatrixGPU_cu.md) (CUDA) and `sycl/MatrixGPU_SYCL.cpp` (SYCL)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.0`, `@adai-reviewed: 2026-09-14`
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-13`
 - **Tests:** [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) → `matrixgpuTd003Tests` (13 tests, all skip without a GPU); GPU tests inside `feedforward_test.cpp` and `multiheadattention_test.cpp`; **no tests for `GPUKVCache`/`GPUDecoderKVCache`**
-- **Last traced against the code:** 2026-10-12
+- **Last traced against the code:** 2026-10-12, with the addenda below; §3 re-traced 2026-11-13
 
 > Code-traced reference. No GPU device is available here (the CUDA test build skips all 13
 > `matrixgpuTd003Tests`), so everything below is **by inspection**.
@@ -59,6 +59,19 @@ up as corrupted values or a device fault, not as the `invalid_argument` the chec
 
 | Member | Behaviour |
 |---|---|
+| `GPUKVCache(max_seq_length, d_model)` | Pre-allocates `keys_` and `values_` as `[max_seq_length × d_model]` once. The positivity check runs **after** the members are constructed, so a bad size fails inside `GPUMemory` (a huge `size_t` from a negative product) with a budget or allocation error instead of the intended message (TD-389) |
+| `append(k, v)` | Checks shapes (`std::invalid_argument`), then **throws `out_of_range` when `current_length + k.rows > max_seq_length`**; otherwise copies the rows into place (one device-to-device copy each) |
+| `keys_data()` / `values_data()` / `leading_dimension()` | TD-388: the populated `[size(), d_model]` prefix in place, valid until the next `append()`; the cached attention paths multiply straight out of it with `matrix_gemm_strided_gpu()` |
+| `clear()`, `is_empty()`, `size()`, `capacity()` | `clear()` rewinds to empty without freeing the device buffers and resets the source tag |
+| `source_tag()` / `set_source_tag(tag)` | TD-300: which layer and weights a cross-attention cache's K/V came from, set by `CrossAttention::gpu_forward_with_cache()` when it fills the cache and checked on every later call (0 = not set) |
+| `GPUDecoderKVCache(num_layers, max_seq_length, d_model)` | One self-attention and one cross-attention `GPUKVCache` per layer, **both capped at `max_seq_length`**. `self_attention_cache(i)`/`cross_attention_cache(i)` aren't bounds-checked (TD-389). `clear()`, `clear_self_attention()` (keeps the encoder K/V), `is_empty()`, `current_length()` (layer 0's self-attention length) |
+
+The cross-attention cache holds the whole encoder output's K/V; it fits because the encoder input
+keeps at most `max_seq_length` tokens (TD-365; an over-long chat input used to throw `out_of_range`
+here, TD-387). Generation is capped at `max_seq_length` (TD-347), which keeps the self-attention
+cache within its capacity.
+
+---|---|
 | `GPUKVCache(max_seq_length, d_model)` | Pre-allocates `keys_` and `values_` as `[max_seq_length × d_model]` once. The positivity check runs **after** the members are constructed, so a bad size fails inside `GPUMemory` (a huge `size_t` from a negative product) with a budget or allocation error instead of the intended message |
 | `append(k, v)` | Checks shapes, then **throws `out_of_range` when `current_length + k.rows > max_seq_length`**; otherwise copies the rows into place (one device-to-device copy each) |
 | `get_keys()` / `get_values()` | Materialize the populated prefix as a **fresh** `GPUMatrix` (allocate and copy) on every call, so every decode step copies the whole cache once per layer for K and once for V. That's O(n²) bytes over a generation |
@@ -131,3 +144,9 @@ CPU's first maximum) by a strided scan and a tree reduction in local memory, and
 outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
 Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
 and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.
+
+## Addendum (November 13, 2026): the cross-attention cache's source (TD-300)
+
+`GPUKVCache` gains `source_tag()`/`set_source_tag()` (§3), reset by `clear()`, the device counterpart of `KVCache::source_tag`
+([KVCache.md](KVCache.md)). `CrossAttention::gpu_forward_with_cache()` checks the encoder row count and the layer's weights against
+it; the content isn't sampled on the device. Test: `CrossAttentionGPUContractTest.ACachedGpuCallChecksTheEncoderLengthAndTheWeights`.

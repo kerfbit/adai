@@ -1,12 +1,12 @@
 # `CrossAttention` — Source File Reference
 
-- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp) (458 lines), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp) (1,090 lines)
+- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp) (473 lines), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp) (1,172 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_attention` (linked by `adai_transformer` → `adai_models`), so every binary that builds a model
-- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-300), `@adai-version: 0.16.0` (`.hpp`) / `0.16.0` (`.cpp`), `@adai-reviewed: 2026-11-13`
-- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (54 tests; 58 in a GPU build), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
+- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.17.0` (`.hpp`) / `0.17.0` (`.cpp`), `@adai-reviewed: 2026-11-13`
+- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (59 tests; 64 in a GPU build), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
 - **Origin:** original encoder-decoder design; TD-059 (real per-head split), TD-038 (LoRA), TD-050 (GPU incremental cache), TD-174 (`forward_with_scores`), TD-180 (`get_last_attention_weights`)
-- **Last traced against the code:** 2026-10-10, with the addenda below; construction, optimization, accessors (§4) and the GPU path (§5) re-traced 2026-11-13
+- **Last traced against the code:** 2026-10-10, with the addenda below; construction, the forward family, optimization, accessors (§4) and the GPU path (§5) re-traced 2026-11-13
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (scratch program linked against `libadai_attention`/`libadai_layers`/`libadai_core`), including a
@@ -105,7 +105,7 @@ All three CPU forwards validate shapes (`query.cols == d_model`, `kv.cols == d_m
 |---|---|
 | `forward(q, kv, mask = nullptr)` | The baseline |
 | `forward_with_scores(q, kv, score_bias, mask = nullptr)` | Adds `score_bias[tgt, src]` to every head's scaled scores before masking; masking wins over bias. An all-zero bias reproduces `forward()` exactly. The bias is treated as a constant (no gradient w.r.t. it), which is correct for the hippocampal coverage penalty |
-| `forward_with_cache(q, kv, mask, kv_cache, use_cache = true)` | With no cache or `use_cache=false`, it's `forward()`. Otherwise it projects K/V from `kv` **only when `kv_cache->is_empty()`**, appends them, and on every later call reads them back and **ignores `kv` entirely** |
+| `forward_with_cache(q, kv, mask, kv_cache, use_cache = true)` | With no cache or `use_cache=false`, it's `forward()`. Otherwise it projects K/V from `kv` **only when `kv_cache->is_empty()`**, appends them and sets the cache's `source_tag`; every later call checks that `kv` is still that encoder output (below) and reads the K/V back |
 
 **Masking.** A mask entry of exactly `0.0f` means "don't attend" (the score becomes `−1e9`), and any
 other value means attend. This matches the GPU kernel (`matrix_masked_fill_gpu`) and
@@ -113,13 +113,24 @@ other value means attend. This matches the GPU kernel (`matrix_masked_fill_gpu`)
 distribution over the masked keys (verified: `0.2` each over 5 keys) rather than zero output, the
 standard behaviour of the `−1e9` trick.
 
-**KV-cache contract (verified).** Reusing a non-empty cache with a *different* encoder output
-silently returns attention over the **old** encoder's K/V. A 7-row encoder output after a 5-row one
-gave a result identical to the first call and 7.9 (L1) away from the uncached answer. A mask sized
-for the new encoder is then rejected with a confusing `src_len=5` error. Production is safe:
-`EncoderDecoderModel` builds a fresh `DecoderKVCache` per generation. But the method neither checks
-that `kv` still matches the cache nor documents that the caller must `clear()` it. Enabling or
-changing LoRA after the cache is populated likewise leaves stale K/V.
+**KV-cache contract (TD-300, fixed November 13, 2026).** A filled cache answers only for the encoder
+output, layer and weights it was filled with. When it fills a cache, `forward_with_cache()` stores
+`cache_source_tag()` in `KVCache::source_tag`: an FNV-1a hash of a per-instance id, the layer's
+weights version, the input's shape and 64 sampled values (the first and last rows included), so the
+check costs the same for any input size. Every later call recomputes it and throws
+`std::invalid_argument` when the row count differs (naming both shapes) or the tag does, before
+anything changes. The weights version (`weights_version_`) changes with every weight change through
+the layer: the setters, `load()`, `update_weights()`, `enable_lora()`, `merge_lora()` (all through the
+private `weights_changed()`) and `gpu_download_weights()`. So a cache filled before LoRA was enabled,
+or by another `CrossAttention`, is refused too. Callers `clear()` the cache for a new encoder output;
+`DecoderKVCache::clear_self_attention()` keeps the encoder K/V for the same input. Before the fix,
+reusing a filled cache with a different encoder output silently returned attention over the **old**
+one (verified: a 7-row encoder output after a 5-row one gave the first call's answer, 7.9 L1 away from
+the uncached one, and a mask sized for the new encoder was rejected with a confusing `src_len=5`
+error). Limits: a different input that matches at all 64 sampled positions, and a change to the
+adapters' own weights (`get_lora_*()->update()`) or an optimizer step taken elsewhere, aren't seen.
+Production builds a fresh `DecoderKVCache` per generation and passes the same encoder output every
+step.
 
 ### Backward
 
@@ -212,13 +223,17 @@ How it relates to the CPU path (TD-301, fixed November 13, 2026; verified on the
   attached; they used to run the base weights silently. `merge_lora()` first.
 - **Shapes.** `gpu_forward()` needs `query` and `kv` `d_model` wide and `mask`/`score_bias`
   `[tgt, src]`; `gpu_forward_with_cache()` needs `query` `d_model` wide, `kv` too on the first
-  (cache-filling) call only, and the mask `[new, src]`. Otherwise `std::invalid_argument`, before
+  (cache-filling) call only, and the mask `[new, src]`. On later calls `kv` must have the cache's row
+  count and the layer's weights must not have changed since the cache was filled
+  (`GPUKVCache::source_tag()`, TD-300); the content isn't sampled, as that would copy from the device
+  every step. Otherwise `std::invalid_argument`, before
   anything changes; the mask used to be checked only by its element count (`masked_fill_inplace()`).
   `gpu_backward()` throws `std::logic_error` with no `gpu_forward()` before it (it dereferenced a null
   `GPUState`) and `std::invalid_argument` unless `dout` is `[tgt, d_model]`.
 - **Weights on the device.** `gpu_upload_weights()` copies the CPU weights on the first GPU call and
   keeps them. The setters, `load()`, `merge_lora()` and `update_weights()` refresh that copy through
-  the private `refresh_gpu_mirror()` (as `LayerNorm`'s, TD-426); they used to leave it stale. An
+  the private `weights_changed()` (which also advances the weights version, TD-300; the refresh is
+  as `LayerNorm`'s, TD-426); they used to leave it stale. An
   optimizer step taken elsewhere (the blocks, decoder and model step their optimizer themselves)
   still needs `EncoderDecoderModel::gpu_sync_weights()`. During GPU training the device copy is the
   live one: `GPUOptimizer` steps it (TD-468) and `gpu_download_weights()` brings the host weights up
@@ -251,15 +266,15 @@ How it relates to the CPU path (TD-301, fixed November 13, 2026; verified on the
 | ScoreBias | 6 (TD-174) |
 | Construction | 1 (TD-299: zero and negative shapes) |
 | Persistence | 1 (TD-298/TD-423: truncated and empty files) |
+| CacheSource | 5 (TD-300: the same encoder output keeps the cache; a different length, a same-length different output, a weight or LoRA change, another layer's cache are refused; a cleared cache takes a new output) |
 | Setters | 1 (TD-301: shape checked, nothing changed on a refusal) |
-| GPU contract (GPU builds) | 4 (TD-301: LoRA refused until merged, shapes, backward without a forward, host changes reach the mirror) |
+| GPU contract (GPU builds) | 5 (TD-301: LoRA refused until merged, shapes, backward without a forward, host changes reach the mirror; TD-300: the cached path checks the encoder length and the weights) |
 
 The cached path is covered in `inference_optimization_test.cpp` and the encoder-decoder suites. The
 older [CROSSATTENTION_TEST_COVERAGE.md](../../testing/coverage/CROSSATTENTION_TEST_COVERAGE.md)
 predates TD-059/TD-038/TD-174.
 
 **Not covered:**
-- cache reuse with a different encoder output;
 - a shared optimizer across layers;
 - a gradient check on `grad_kv_input` or with LoRA/bias;
 - anything GPU-side in CI (the GPU tests run in the SYCL build, on the oneAPI CPU device and on
@@ -278,7 +293,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `update_weights()` calls a possibly **shared** optimizer's `step()`, which steps every registered layer; double `set_optimizer()` double-registers (§4) | Public `EncoderDecoderModel::train_step()`/`update_weights()` over-step every parameter when an optimizer is registered; shipped trainers unaffected | **Verified** | [TD-297](../../guides/TECHNICAL_DEBT.md#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) |
 | `load()` doesn't check reads; truncated file → NaN weights, no error; `learning_rate` clobbered before the mismatch check; `save()` unchecked (§4) | A damaged legacy `.cross_attn` file silently produces a NaN model | **Verified** | [TD-298](../../guides/TECHNICAL_DEBT.md#td-298-crossattentionload-loads-truncated-files-as-nan-weights) |
 | `num_heads == 0` → SIGFPE before the validation runs; negative heads accepted (§4) | **Fixed in code November 13, 2026**: checked before `d_k` is computed | **Verified** by test | [TD-299](../../guides/TECHNICAL_DEBT.md#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) |
-| `forward_with_cache()` silently ignores a new `kv` once the cache is filled; no staleness check (§4) | Wrong attention if a caller reuses a cache across inputs or after enabling LoRA; production is safe today | **Verified** | [TD-300](../../guides/TECHNICAL_DEBT.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
+| `forward_with_cache()` silently ignored a new `kv` once the cache was filled; no staleness check (§4) | **Fixed in code** November 13, 2026: shape, sampled content, layer and weights checked; the content isn't checked on the GPU path, and an input matching at every sampled position isn't caught | **Verified** | [TD-300](../../guides/TECHNICAL_DEBT.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
 | GPU path ignored LoRA, skipped validation, dereferenced null in `gpu_backward()` without a forward, kept stale weights after host changes (§5) | **Fixed in code** November 13, 2026 | **Verified** on the oneAPI CPU device | [TD-301](../../guides/TECHNICAL_DEBT.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) |
 | An optimizer step taken outside `update_weights()` doesn't reach the device copy; `get_last_attention_weights()` is CPU-only (§5) | Callers call `gpu_sync_weights()`, or use `gpu_last_mean_attention_weights()` | By inspection | Documented contract (TD-301) |
 | LoRA adapters aren't persisted by `save()` or SafeTensors; `get_gradient_norm()` excludes LoRA grads (§4) | Unmerged LoRA training lost on save; gradient clipping ignores adapters. LoRA has no production caller yet | By inspection | [TD-302](../../guides/TECHNICAL_DEBT.md#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) |
@@ -354,3 +369,9 @@ the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.Strid
 Now reflected in §4–§7: the GPU forwards refuse attached LoRA adapters and check widths, mask and score-bias shapes, `gpu_backward()`
 needs a forward of the same shape, and the setters (now shape-checked), `load()`, `merge_lora()` and `update_weights()` refresh the
 device copy of the weights. Tests: `CrossAttentionSetterTest`, `CrossAttentionGPUContractTest`.
+
+## Addendum (November 13, 2026): the cache answers only for its own encoder output (TD-300)
+
+Now reflected in §4–§7: `forward_with_cache()` records the layer, weights version and encoder output a cache was filled from and
+refuses a later call that differs; `gpu_forward_with_cache()` checks the row count and the weights. Tests: `CrossAttentionCacheSourceTest`
+(the three refusal tests fail on the old code) and `CrossAttentionGPUContractTest.ACachedGpuCallChecksTheEncoderLengthAndTheWeights`.

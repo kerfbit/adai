@@ -159,7 +159,7 @@ None — every in-scope file carries a tag.
 | `scripts/manual_test_reload.sh` | beta | 0.6.2 | 2026-11-10 | — |
 | `scripts/model_service.sh` | beta | 0.8.3 | 2026-11-10 | — |
 | `scripts/package-sycl.sh` | beta | 0.7.1 | 2026-11-10 | — |
-| `scripts/package_sycl_gpu_tests.sh` | experimental | 0.4.1 | 2026-11-13 | — |
+| `scripts/package_sycl_gpu_tests.sh` | experimental | 0.4.2 | 2026-11-13 | — |
 | `scripts/package_windows.sh` | beta | 0.8.2 | 2026-11-10 | — |
 | `scripts/run_chatbot.sh` | beta | 0.7.2 | 2026-11-10 | — |
 | `scripts/run_chatbot_gui.sh` | beta | 0.10.0 | 2026-11-10 | — |
@@ -170,7 +170,7 @@ None — every in-scope file carries a tag.
 | `scripts/sycl_gpu_tests/lejepa_pass.sh` | experimental | 0.1.0 | 2026-11-12 | — |
 | `scripts/sycl_gpu_tests/prepare_host.sh` | experimental | 0.2.3 | 2026-11-10 | — |
 | `scripts/sycl_gpu_tests/restore_host.sh` | experimental | 0.2.0 | 2026-11-10 | — |
-| `scripts/sycl_gpu_tests/run_gpu_tests.sh` | experimental | 0.5.0 | 2026-11-13 | — |
+| `scripts/sycl_gpu_tests/run_gpu_tests.sh` | experimental | 0.5.1 | 2026-11-13 | — |
 | `scripts/sycl_gpu_tests/train_pass.sh` | experimental | 0.2.0 | 2026-11-10 | — |
 | `scripts/test_chatbot_gui.sh` | beta | 0.8.0 | 2026-11-10 | — |
 | `scripts/test_chatbot_gui_comprehensive.sh` | beta | 0.8.0 | 2026-11-10 | — |
@@ -200,8 +200,8 @@ None — every in-scope file carries a tag.
 | `src/ChildProcess.hpp` | beta | 0.6.0 | 2026-11-10 | — |
 | `src/ConversationFormat.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/ConversationFormat.hpp` | beta | 0.1.0 | 2026-11-10 | — |
-| `src/CrossAttention.cpp` | beta | 0.16.0 | 2026-11-13 | TD-050 |
-| `src/CrossAttention.hpp` | beta | 0.16.0 | 2026-11-13 | TD-050 |
+| `src/CrossAttention.cpp` | beta | 0.17.0 | 2026-11-13 | TD-050 |
+| `src/CrossAttention.hpp` | beta | 0.17.0 | 2026-11-13 | TD-050 |
 | `src/Decoder.cpp` | beta | 0.19.1 | 2026-11-10 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.19.0 | 2026-11-10 | TD-050 |
 | `src/Dropout.cpp` | beta | 0.1.1 | 2026-11-10 | — |
@@ -281,7 +281,7 @@ None — every in-scope file carries a tag.
 | `src/gpu/GPUParamSync.hpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/gpu/GPUUtils.hpp` | beta | 0.13.0 | 2026-11-13 | TD-383 |
 | `src/gpu/MatrixGPU.cu` | beta | 0.15.1 | 2026-11-10 | TD-386 |
-| `src/gpu/MatrixGPU.hpp` | beta | 0.16.0 | 2026-11-10 | TD-050 |
+| `src/gpu/MatrixGPU.hpp` | beta | 0.17.0 | 2026-11-13 | TD-050 |
 | `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.11.0 | 2026-11-13 | TD-383 |
 | `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.17.0 | 2026-11-13 | TD-386 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.16.0 | 2026-11-13 | TD-050 |

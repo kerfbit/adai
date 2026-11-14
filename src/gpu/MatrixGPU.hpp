@@ -2,9 +2,10 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-13
 
+#include <cstdint>
 #include <stdexcept>
 #include <vector>
 
@@ -491,6 +492,16 @@ class GPUKVCache {
     /** @brief Rewind to empty without freeing/reallocating the underlying device buffer. */
     void clear() {
         current_length_ = 0;
+        source_tag_ = 0;
+    }
+
+    /// TD-300: which layer and weights a cross-attention cache's K/V came from, set by
+    /// CrossAttention::gpu_forward_with_cache() when it fills the cache (0 = not set).
+    std::uint64_t source_tag() const {
+        return source_tag_;
+    }
+    void set_source_tag(std::uint64_t tag) {
+        source_tag_ = tag;
     }
 
     /**
@@ -538,6 +549,7 @@ class GPUKVCache {
     GPUMatrix keys_;
     GPUMatrix values_;
     int current_length_;
+    std::uint64_t source_tag_{0};
 };
 
 /**

@@ -1,11 +1,12 @@
 # `KVCache` — Source File Reference
 
-- **File:** [`src/KVCache.hpp`](../../../../src/KVCache.hpp) (header-only, 226 lines)
+- **File:** [`src/KVCache.hpp`](../../../../src/KVCache.hpp) (header-only, 245 lines)
 - **Namespace:** global (`KVCache`, `DecoderKVCache`)
 - **Built into:** header-only; included by `MultiHeadAttention.hpp`, `DecoderBlock.hpp`, `Decoder.hpp`, `EncoderDecoderModel.hpp`; used by `CrossAttention.cpp` and `Decoder.cpp`
 - **GPU counterpart:** `GPUKVCache`/`GPUDecoderKVCache` in [MatrixGPU.md](MatrixGPU.md) (pre-allocated)
-- **Tests:** no dedicated file; exercised by `inference_optimization_test.cpp` (≈20 uses) and `encoderdecoder_test.cpp`
-- **Last traced against the code:** 2026-10-13
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0`, `@adai-reviewed: 2026-11-13`
+- **Tests:** [`tests/kvcache_test.cpp`](../../../../tests/kvcache_test.cpp) → `kvcacheTests` (4 tests); also exercised by `inference_optimization_test.cpp` (≈20 uses), `encoderdecoder_test.cpp` and `crossattention_test.cpp`'s `CrossAttentionCacheSourceTest` (TD-300)
+- **Last traced against the code:** 2026-11-13 (§1–§2)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs, including
 > AddressSanitizer builds.
@@ -31,8 +32,10 @@ search uses no cache) builds a `DecoderKVCache` per request and calls
 `get_cross_attention_cache(i)` down to `DecoderBlock`, which hands them to:
 - `MultiHeadAttention::forward_with_cache()`, which appends the new tokens' K/V and attends over the
   whole cache;
-- `CrossAttention`'s cached path, which appends the encoder's K/V **once** (when the cache is empty)
-  and reuses them.
+- `CrossAttention`'s cached path, which appends the encoder's K/V **once** (when the cache is empty),
+  records where they came from in `source_tag`, and reuses them. Since TD-300 a later call with a
+  different encoder output (its shape or 64 sampled values) or after a weight or LoRA change throws
+  `std::invalid_argument`; a new encoder output needs `clear()`.
 
 One `DecoderKVCache` serves exactly **one** generation of one request. The cached keys and values
 depend on that request's encoder output and prefix, so a cache must not be shared across hypotheses
@@ -47,8 +50,9 @@ depend on that request's encoder output and prefix, so a cache must not be share
 | Member | Behaviour |
 |---|---|
 | `is_empty()`, `size()` | `current_length == 0`; `current_length` |
-| `clear()` | Resets both matrices to `0 × 0` and the length to 0 (frees the memory) |
-| `append(new_keys, new_values)` | Empty cache: **copies** the inputs in, and `current_length = new_keys.rows`. Otherwise: allocates new `[current_length + new_rows × keys.cols]` matrices, copies the old rows and the new rows, and replaces the members |
+| `clear()` | Resets both matrices to `0 × 0`, the length and `source_tag` to 0 (frees the memory) |
+| `append(new_keys, new_values)` | Throws `std::invalid_argument` when keys and values differ in shape or the width differs from the cache's (TD-421). Empty cache: **copies** the inputs in, and `current_length = new_keys.rows`. Otherwise: pushes the new rows onto the existing matrices (one vector per row, so no cached row moves, TD-422) |
+| `source_tag` | TD-300: a public `std::uint64_t`, 0 until `CrossAttention::forward_with_cache()` fills the cache with a fingerprint of the layer, its weights version and the encoder output; checked on every later call. Self-attention caches leave it at 0 |
 | `get_keys()`, `get_values()` | Const references to the full cached matrices |
 
 ### `DecoderKVCache`
@@ -57,7 +61,7 @@ depend on that request's encoder output and prefix, so a cache must not be share
 |---|---|
 | `DecoderKVCache(num_layers)` | `num_layers` empty self- and cross-attention caches. **There's no default constructor** |
 | `clear()` / `clear_self_attention()` | Clear everything / only the self-attention caches (keeping the encoder K/V) |
-| `get_self_attention_cache(i)`, `get_cross_attention_cache(i)` | `vector::operator[]`, **no bounds check** |
+| `get_self_attention_cache(i)`, `get_cross_attention_cache(i)` | Throw `std::out_of_range` for a layer index outside the cache (TD-421) |
 | `is_empty()` | All self-attention caches empty |
 | `current_length()` | **Layer 0's** self-attention length only (assumes every layer is in step) |
 
@@ -96,10 +100,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `append()` doesn't check key/value or column shapes (§3) | Heap overflow (write or read) or silent corruption on mismatched input | **Verified** (ASan) | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
-| Full reallocate-and-copy on every append (§3) | O(n²·d) copying per generation; about 6 s at 24 layers × 512 tokens | **Verified** (timing) | [TD-422](../../guides/TECHNICAL_DEBT.md#td-422-kvcache-copies-the-whole-cache-on-every-append) |
-| `get_*_cache()` not bounds-checked; `current_length()` reads only layer 0; no default constructor (§2) | Out-of-range layer index is undefined behaviour; inconsistent layers go unnoticed | By inspection | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
+| `append()` didn't check key/value or column shapes (§3) | **Fixed in code** October 26, 2026 (it was heap overflow or silent corruption on mismatched input) | **Verified** (ASan) | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
+| Full reallocate-and-copy on every append (§3) | **Fixed in code** October 26, 2026 (it was O(n²·d) copying per generation, about 6 s at 24 layers × 512 tokens) | **Verified** (timing) | [TD-422](../../guides/TECHNICAL_DEBT.md#td-422-kvcache-copies-the-whole-cache-on-every-append) |
+| `get_*_cache()` weren't bounds-checked (fixed October 26, 2026); `current_length()` reads only layer 0; no default constructor (§2) | Inconsistent layers go unnoticed | By inspection | [TD-421](../../guides/TECHNICAL_DEBT.md#td-421-kvcacheappend-has-no-shape-checks) |
 | Generation past `max_seq_length` diverges between cached and full forward | Already tracked | — | TD-347 |
+| A cross-attention cache reused for another encoder output answered with the old K/V | **Fixed in code** November 13, 2026: `source_tag`, checked by `CrossAttention` | **Verified** | [TD-300](../../guides/TECHNICAL_DEBT.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
 
 ---
 
@@ -127,3 +132,9 @@ the encoder K/V" pattern.
 `append()` pushes the new rows onto the existing `Matrix` (one vector per row), so no cached row is copied. One cache at d_model 512:
 512 steps took 219 ms before and 1.03 ms after. It throws `invalid_argument` on mismatched shapes, and `DecoderKVCache`'s layer
 accessors throw `out_of_range`. Tests: `tests/kvcache_test.cpp`.
+
+## Addendum (November 13, 2026): the cross-attention cache's source (TD-300)
+
+`KVCache` gains `source_tag` (§2), reset by `clear()`. `CrossAttention::forward_with_cache()` sets it when it fills a cache and
+refuses a later call whose encoder output or weights differ. `GPUKVCache` has the same field behind `source_tag()`/`set_source_tag()`
+([MatrixGPU.md](MatrixGPU.md)). Test: `KVCache.AppendKeepsEveryRowInOrder` checks that `clear()` resets it.

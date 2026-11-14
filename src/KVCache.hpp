@@ -1,10 +1,10 @@
 #pragma once
 
 // @adai-status: stable        (TD-421/TD-422 fixed, tests: kvcacheTests)
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-13
 
-
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -53,6 +53,13 @@ struct KVCache {
     int current_length{0};
 
     /**
+     * TD-300: which layer, weights and input a cross-attention cache's K/V came from, set by
+     * CrossAttention::forward_with_cache() when it fills the cache and checked on every later call
+     * (0 = not set; self-attention caches don't use it).
+     */
+    std::uint64_t source_tag{0};
+
+    /**
      * Constructor
      */
     KVCache() = default;
@@ -78,6 +85,7 @@ struct KVCache {
         keys = Matrix(0, 0);
         values = Matrix(0, 0);
         current_length = 0;
+        source_tag = 0;
     }
 
     /**

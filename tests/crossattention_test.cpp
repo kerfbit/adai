@@ -2268,6 +2268,115 @@ TEST(CrossAttentionSetterTest, SettersRejectTheWrongShapeAndKeepTheOldWeights) {
     EXPECT_EQ(ca.get_Wv()(2, 7), w(2, 7));
 }
 
+// TD-300: a filled cross-attention cache answers only for the encoder output and weights it was
+// filled with. It used to ignore any later kv_input, silently returning attention over the old one.
+namespace {
+Matrix td300_random(int rows, int cols, unsigned seed) {
+    std::mt19937 gen(seed);
+    std::normal_distribution<float> dist(0.0f, 1.0f);
+    Matrix m(rows, cols);
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            m(i, j) = dist(gen);
+    return m;
+}
+
+bool td300_equal(const Matrix& a, const Matrix& b) {
+    if (a.rows != b.rows || a.cols != b.cols)
+        return false;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            if (a(i, j) != b(i, j))
+                return false;
+    return true;
+}
+}  // namespace
+
+TEST(CrossAttentionCacheSourceTest, TheSameEncoderOutputKeepsUsingTheCache) {
+    CrossAttention ca(16, 4);
+    const Matrix encoder = td300_random(6, 16, 1);
+    KVCache cache;
+    const Matrix first = ca.forward_with_cache(td300_random(1, 16, 2), encoder, nullptr, &cache);
+    const Matrix q = td300_random(1, 16, 3);
+    const Matrix second = ca.forward_with_cache(q, encoder, nullptr, &cache);
+    EXPECT_EQ(cache.size(), 6);
+    EXPECT_NE(cache.source_tag, 0u);
+    // The cached answer is the full forward's.
+    const Matrix full = ca.forward(q, encoder);
+    for (int j = 0; j < 16; ++j)
+        EXPECT_NEAR(second(0, j), full(0, j), 1e-5f);
+    (void)first;
+}
+
+TEST(CrossAttentionCacheSourceTest, ADifferentLengthEncoderOutputThrows) {
+    CrossAttention ca(16, 4);
+    KVCache cache;
+    ca.forward_with_cache(td300_random(1, 16, 2), td300_random(6, 16, 1), nullptr, &cache);
+    EXPECT_THROW(
+        ca.forward_with_cache(td300_random(1, 16, 3), td300_random(9, 16, 4), nullptr, &cache),
+        std::invalid_argument);
+    EXPECT_EQ(cache.size(), 6);  // unchanged
+}
+
+TEST(CrossAttentionCacheSourceTest, ASameLengthDifferentEncoderOutputThrows) {
+    CrossAttention ca(16, 4);
+    KVCache cache;
+    const Matrix q = td300_random(1, 16, 3);
+    ca.forward_with_cache(q, td300_random(6, 16, 1), nullptr, &cache);
+    // The old code returned attention over the first encoder output here, with no error.
+    EXPECT_THROW(ca.forward_with_cache(q, td300_random(6, 16, 5), nullptr, &cache),
+                 std::invalid_argument);
+    // One changed value at a sampled position is enough (row 0, column 0 is always sampled).
+    Matrix nudged = td300_random(6, 16, 1);
+    nudged(0, 0) += 0.25f;
+    EXPECT_THROW(ca.forward_with_cache(q, nudged, nullptr, &cache), std::invalid_argument);
+}
+
+TEST(CrossAttentionCacheSourceTest, AWeightOrLoRAChangeAfterFillingThrows) {
+    const Matrix encoder = td300_random(6, 16, 1);
+    const Matrix q = td300_random(1, 16, 3);
+    {
+        CrossAttention ca(16, 4);
+        KVCache cache;
+        ca.forward_with_cache(q, encoder, nullptr, &cache);
+        ca.set_Wk(td300_random(16, 16, 7));
+        EXPECT_THROW(ca.forward_with_cache(q, encoder, nullptr, &cache), std::invalid_argument);
+    }
+    {
+        CrossAttention ca(16, 4);
+        KVCache cache;
+        ca.forward_with_cache(q, encoder, nullptr, &cache);
+        ca.enable_lora(LoRAConfig{});
+        EXPECT_THROW(ca.forward_with_cache(q, encoder, nullptr, &cache), std::invalid_argument);
+    }
+    {
+        // Another layer's cache: same weights would still be another layer's K/V.
+        CrossAttention a(16, 4), b(16, 4);
+        b.set_Wq(a.get_Wq());
+        b.set_Wk(a.get_Wk());
+        b.set_Wv(a.get_Wv());
+        b.set_Wo(a.get_Wo());
+        KVCache cache;
+        a.forward_with_cache(q, encoder, nullptr, &cache);
+        EXPECT_THROW(b.forward_with_cache(q, encoder, nullptr, &cache), std::invalid_argument);
+    }
+}
+
+TEST(CrossAttentionCacheSourceTest, AClearedCacheTakesTheNewEncoderOutput) {
+    CrossAttention ca(16, 4);
+    KVCache cache;
+    const Matrix q = td300_random(1, 16, 3);
+    ca.forward_with_cache(q, td300_random(6, 16, 1), nullptr, &cache);
+    const Matrix other = td300_random(9, 16, 4);
+    cache.clear();
+    EXPECT_EQ(cache.source_tag, 0u);
+    const Matrix cached = ca.forward_with_cache(q, other, nullptr, &cache);
+    EXPECT_TRUE(td300_equal(cached, ca.forward_with_cache(q, other, nullptr, &cache)));
+    const Matrix full = ca.forward(q, other);
+    for (int j = 0; j < 16; ++j)
+        EXPECT_NEAR(cached(0, j), full(0, j), 1e-5f);
+}
+
 #ifdef ADAI_ENABLE_GPU
 // TD-301: the GPU path refuses a layer with LoRA adapters (it ran the base weights silently),
 // checks shapes as the CPU path does, and keeps its device mirror current when the host weights
@@ -2403,6 +2512,29 @@ TEST(CrossAttentionGPUContractTest, HostWeightChangesReachTheDeviceMirror) {
     ca.backward(ca_random(3, 16), dq, dkv);
     ca.update_weights();
     EXPECT_TRUE(gpu_matches_cpu()) << "update_weights";
+}
+
+TEST(CrossAttentionGPUContractTest, ACachedGpuCallChecksTheEncoderLengthAndTheWeights) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    // TD-300 on the GPU: the shape and the weights version (the content isn't sampled there).
+    CrossAttention ca(16, 4);
+    adai::gpu::GPUMatrix q = ca_random(1, 16).to_gpu();
+    adai::gpu::GPUMatrix kv = ca_random(6, 16).to_gpu();
+    adai::gpu::GPUMatrix longer = ca_random(9, 16).to_gpu();
+    adai::gpu::GPUKVCache cache(16, 16);
+    ca.gpu_forward_with_cache(q, kv, nullptr, &cache);
+    EXPECT_NO_THROW(ca.gpu_forward_with_cache(q, kv, nullptr, &cache));
+    EXPECT_THROW(ca.gpu_forward_with_cache(q, longer, nullptr, &cache), std::invalid_argument);
+    ca.set_Wv(ca_random(16, 16));
+    EXPECT_THROW(ca.gpu_forward_with_cache(q, kv, nullptr, &cache), std::invalid_argument);
+    cache.clear();
+    EXPECT_EQ(cache.source_tag(), 0u);
+    EXPECT_NO_THROW(ca.gpu_forward_with_cache(q, longer, nullptr, &cache));
+    EXPECT_EQ(cache.size(), 9);
 }
 #endif  // ADAI_ENABLE_GPU
 

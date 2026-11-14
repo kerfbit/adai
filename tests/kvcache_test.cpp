@@ -29,8 +29,10 @@ TEST(KVCache, AppendKeepsEveryRowInOrder) {
     EXPECT_FLOAT_EQ(cache.get_keys()(6, 3), 53.0f);
     EXPECT_FLOAT_EQ(cache.get_values()(6, 0), 1004.0f);
 
+    cache.source_tag = 42;  // TD-300: set by CrossAttention when it fills a cache
     cache.clear();
     EXPECT_TRUE(cache.is_empty());
+    EXPECT_EQ(cache.source_tag, 0u);
     cache.append(filled(1, 8, 0.0f), filled(1, 8, 0.0f));  // a cleared cache takes a new width
     EXPECT_EQ(cache.get_keys().cols, 8);
 }

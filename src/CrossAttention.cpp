@@ -1,12 +1,15 @@
-// @adai-status: beta        (capped by TD-050, TD-300 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-11-13
 
 #include "CrossAttention.hpp"
 #include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 
+#include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -30,6 +33,23 @@ int checked_head_dim(int d_model, int num_heads) {
                                     std::to_string(num_heads) + ")");
     }
     return d_model / num_heads;
+}
+
+// TD-300: a cross-attention KV cache records where its K/V came from (cache_source_tag()).
+constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
+constexpr int kTagSamples = 64;
+
+std::uint64_t fnv_mix(std::uint64_t h, std::uint64_t v) {
+    for (int i = 0; i < 8; ++i) {
+        h ^= (v >> (8 * i)) & 0xffU;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+std::uint64_t next_instance_id() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1);
 }
 
 std::string shape(int rows, int cols) {
@@ -58,7 +78,8 @@ CrossAttention::CrossAttention(int d_model, int num_heads)
       W_q_grad(d_model, d_model),
       W_k_grad(d_model, d_model),
       W_v_grad(d_model, d_model),
-      W_o_grad(d_model, d_model) {
+      W_o_grad(d_model, d_model),
+      instance_id_(next_instance_id()) {
     // Xavier/He initialization for weight matrices
     // Scale factor based on the input dimension
     float scale = std::sqrt(2.0f / static_cast<float>(d_model));
@@ -346,7 +367,24 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
     // For cross-attention, K and V from encoder are constant across all generation steps
     // Compute and cache them only once (on first call when cache is empty)
-    // TODO: See TD-300 in TECHNICAL_DEBT.md - a filled cache silently ignores a new kv_input (stale encoder K/V)
+    // TD-300: a filled cache holds the K/V of the input and weights it was filled with; it used to
+    // answer any later kv_input with them, silently. A different input (by its shape and a sampled
+    // fingerprint) or a weight change since then throws; a new encoder output needs a cleared
+    // cache.
+    if (!kv_cache->is_empty()) {
+        if (kv_input.rows != kv_cache->size() || kv_input.cols != d_model) {
+            throw std::invalid_argument(
+                "CrossAttention::forward_with_cache: the cache holds K/V for " +
+                shape(kv_cache->size(), d_model) + " encoder output, kv_input is " +
+                shape(kv_input.rows, kv_input.cols) +
+                "; clear() the cache for a new encoder output");
+        }
+        if (cache_source_tag(&kv_input, kv_input.rows, kv_input.cols) != kv_cache->source_tag) {
+            throw std::invalid_argument(
+                "CrossAttention::forward_with_cache: kv_input or this layer's weights differ from "
+                "those the cache was filled with; clear() the cache for a new encoder output");
+        }
+    }
     if (kv_cache->is_empty()) {
         // First call: compute K, V from encoder and cache them
         if (kv_input.cols != d_model) {
@@ -371,6 +409,7 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
         // Initialize cache with encoder K/V (these remain constant)
         kv_cache->append(K_encoder, V_encoder);
+        kv_cache->source_tag = cache_source_tag(&kv_input, kv_input.rows, kv_input.cols);
     }
 
     // Retrieve cached K, V from encoder
@@ -590,7 +629,7 @@ void CrossAttention::update_weights() {
 
     // Zero gradients after update
     zero_grad();
-    refresh_gpu_mirror();  // TD-301
+    weights_changed();  // TD-300/TD-301
 }
 
 void CrossAttention::zero_grad() {
@@ -619,6 +658,7 @@ void CrossAttention::zero_grad() {
 }
 
 void CrossAttention::enable_lora(const LoRAConfig& config) {
+    weights_changed();  // TD-300: the adapters change the K/V a cache would hold
     // Square (d_model, d_model) for every projection here, since Q/K/V/O all map
     // d_model -> d_model. Each starts fresh (B=0), so re-calling this discards any
     // previously-trained adapters.
@@ -668,7 +708,7 @@ void CrossAttention::merge_lora() {
         W_o = lora_o_->merge_with_base(W_o);
         lora_o_.reset();
     }
-    refresh_gpu_mirror();  // TD-301
+    weights_changed();  // TD-300/TD-301
 }
 
 // TD-301: every CPU-side weight change reaches the device mirror, when there is one; the GPU path
@@ -677,33 +717,59 @@ void CrossAttention::merge_lora() {
 void CrossAttention::set_Wq(const Matrix& m) {
     require_square(m, d_model, "set_Wq");
     W_q = m;
-    refresh_gpu_mirror();
+    weights_changed();
 }
 
 void CrossAttention::set_Wk(const Matrix& m) {
     require_square(m, d_model, "set_Wk");
     W_k = m;
-    refresh_gpu_mirror();
+    weights_changed();
 }
 
 void CrossAttention::set_Wv(const Matrix& m) {
     require_square(m, d_model, "set_Wv");
     W_v = m;
-    refresh_gpu_mirror();
+    weights_changed();
 }
 
 void CrossAttention::set_Wo(const Matrix& m) {
     require_square(m, d_model, "set_Wo");
     W_o = m;
-    refresh_gpu_mirror();
+    weights_changed();
 }
 
-void CrossAttention::refresh_gpu_mirror() {
+// TD-300: every weight change through the layer gets a new version, so a cross-attention KV cache
+// filled before it is refused (its K/V were projected with the old weights). TD-301: and reaches
+// the device mirror.
+void CrossAttention::weights_changed() {
+    ++weights_version_;
 #ifdef ADAI_ENABLE_GPU
     if (gpu_) {
         gpu_upload_weights();
     }
 #endif
+}
+
+std::uint64_t CrossAttention::cache_source_tag(const Matrix* kv_input, int rows, int cols) const {
+    std::uint64_t h = kFnvOffset;
+    h = fnv_mix(h, instance_id_);
+    h = fnv_mix(h, weights_version_);
+    h = fnv_mix(h, static_cast<std::uint64_t>(rows));
+    h = fnv_mix(h, static_cast<std::uint64_t>(cols));
+    if (kv_input != nullptr && rows > 0 && cols > 0) {
+        // 64 sampled values, the first and last rows included: the same cost for any input size.
+        for (int k = 0; k < kTagSamples; ++k) {
+            const int r = rows == 1 ? 0
+                                    : static_cast<int>((static_cast<long long>(k) * (rows - 1)) /
+                                                       (kTagSamples - 1));
+            const int c = static_cast<int>((static_cast<long long>(k) * 7919 + r) % cols);
+            std::uint32_t bits = 0;
+            const float v = kv_input->data[r][c];
+            std::memcpy(&bits, &v, sizeof(bits));
+            h = fnv_mix(h, bits);
+        }
+    }
+    return h;
 }
 
 // TODO: See TD-302 in TECHNICAL_DEBT.md - excludes LoRA adapter gradients
@@ -768,7 +834,7 @@ void CrossAttention::load(const std::string& filepath) {
     W_k = std::move(k);
     W_v = std::move(v);
     W_o = std::move(o);
-    refresh_gpu_mirror();  // TD-301
+    weights_changed();  // TD-300/TD-301
 }
 
 #ifdef ADAI_ENABLE_GPU
@@ -804,6 +870,7 @@ void CrossAttention::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>&
 void CrossAttention::gpu_download_weights() {
     if (!gpu_)
         return;
+    ++weights_version_;  // TD-300: GPU training changed them
     adai::gpu::download_into(gpu_->Wq, W_q);
     adai::gpu::download_into(gpu_->Wk, W_k);
     adai::gpu::download_into(gpu_->Wv, W_v);
@@ -982,6 +1049,20 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPU
     ca_check_gpu_width("gpu_forward_with_cache", "query", query, d_model);
     if (kv_cache->is_empty()) {
         ca_check_gpu_width("gpu_forward_with_cache", "kv", kv, d_model);  // read only to fill
+    } else {
+        // TD-300, as forward_with_cache(): the shape and the weights, not the content (sampling the
+        // device input would cost a device-to-host copy every step).
+        if (kv.rows != kv_cache->size()) {
+            throw std::invalid_argument(
+                "CrossAttention::gpu_forward_with_cache: the cache holds K/V for " +
+                std::to_string(kv_cache->size()) + " encoder rows, kv has " +
+                std::to_string(kv.rows) + "; clear() the cache for a new encoder output");
+        }
+        if (cache_source_tag(nullptr, kv.rows, d_model) != kv_cache->source_tag()) {
+            throw std::invalid_argument(
+                "CrossAttention::gpu_forward_with_cache: this layer's weights changed since the "
+                "cache was filled; clear() it");
+        }
     }
     ca_check_gpu_shape("gpu_forward_with_cache", "mask", mask, query.rows,
                        kv_cache->is_empty() ? kv.rows : kv_cache->size());
@@ -998,6 +1079,7 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPU
         adai::gpu::GPUMatrix K_all = kv * gpu_->Wk;
         adai::gpu::GPUMatrix V_all = kv * gpu_->Wv;
         kv_cache->append(K_all, V_all);
+        kv_cache->set_source_tag(cache_source_tag(nullptr, kv.rows, d_model));
     }
     const int src_len = kv_cache->size();
     const float* K_full = kv_cache->keys_data();  // [src_len, d_model], in place

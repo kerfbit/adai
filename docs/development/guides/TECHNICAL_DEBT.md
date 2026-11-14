@@ -18,6 +18,11 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 13, 2026:** Fixed [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) in code: a
+filled cross-attention KV cache records the layer, weights and encoder output it was filled from (shape and 64 sampled values), and
+`CrossAttention::forward_with_cache()` refuses a later call that differs, instead of silently answering with the old encoder's K/V;
+the GPU path checks the length and the weights. `CrossAttention` is now capped only by TD-050.
+
 **November 13, 2026:** Fixed [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) in code: the GPU paths of
 `CrossAttention` and `MultiHeadAttention` refuse attached LoRA adapters instead of ignoring them, check widths and mask shapes, and
 refuse `gpu_backward()` without a forward (it segfaulted); weight setters (now shape-checked), loads, `merge_lora()` and
@@ -1992,7 +1997,7 @@ TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-
 **Tier 24 — Newly filed (October 10, 2026): `CrossAttention`.** [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) is the most important:
 fix it at the model level the way TD-178 fixed `LeJEPAEncoder`, since the same pattern spans every
 layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes (both fixed in code, October 26 and November 13, 2026). [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
-[TD-302](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use (TD-301 fixed in code November 13, 2026); [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
+[TD-302](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use (TD-300 and TD-301 fixed in code November 13, 2026); [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
 
 **Tier 25 — Newly filed (October 11, 2026): `DaemonConfigStore` and admin config.** [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout)
 first: a busy timeout is a one-line change, and an atomic `increment()` fixes duplicate session
@@ -8266,7 +8271,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 13, 2026 | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-297 and confirmed by running the real class. Once the `KVCache` is filled,
@@ -8277,17 +8282,40 @@ after the cache is filled also leaves stale K/V. Production is safe today becaus
 `EncoderDecoderModel` builds a fresh `DecoderKVCache` per generation, but nothing documents or checks
 the contract.
 
+**Fix (November 13, 2026).** More than the row check below, since the confirmed failure includes a
+same-length encoder output and a LoRA change:
+- When `forward_with_cache()` fills a cache it stores a source tag in the new `KVCache::source_tag`:
+  an FNV-1a hash of a per-instance id, the layer's weights version, the input's shape and 64 sampled
+  values (first and last rows included), so the check costs the same for any input size. Every later
+  call recomputes it and throws `std::invalid_argument` on a different row count (naming both
+  shapes) or tag, before anything changes. `clear()` resets the tag.
+- The weights version changes with every weight change through the layer: the setters, `load()`,
+  `update_weights()`, `enable_lora()`, `merge_lora()` (through the private `weights_changed()`, which
+  replaces TD-301's `refresh_gpu_mirror()` and still refreshes the device mirror) and
+  `gpu_download_weights()`. A cache filled before a LoRA change, or by another `CrossAttention`, is
+  refused.
+- `gpu_forward_with_cache()` checks the row count and the weights the same way through
+  `GPUKVCache::source_tag()`/`set_source_tag()`; it doesn't sample the content, which would copy
+  from the device every step.
+- Not caught, and documented in the header: an input matching at all 64 sampled positions, a change
+  to the adapters' own weights (`get_lora_*()->update()`), an optimizer step taken elsewhere.
+
+Tests: `CrossAttentionCacheSourceTest` (5; the different-length, same-length and weight/LoRA/other-layer
+tests fail on the old code; the same-output and cleared-cache tests guard the reuse that must keep
+working), `CrossAttentionGPUContractTest.ACachedGpuCallChecksTheEncoderLengthAndTheWeights` (oneAPI CPU
+device), and `KVCache.AppendKeepsEveryRowInOrder` (`clear()` resets the tag).
+
 Action Items:
 
-- [ ] Check `kv_input.rows` against the cached K rows (when non-empty) and throw on mismatch; document that callers must `clear()` the cache for a new encoder output.
-- [ ] Test: a cache reused with a different-length encoder output throws.
+- [x] Check `kv_input.rows` against the cached K rows (when non-empty) and throw on mismatch; document that callers must `clear()` the cache for a new encoder output. (Plus the sampled content, layer and weights.)
+- [x] Test: a cache reused with a different-length encoder output throws.
 
-Location in code: `src/CrossAttention.cpp` (`forward_with_cache()`); tagged `TODO: See TD-300`.
+Location in code: `src/CrossAttention.cpp` (`forward_with_cache()`, `gpu_forward_with_cache()`, `cache_source_tag()`, `weights_changed()`), `src/KVCache.hpp`, `src/gpu/MatrixGPU.hpp`.
 
-Files to Modify:
+Files Modified:
 
-- `src/CrossAttention.{hpp,cpp}`
-- `tests/crossattention_test.cpp`
+- `src/CrossAttention.{hpp,cpp}`, `src/KVCache.hpp` (`source_tag`), `src/gpu/MatrixGPU.hpp` (`GPUKVCache::source_tag()`)
+- `tests/crossattention_test.cpp`, `tests/kvcache_test.cpp`
 
 ---
 
@@ -8340,7 +8368,7 @@ Action Items:
 - [x] Document (or track) the snapshot contract; consider a dirty flag set by CPU-side weight changes. (Refreshed on every change through the layer; the outside-optimizer case documented.)
 - [ ] Run the GPU test package on ai-machine with these tests.
 
-Location in code: `src/CrossAttention.cpp`, `src/MultiHeadAttention.cpp` (`gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()`, the setters, `refresh_gpu_mirror()`).
+Location in code: `src/CrossAttention.cpp`, `src/MultiHeadAttention.cpp` (`gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()`, the setters, `refresh_gpu_mirror()`; in `CrossAttention` it became `weights_changed()` with TD-300).
 
 Files to Modify:
 

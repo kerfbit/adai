@@ -1,16 +1,17 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050, TD-300 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-11-13
 
+#include <cstdint>
 #include <memory>
 #include <vector>
-#include "gpu/GPUParamRef.hpp"
 #include "KVCache.hpp"
 #include "LoRA.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#include "gpu/GPUParamRef.hpp"
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/MatrixGPU.hpp"
 #endif
@@ -113,8 +114,16 @@ class CrossAttention {
     std::unique_ptr<LoRAAdapter> lora_v_;
     std::unique_ptr<LoRAAdapter> lora_o_;
 
-    // TD-301: uploads W_q/W_k/W_v/W_o to the device mirror, when there is one.
-    void refresh_gpu_mirror();
+    // TD-300: tells a cross-attention KV cache which layer, weights and input its K/V came from.
+    // weights_version_ changes with every weight change through the layer (weights_changed(),
+    // gpu_download_weights()).
+    std::uint64_t instance_id_;
+    std::uint64_t weights_version_{0};
+    std::uint64_t cache_source_tag(const Matrix* kv_input, int rows, int cols) const;
+
+    // TD-300/TD-301: a new weights version, and W_q/W_k/W_v/W_o uploaded to the device mirror when
+    // there is one.
+    void weights_changed();
 
    public:
     float learning_rate{
@@ -164,7 +173,11 @@ class CrossAttention {
      * so we compute and cache them once on the first call.
      *
      * @param query_input Query input from decoder [num_new_tokens, d_model]
-     * @param kv_input Key-Value input from encoder [src_len, d_model] (used only if cache empty)
+     * @param kv_input Key-Value input from encoder [src_len, d_model]. Projected only when the
+     *   cache is empty; on later calls it must be the same encoder output (TD-300: the shape and 64
+     *   sampled values are checked, std::invalid_argument otherwise, also when this layer's weights
+     *   or LoRA adapters changed since the cache was filled). clear() the cache for a new encoder
+     *   output.
      * @param mask Optional attention mask [num_new_tokens, src_len]
      * @param kv_cache Cache for encoder K/V pairs (computed once, reused)
      * @param use_cache If true, use/populate cache
@@ -441,7 +454,9 @@ class CrossAttention {
      * GPUState's backward-oriented caches.
      *
      * @param query New decoder-token(s) query input [num_new_tokens, d_model]
-     * @param kv Raw encoder output [encoder_seq_len, d_model] — read only when kv_cache is empty
+     * @param kv Raw encoder output [encoder_seq_len, d_model] — read only when kv_cache is empty;
+     *   later calls must pass one with the cache's row count and keep this layer's weights
+     *   unchanged (TD-300, std::invalid_argument; the content isn't sampled on the device)
      * @param mask Optional mask, shape [num_new_tokens, encoder_seq_len]; any other shape, a
      *   query (or, on the first call, a kv) not d_model wide, or attached LoRA adapters throw
      *   (TD-301)
