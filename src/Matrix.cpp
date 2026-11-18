@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033, TD-435 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.2
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-15
 
 #include "Matrix.hpp"
 #include <algorithm>
@@ -818,18 +818,20 @@ bool log_gpu_if_initialized(bool initialized) {
 }
 }  // namespace
 
-bool Matrix::gpu_initialize(int device_id, float memory_fraction, bool use_low_priority) {
+bool Matrix::gpu_initialize(int device_id, float memory_fraction,
+                            adai::gpu::QueuePriority priority) {
     return log_gpu_if_initialized(
-        adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority));
+        adai::gpu::GPUManager::initialize(device_id, memory_fraction, priority));
 }
 
-bool Matrix::gpu_try_initialize(int device_id, float memory_fraction, bool use_low_priority) {
+bool Matrix::gpu_try_initialize(int device_id, float memory_fraction,
+                                adai::gpu::QueuePriority priority) {
     if (!adai::gpu::GPUManager::probe()) {
         return false;
     }
     try {
         return log_gpu_if_initialized(
-            adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority));
+            adai::gpu::GPUManager::initialize(device_id, memory_fraction, priority));
     } catch (const std::exception& e) {
         adai::Logger::warn("[GPU] Initialisation failed, falling back to CPU: {}", e.what());
         return false;
@@ -850,11 +852,11 @@ bool Matrix::gpu_available() {
     return false;
 }
 
-bool Matrix::gpu_initialize(int, float, bool) {
+bool Matrix::gpu_initialize(int, float, adai::gpu::QueuePriority) {
     return false;
 }
 
-bool Matrix::gpu_try_initialize(int, float, bool) {
+bool Matrix::gpu_try_initialize(int, float, adai::gpu::QueuePriority) {
     return false;
 }
 

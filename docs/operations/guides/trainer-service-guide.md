@@ -44,7 +44,7 @@ trainer_service --config /etc/adai/config.trainer.conf
 |---|---|
 | `--config <path>` | `config.trainer.conf` to use (default `./config.trainer.conf`, then `/etc/adai/config.trainer.conf`) |
 | `--model <name>` | Overrides `MODEL_NAME` |
-| `--gpu-strategy background\|full` | Overrides `GPU_STRATEGY` |
+| `--gpu-strategy background\|normal\|full` | Overrides `GPU_STRATEGY` |
 | `--objective=chatbot\|lejepa` | What each pass trains: the chatbot (default) or the LeJEPA world model (needs `WORLD_MODEL_ENABLED=true`) |
 | `--dataset-kind <kind>` | The pool to train from (`encoder`, `decoder`, `world_model`, `chatbot`); default `world_model` for `lejepa`, else `chatbot` |
 | `--help`, `-h` | Usage |

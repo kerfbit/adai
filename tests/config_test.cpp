@@ -88,6 +88,7 @@ class ConfigTest : public ::testing::Test {
         _putenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS=");
         _putenv("TRAINER_PASS_STALL_MINUTES=");  // TD-569
         _putenv("GPU_QUEUE_DEPTH=");             // TD-574
+        _putenv("GPU_WAIT_TIMEOUT_SECONDS=");    // TD-574
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -120,7 +121,8 @@ class ConfigTest : public ::testing::Test {
         unsetenv("GPU_DEVICE_ID");
         unsetenv("GPU_MEMORY_FRACTION");
         unsetenv("GPU_STRATEGY");
-        unsetenv("GPU_QUEUE_DEPTH");  // TD-574
+        unsetenv("GPU_QUEUE_DEPTH");           // TD-574
+        unsetenv("GPU_WAIT_TIMEOUT_SECONDS");  // TD-574
         // FTP Dataset Transport (Phase 10)
         unsetenv("FTP_SERVER_PORT");
         unsetenv("FTP_PASV_PORT_MIN");
@@ -1066,12 +1068,39 @@ TEST_F(ConfigTest, GpuStrategyFileFull) {
     EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::FULL);
 }
 
-TEST_F(ConfigTest, GpuStrategyUnknownDefaultsToBackground) {
+// TD-574: "normal" sets no priority hint; each strategy maps to its own queue priority and name.
+TEST_F(ConfigTest, GpuStrategyNormalFileEnvAndMapping) {
+    createConfigFile({{"GPU_STRATEGY", "normal"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_strategy, adai::GPUStrategy::NORMAL);
+    createConfigFile({{"GPU_STRATEGY", "background"}});
+    setEnv("GPU_STRATEGY", "normal");
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_strategy, adai::GPUStrategy::NORMAL);
+
+    using adai::gpu::QueuePriority;
+    EXPECT_EQ(adai::gpu_queue_priority(adai::GPUStrategy::BACKGROUND), QueuePriority::LOW);
+    EXPECT_EQ(adai::gpu_queue_priority(adai::GPUStrategy::NORMAL), QueuePriority::NORMAL);
+    EXPECT_EQ(adai::gpu_queue_priority(adai::GPUStrategy::FULL), QueuePriority::HIGH);
+    for (auto s :
+         {adai::GPUStrategy::BACKGROUND, adai::GPUStrategy::NORMAL, adai::GPUStrategy::FULL}) {
+        EXPECT_EQ(adai::gpu_strategy_from_string(adai::gpu_strategy_name(s)), s);
+    }
+    EXPECT_NE(std::string(adai::gpu_strategy_description(adai::GPUStrategy::NORMAL)).find("normal"),
+              std::string::npos);
+}
+
+// TD-574: normal (no priority hint) is the default, and what an unknown value falls back to.
+TEST_F(ConfigTest, GpuStrategyDefaultsToNormal) {
+    createConfigFile({{"GPU_QUEUE_DEPTH", "8"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_strategy, adai::GPUStrategy::NORMAL);
+    EXPECT_EQ(adai::ServiceConfig{}.gpu_strategy, adai::GPUStrategy::NORMAL);
+}
+
+TEST_F(ConfigTest, GpuStrategyUnknownDefaultsToNormal) {
     createConfigFile({{"GPU_STRATEGY", "turbo"}});
     testing::internal::CaptureStderr();
     auto config = ConfigLoader::load(test_file.string());
     std::string err = testing::internal::GetCapturedStderr();
-    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::BACKGROUND);
+    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::NORMAL);
     EXPECT_NE(err.find("turbo"), std::string::npos);
 }
 
@@ -1085,12 +1114,12 @@ TEST_F(ConfigTest, GpuStrategyEnvVarOverridesFile) {
 // TD-574: GPU_QUEUE_DEPTH bounds the GPU queue; 8 by default, 0 = unbounded.
 TEST_F(ConfigTest, GpuQueueDepthDefaultFileEnvAndRange) {
     createConfigFile({{"GPU_STRATEGY", "full"}});
-    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_queue_depth, 8);
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_queue_depth, 8) << "bounded by default";
     createConfigFile({{"GPU_QUEUE_DEPTH", "0"}});
     auto config = ConfigLoader::load(test_file.string());
     EXPECT_EQ(config.gpu_queue_depth, 0);
     std::vector<std::string> errors;
-    EXPECT_TRUE(ConfigLoader::validate(config, errors)) << "0 means unbounded";
+    EXPECT_TRUE(ConfigLoader::validate(config, errors));
     setEnv("GPU_QUEUE_DEPTH", "16");
     config = ConfigLoader::load(test_file.string());
     EXPECT_EQ(config.gpu_queue_depth, 16);
@@ -1100,6 +1129,28 @@ TEST_F(ConfigTest, GpuQueueDepthDefaultFileEnvAndRange) {
     EXPECT_FALSE(ConfigLoader::validate(config, errors));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("gpu_queue_depth"), std::string::npos);
+}
+
+// TD-574: GPU_WAIT_TIMEOUT_SECONDS limits each wait for GPU work; 60 by default, 0 = no limit.
+TEST_F(ConfigTest, GpuWaitTimeoutDefaultFileEnvAndRange) {
+    createConfigFile({{"GPU_STRATEGY", "full"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_wait_timeout_seconds, 60);
+    createConfigFile({{"GPU_WAIT_TIMEOUT_SECONDS", "0"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_wait_timeout_seconds, 0);
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors)) << "0 means no limit";
+    setEnv("GPU_WAIT_TIMEOUT_SECONDS", "15");
+    config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_wait_timeout_seconds, 15);
+    EXPECT_NE(ConfigLoader::to_string(config).find("GPU_WAIT_TIMEOUT_SECONDS"), std::string::npos);
+    for (int bad : {-1, 86401}) {
+        config.gpu_wait_timeout_seconds = bad;
+        errors.clear();
+        EXPECT_FALSE(ConfigLoader::validate(config, errors)) << bad;
+        ASSERT_FALSE(errors.empty());
+        EXPECT_NE(errors[0].find("gpu_wait_timeout_seconds"), std::string::npos);
+    }
 }
 
 // ============================================================================

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.32.0
-// @adai-reviewed: 2026-11-14
+// @adai-version: 1.33.0
+// @adai-reviewed: 2026-11-17
 
 #include "Config.hpp"
 #include <algorithm>
@@ -23,10 +23,50 @@
 namespace adai {
 
 GPUStrategy gpu_strategy_from_string(const std::string& s) {
-    if (s == "full") return GPUStrategy::FULL;
-    if (s == "background") return GPUStrategy::BACKGROUND;
-    Logger::deferred(Logger::Level::WARN, "Unknown GPU_STRATEGY '" + s + "', using 'background'");
-    return GPUStrategy::BACKGROUND;
+    if (s == "full")
+        return GPUStrategy::FULL;
+    if (s == "normal")
+        return GPUStrategy::NORMAL;
+    if (s == "background")
+        return GPUStrategy::BACKGROUND;
+    Logger::deferred(Logger::Level::WARN, "Unknown GPU_STRATEGY '" + s + "', using 'normal'");
+    return GPUStrategy::NORMAL;
+}
+
+const char* gpu_strategy_name(GPUStrategy strategy) {
+    switch (strategy) {
+        case GPUStrategy::FULL:
+            return "full";
+        case GPUStrategy::NORMAL:
+            return "normal";
+        case GPUStrategy::BACKGROUND:
+            break;
+    }
+    return "background";
+}
+
+gpu::QueuePriority gpu_queue_priority(GPUStrategy strategy) {
+    switch (strategy) {
+        case GPUStrategy::FULL:
+            return gpu::QueuePriority::HIGH;
+        case GPUStrategy::NORMAL:
+            return gpu::QueuePriority::NORMAL;
+        case GPUStrategy::BACKGROUND:
+            break;
+    }
+    return gpu::QueuePriority::LOW;
+}
+
+const char* gpu_strategy_description(GPUStrategy strategy) {
+    switch (strategy) {
+        case GPUStrategy::FULL:
+            return "full (high-priority queue)";
+        case GPUStrategy::NORMAL:
+            return "normal (no priority hint)";
+        case GPUStrategy::BACKGROUND:
+            break;
+    }
+    return "background (low-priority queue)";
 }
 
 // ============================================================
@@ -210,7 +250,7 @@ const std::vector<std::string> kLogLevels = {"DEBUG", "INFO", "WARN", "ERROR"};
 const std::vector<std::string>& kStorageBackends = metrics_storage_backend_names();  // TD-439: shared
 const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
 const std::vector<std::string> kTokenizerModes = {"unicode", "ascii"};
-const std::vector<std::string> kGpuStrategies = {"background", "full"};
+const std::vector<std::string> kGpuStrategies = {"background", "normal", "full"};
 const std::vector<std::string> kLrSchedules = {"linear_warmup", "constant"};  // TD-410
 
 // TD-290: keys the shipped config files carry for features that don't read them yet.
@@ -614,6 +654,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_strategy = gpu_strategy_from_string(parse_file_choice(key, value, kGpuStrategies));
             } else if (key == "GPU_QUEUE_DEPTH") {
                 config.gpu_queue_depth = parse_int(value);  // TD-574
+            } else if (key == "GPU_WAIT_TIMEOUT_SECONDS") {
+                config.gpu_wait_timeout_seconds = parse_int(value);  // TD-574
             } else if (key == "TOKENIZER_MODE") {
                 config.unicode_tokenizer = parse_file_choice(key, value, kTokenizerModes) == "unicode";  // TD-289
             } else if (key == "VOCAB_BUILD_SIZE") {
@@ -944,6 +986,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("GPU_QUEUE_DEPTH")) {  // TD-574
         config.gpu_queue_depth = *val;
+    }
+    if (auto val = get_env_int("GPU_WAIT_TIMEOUT_SECONDS")) {  // TD-574
+        config.gpu_wait_timeout_seconds = *val;
     }
     if (auto val = env_choice("TOKENIZER_MODE", get_env("TOKENIZER_MODE"), kTokenizerModes)) {
         config.unicode_tokenizer = (*val == "unicode");
@@ -1604,6 +1649,9 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     require(config.gpu_queue_depth >= 0 && config.gpu_queue_depth <= 1000000, "gpu_queue_depth",
             std::to_string(config.gpu_queue_depth),
             "must be in [0, 1000000] (0 = unbounded)");  // TD-574
+    require(config.gpu_wait_timeout_seconds >= 0 && config.gpu_wait_timeout_seconds <= 86400,
+            "gpu_wait_timeout_seconds", std::to_string(config.gpu_wait_timeout_seconds),
+            "must be in [0, 86400] (0 = no limit)");  // TD-574
 
     // Ports.
     is_port(config.metrics_api_port, "metrics_api_port");
@@ -1780,8 +1828,9 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GPU_ENABLED", flag(c.gpu_enabled));
     item("GPU_DEVICE_ID", num(c.gpu_device_id));
     item("GPU_MEMORY_FRACTION", num(c.gpu_memory_fraction));
-    item("GPU_STRATEGY", c.gpu_strategy == GPUStrategy::FULL ? "full" : "background");
+    item("GPU_STRATEGY", gpu_strategy_name(c.gpu_strategy));
     item("GPU_QUEUE_DEPTH", num(c.gpu_queue_depth));
+    item("GPU_WAIT_TIMEOUT_SECONDS", num(c.gpu_wait_timeout_seconds));
     section("Metrics client");
     item("ENABLE_METRICS_SERVICE", flag(c.enable_metrics_service));
     item("METRICS_SERVER_URL", c.metrics_server_url);

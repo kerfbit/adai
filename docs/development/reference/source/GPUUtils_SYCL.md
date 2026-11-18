@@ -1,11 +1,11 @@
 # `gpu/sycl/GPUUtils_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 575 lines)
+- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 659 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta` (capped by TD-383, TD-392), `@adai-version: 0.11.0`, `@adai-reviewed: 2026-11-13`
-- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (19 tests; 9 skip without a GPU, as they do in `build/sycl-gputest` here)
-- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
+- **Status tag:** `@adai-status: beta` (capped by TD-383, TD-392), `@adai-version: 0.12.0`, `@adai-reviewed: 2026-11-15`
+- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (21 tests in a SYCL build: the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
+- **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default)
 
 > Code-traced reference. There's no Intel GPU here, and `GPUManager` deliberately ignores the oneAPI
 > CPU device this machine does have. The SYCL behaviours marked **verified** were measured with a
@@ -16,7 +16,7 @@
 ## 1. What this file is
 
 The SYCL implementation of the **GPU device and memory manager**:
-- one in-order `sycl::queue` on the selected GPU, with a priority hint from `GPU_STRATEGY`;
+- one in-order `sycl::queue` on the selected GPU, with a priority hint from `GPU_STRATEGY` (`normal`: none);
 - a memory budget (a fraction of the device's global memory);
 - `GPUMemory<T>`, an RAII wrapper over USM `sycl::malloc_device`.
 
@@ -43,17 +43,20 @@ ordering") is about this queue.
 | Member | Behaviour |
 |---|---|
 | `enumerate_gpu_devices()` (private) | Collects `device_type::gpu` devices from **all** platforms. With both the Level Zero and OpenCL runtimes installed (the usual oneAPI setup on Intel Arc), **the same physical GPU appears once per platform**, so `device_count()` is 2 for one card and `GPU_DEVICE_ID=0` means "whichever platform enumerates first" rather than a chosen backend. Nothing logs which backend was picked. `ONEAPI_DEVICE_SELECTOR` can restrict it externally |
-| `make_queue(dev, low)` (private) | In-order queue with `priority_low`/`priority_high` (oneAPI extension; a hint that backends may ignore) |
+| `make_queue(dev, priority)` (private) | In-order queue with `priority_low` (`LOW`), no priority property (`NORMAL`) or `priority_high` (`HIGH`) (oneAPI extension; a hint that backends may ignore). `gpuutilsTests`' `QueueCarriesTheStrategysPriority` checks each on the oneAPI CPU device |
 | `probe()` / `probe_diagnostic()` | Any GPU found? The diagnostic lists every platform and device with a Level Zero / render-group hint, so it's much more useful than CUDA's |
-| `initialize(id, fraction, low_priority)` | Like CUDA: idempotent (new arguments ignored), soft-fails with no GPU, validates `id` and `fraction`, budget = global memory × fraction. Also remembers `low_priority` for `set_device()` |
-| `cleanup()` | Waits for the queue, deletes it, zeroes `allocated_bytes_`. Live `GPUMemory` buffers are then **never freed**: their destructors see `!is_available()` and skip the free (TD-096). The comment accepts that, since the runtime reclaims them with the context |
+| `initialize(id, fraction, priority = QueuePriority::NORMAL)` | Like CUDA: idempotent (new arguments ignored), soft-fails with no GPU, validates `id` and `fraction`, budget = global memory × fraction. Also remembers `priority` (`priority_`, `NORMAL` until then) for `set_device()` |
+| `cleanup()` | Waits for the queue, deletes it, zeroes `allocated_bytes_`. After a timed-out wait (TD-574) it neither waits nor deletes the stuck queue, and leaves it to process exit. Live `GPUMemory` buffers are then **never freed**: their destructors see `!is_available()` and skip the free (TD-096). The comment accepts that, since the runtime reclaims them with the context |
 | `set_device(d)` | Waits, deletes and recreates the queue on device `d`. **Existing allocations were made against the old queue's context and are later freed with `sycl::free(ptr, new_queue)`**, which is undefined when the device or context differs. The budget isn't recomputed for the new device's memory. No caller |
 | `get_queue()` | Throws before `initialize()` |
 | Budget: `get_*_bytes()`, `reserve_memory()`, `release_memory()` | All under `memory_mutex_`. `reserve_memory()` first tries; on failure it **drains the queue** (so pending deferred frees run) and retries before throwing |
 | `get_device_info(d)` | Name, global memory, compute units, max work-group size, and the ADAI budget. Throws `out_of_range` for an invalid device |
-| `synchronize()` | `queue_->wait()` |
-| `trace_kernel(name)` | TD-574: records `name` as the latest GPU work; with `ADAI_GPU_SYNC=kernel` waits for the queue first (`wait_and_throw()`), with `kernel:N` before every Nth call (`wait_before_gpu_operation()`). Called by every kernel entry point and by `GPUMemory`'s copies |
-| `debug_sync_point(phase)` | TD-574: records the training phase; with `ADAI_GPU_SYNC=step` or `kernel` waits for the queue first |
+| `synchronize()` | `wait_for_queue(false)`: waits for the queue, with the timeout |
+| `wait_for(event, throw_async = true)` | TD-574: waits for one event like `wait_and_throw()` (or `wait()`), but polls its status against `gpu_wait_timeout()` ([GPUDebugSync.md](GPUDebugSync.md); 60 s by default, 0 = no limit): it yields for the first 200 µs, then sleeps 10 µs doubling to 1 ms per poll. On the deadline it marks the queue stuck, records it for the process (`note_gpu_work_stuck()`, which the binaries check at exit), and throws `std::runtime_error` naming `GPU_WAIT_TIMEOUT_SECONDS`; on a stuck queue it throws at once. Every blocking wait in the SYCL backend goes through it: `GPUMemory`'s copies, `matrix_download_gpu()`, `GPUMatrix::copy()`, the diagnostics' host copies, `device_usable()` |
+| `wait_for_queue(throw_async = true)` | TD-574: `wait_for()` on a barrier (`ext_oneapi_submit_barrier()`), so it waits for everything queued |
+| `queue_stuck()`, `clear_stuck_for_testing()`, `stuck_message()` | TD-574: the stuck mark, set by a timed-out wait and cleared by a new queue (`initialize()`, `set_device()`); `clear_stuck_for_testing()` also clears the process flag ([GPUDebugSync.md](GPUDebugSync.md)), which a new queue doesn't. While it is set `device_usable()` is false, the pool trim drops its cache without freeing, and `cleanup()` leaves the queue |
+| `trace_kernel(name)` | TD-574: records `name` as the latest GPU work; first waits for the queue (`wait_for_queue()`) when `wait_before_gpu_operation()` says so: always with `ADAI_GPU_SYNC=kernel`, before every Nth call with `kernel:N` or `GPU_QUEUE_DEPTH=N`. Called by every kernel entry point and by `GPUMemory`'s copies |
+| `debug_sync_point(phase)` | TD-574: records the training phase; with `ADAI_GPU_SYNC=step` or `kernel` waits for the queue first (`wait_for_queue()`) |
 
 ---
 
@@ -62,8 +65,8 @@ ordering") is about this queue.
 | Member | Behaviour |
 |---|---|
 | `GPUMemory(count)` | Reserves the budget, then `sycl::malloc_device<T>(count, queue)`, releasing the reservation on failure. **`count == 0` throws**: `malloc_device(0)` returns `nullptr` (verified), which this treats as an allocation failure. CUDA's version succeeds for zero, so a zero-row `GPUMatrix` (for example an empty sequence) throws only on SYCL |
-| Destructor, move assignment | `defer_free(ptr, bytes)`: submits a `host_task` on the in-order queue that calls `sycl::free` and `release_memory`. This is correct: USM `free` isn't ordered against queued kernels, so freeing directly could race them |
-| `copy_from_host`, `copy_to_host` | `queue.memcpy(...).wait()`. **Each waits for everything already queued**, so every upload (weights, embeddings per call, targets per step) is a full pipeline drain |
+| Destructor, move assignment | Returns the block to `GPUManager`'s pool (TD-390, see its addendum; this used to be a `host_task` free) |
+| `copy_from_host`, `copy_to_host` | `GPUManager::wait_for(queue.memcpy(...), false)`. **Each waits for everything already queued**, so every upload and download drains the pipeline; since TD-574 the wait times out (§2) |
 
 > **Deferred frees serialize the queue with the host (verified on a CPU queue).** In an in-order
 > queue a `host_task` can't start until all earlier commands finish, and nothing after it starts
@@ -85,7 +88,7 @@ ordering") is about this queue.
 ## 4. Who calls what
 
 The same callers as the CUDA manager ([GPUUtils.md](GPUUtils.md) §4). `incremental_trainer` passes
-`GPU_STRATEGY` (→ `priority_low`/`priority_high`), and so does `chatbot_api_server` since November 10, 2026 (TD-381). Every
+`GPU_STRATEGY` (`background` → `priority_low`, `normal` → no hint, `full` → `priority_high`, through `adai::gpu_queue_priority()`), and so does `chatbot_api_server` since November 10, 2026 (TD-381); `normal` was added November 15, 2026, since on the Arc B60 the GuC resets low-priority contexts (TD-574), and is the default since November 17, 2026. Every
 SYCL kernel wrapper and `GPUMatrix` operation calls `get_queue()`.
 
 ---
@@ -145,3 +148,16 @@ stub). `ChatbotTrainer` calls it only after a sample fails, to tell a lost devic
 `GPUManager::trace_kernel()` and `debug_sync_point()` (table in §2) connect the kernels and the trainer to
 [GPUDebugSync.md](GPUDebugSync.md). `GPUMemory::copy_from_host()`/`copy_to_host()` trace themselves as `upload`/`download`.
 `device_usable()` uses the queue directly and isn't traced, so the probe after a failure doesn't overwrite the record of what failed.
+
+## Addendum (November 14, 2026): the wait timeout (TD-574)
+
+In ai-machine's third bisection round some waits never returned (the queue bound's, then the decode benchmark's): three passes
+and one benchmark run sat until the runner killed them. The fourth round's GPU crash dumps showed why: each such pass had an
+engine reset within a second of its last progress, which the oneAPI runtime never reported, so the events it waited on never
+completed. Every
+blocking wait in this backend now goes through `GPUManager::wait_for()` (§2), which gives up after `GPU_WAIT_TIMEOUT_SECONDS`
+(60 s by default), marks the queue stuck and throws. The trainer's device-loss check (`device_usable()`, TD-566) is then false at
+once, so the pass fails as on a lost device instead of hanging; later waits throw at once; and `cleanup()` leaves the stuck queue
+to process exit rather than waiting on it. A wait inside the SYCL or Level Zero runtime itself isn't covered; its teardown at exit
+blocked on the stuck work on the Level Zero v1 adapter, so `incremental_trainer` and `chatbot_api_server` end without it once a
+wait has timed out (`gpu_work_stuck()`, `exit_without_gpu_teardown()`).

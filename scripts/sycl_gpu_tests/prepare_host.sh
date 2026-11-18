@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.2.3
-# @adai-reviewed: 2026-11-10
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-11-15
 
 # Prepares the GPU host (ai-machine) for run_gpu_tests.sh. Uses sudo; asks before each change.
 #
@@ -20,9 +20,10 @@
 # 2. Lists every process using the GPU, GPU programs found by name (Ollama, llama.cpp, vLLM, Qwen
 #    runs...), matching services and Docker containers, and offers to stop each one. Services
 #    and containers it stops are recorded so ./restore_host.sh can start them again.
+# 3. Installs gdb if it's missing (run_gpu_tests.sh takes stacks of stuck processes with it).
 #
-# --yes             answer yes to the upgrade and to stopping services and containers (never to
-#                   signalling a process that isn't a service or container)
+# --yes             answer yes to the upgrade, to installing gdb and to stopping services and
+#                   containers (never to signalling a process that isn't a service or container)
 # --skip-upgrade    leave the oneAPI runtime as it is
 # --skip-gpu-check  don't look for other GPU users
 
@@ -437,6 +438,17 @@ if [[ $DO_GPU_CHECK == 1 ]]; then
         say "(reported on the B60, XeStrata issue #62). If one was busy, a reboot gives the cleanest"
         say "device; services that start at boot then need stopping again (re-run this script)."
     fi
+fi
+
+# 3. gdb, for the stacks run_gpu_tests.sh takes of a process stuck after an engine reset (TD-574).
+say ""
+say "== gdb"
+if command -v gdb >/dev/null; then
+    say "gdb is installed: $(gdb --version | head -1)"
+elif ask "gdb isn't installed; run_gpu_tests.sh needs it for stacks of stuck processes. Install it (apt-get install gdb)?" auto; then
+    sudo apt-get install -y gdb && say "  installed $(gdb --version | head -1)"
+else
+    say "  left out: run_gpu_tests.sh will take no stacks."
 fi
 
 say ""

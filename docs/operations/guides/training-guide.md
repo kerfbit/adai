@@ -84,7 +84,7 @@ RESPONSE: I am the ADAI chatbot assistant.
 `incremental_trainer` exposes three training modes plus utility commands:
 
 ```bash
-./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|full] <command>
+./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|normal|full] <command>
 ```
 
 ### `train` — Incremental (pending data only)
@@ -239,7 +239,7 @@ All training hyperparameters are set in `config.conf` (or environment variables)
 | `DROPOUT` | `0.1` | Dropout on each block's attention and feed-forward outputs while training (never at inference); raise if overfitting, `0` turns it off |
 | `GRADIENT_CLIP` | `1.0` | Lower to `0.5` if you see NaN/Inf warnings |
 | `SESSION_DIR` | `training_sessions` | Change to separate session directories per model |
-| `GPU_STRATEGY` | `background` | Set to `full` on a dedicated training machine |
+| `GPU_STRATEGY` | `normal` | No priority hint (the default since November 17, 2026: on the Arc B60, `background`'s low-priority queue gets reset, TD-574); `full` on a dedicated training machine; `background` yields to other GPU work |
 
 ### Recommended settings by dataset size
 

@@ -20,7 +20,7 @@ TEST(GPUManagerStubTest, ProbeDiagnosticMentionsNotCompiled) {
 
 TEST(GPUManagerStubTest, InitializeReturnsFalseRegardlessOfArgs) {
     EXPECT_FALSE(GPUManager::initialize());
-    EXPECT_FALSE(GPUManager::initialize(3, 0.75f, false));
+    EXPECT_FALSE(GPUManager::initialize(3, 0.75f, adai::gpu::QueuePriority::NORMAL));
 }
 
 TEST(GPUManagerStubTest, CleanupDoesNotThrow) {

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.32.0
-// @adai-reviewed: 2026-11-14
+// @adai-version: 1.33.0
+// @adai-reviewed: 2026-11-17
 
 #include <climits>
 #include <cstdint>
@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "gpu/QueuePriority.hpp"
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
 // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #1) - JSON Configuration Format Support
@@ -23,14 +24,25 @@
 
 namespace adai {
 
-/// GPU scheduling strategy — controls CUDA stream priority at initialisation.
+/// GPU scheduling strategy — controls the GPU queue's (SYCL) or stream's (CUDA) priority at
+/// initialisation.
 enum class GPUStrategy : std::uint8_t {
-    BACKGROUND,  ///< Low-priority stream; yields to other GPU work (default)
-    FULL,        ///< High-priority stream; maximises training throughput
+    BACKGROUND,  ///< Low-priority queue; yields to other GPU work
+    FULL,        ///< High-priority queue; maximises training throughput
+    NORMAL,      ///< No priority hint (default; TD-574: the Arc B60 resets low-priority contexts)
 };
 
-/// Parse a GPU_STRATEGY string; logs a warning and returns BACKGROUND on unknown input.
+/// Parse a GPU_STRATEGY string; logs a warning and returns NORMAL on unknown input.
 GPUStrategy gpu_strategy_from_string(const std::string& s);
+
+/// The GPU_STRATEGY value as written in a config file ("background", "normal", "full").
+const char* gpu_strategy_name(GPUStrategy strategy);
+
+/// The queue/stream priority GPUManager::initialize() takes for a strategy.
+gpu::QueuePriority gpu_queue_priority(GPUStrategy strategy);
+
+/// How the GPU-ready log line describes a strategy, e.g. "background (low-priority queue)".
+const char* gpu_strategy_description(GPUStrategy strategy);
 
 /// TD-287/TD-240: strict number parsing shared by config files, environment variables and
 /// command-line flags. The whole string must be the number ("8080x" fails), a size can't be
@@ -809,26 +821,37 @@ struct ServiceConfig {
     float gpu_memory_fraction = 0.5f;
 
     /**
-     * @brief GPU scheduling strategy (default: BACKGROUND).
+     * @brief GPU scheduling strategy (default: NORMAL).
      *
-     * BACKGROUND — low-priority CUDA stream; training yields to other GPU work
+     * NORMAL     — no priority hint: the backend's default queue/stream priority.
+     *              The default since TD-574: the Arc B60's GuC resets low-priority
+     *              compute contexts (34 of 60 passes at BACKGROUND, 0 of 60 here).
+     * BACKGROUND — low-priority queue/stream; training yields to other GPU work
      *              (display driver, desktop compositing, other ML frameworks).
-     *              Use on shared workstations.
+     *              Use on shared workstations, but not on an Arc B60.
      * FULL        — highest-priority CUDA stream; training is never preempted.
      *              Use on dedicated training machines. Pair with a higher
      *              gpu_memory_fraction (e.g. 0.9) to maximise throughput.
      */
-    GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND;
+    GPUStrategy gpu_strategy = GPUStrategy::NORMAL;
 
     /**
      * @brief TD-574: wait for the GPU queue before every Nth operation (default 8; 0 = unbounded).
      *
-     * On ai-machine's Arc the compute engine was reset (a lost device) about once a minute while
-     * the queue ran long un-waited chains, and not at all when it was waited on at least every 8
-     * operations, for a few percent of a training pass's time. SYCL builds only; the CUDA backend
-     * doesn't count its operations.
+     * On ai-machine's Arc a bound of 8 cut the compute engine resets (lost devices) by 2 to 12
+     * times without stopping them. SYCL builds only; the CUDA backend doesn't count its operations.
      */
     int gpu_queue_depth = 8;
+
+    /**
+     * @brief TD-574: seconds a wait for GPU work may take before the device counts as lost
+     *        (default 60; 0 = no limit).
+     *
+     * The Arc can stop running work without an engine reset; a wait on it then never returned.
+     * With the limit it fails, and the trainer's device-loss handling (TD-566) ends the pass.
+     * SYCL builds only.
+     */
+    int gpu_wait_timeout_seconds = 60;
 
     // ============================================================
     // Tokenizer Configuration

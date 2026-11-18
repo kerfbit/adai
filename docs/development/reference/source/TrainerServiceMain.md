@@ -4,9 +4,9 @@
 - **Binary:** `trainer_service` (admin API proxy on 8084, opt-in); deployed by [`scripts/adai-trainer.service`](../../../../scripts/adai-trainer.service)
 - **Operator guide:** [trainer-service-guide.md](../../../operations/guides/trainer-service-guide.md)
 - **Uses:** [`ChildProcess`](ChildProcess.md), [`PassSupervision`/`PassHeartbeat`](PassHeartbeat.md) (TD-569), [`TrainerServiceControlState`](TrainerServiceControlState.md), [`TrainerServiceProxy`](TrainerServiceProxy.md), [`IncrementalTrainerArgs`](IncrementalTrainerArgs.md), `Config`, `Logger`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-11`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.13.1`, `@adai-reviewed: 2026-11-15`
 - **Tests:** `SmokeTests_trainer_service_main` ([`tests/smoke/trainer_service_main_test.sh`](../../../../tests/smoke/trainer_service_main_test.sh), 38 checks) runs the real binary against a stub pass (§3). Its pieces have their own tests too: the wait for a pass, with the stall check, against real child processes (`passHeartbeatTests`, TD-569); the proxy (`trainerServiceProxyTests`); `ChildProcess` (`childProcessTests`); the argument parser, the pass command line, exit-code classification and backoff (`incrementalTrainerArgsTests`); `SIGHUP` handling of the real binary (`sighupTests`)
-- **Last traced against the code:** 2026-11-11
+- **Last traced against the code:** 2026-11-11; the `--help` text for `--gpu-strategy` (now `normal (default), background or full`) 2026-11-17
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `trainer_service` binary next to a stub `incremental_trainer`
 > script.

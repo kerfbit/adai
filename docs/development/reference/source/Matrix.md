@@ -3,10 +3,10 @@
 - **Files:** [`src/Matrix.hpp`](../../../../src/Matrix.hpp), [`src/Matrix.cpp`](../../../../src/Matrix.cpp) (1,349 lines together); SIMD detection in [`src/MatrixSIMD.hpp`](../../../../src/MatrixSIMD.hpp) ([MatrixSIMD.md](MatrixSIMD.md))
 - **Namespace:** global
 - **Built into:** `adai_core`; the numeric type of every layer, optimizer, trainer and inference engine
-- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `Matrix.cpp` `@adai-version: 0.9.2`, `@adai-reviewed: 2026-10-17`; `Matrix.hpp` `0.9.0`, `2026-09-10`
+- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `Matrix.cpp` and `Matrix.hpp` `@adai-version: 0.11.0`, `@adai-reviewed: 2026-11-15`
 - **Tests:** [`tests/matrix_test.cpp`](../../../../tests/matrix_test.cpp) (60 tests), [`tests/matrix_simd_test.cpp`](../../../../tests/matrix_simd_test.cpp) (20), [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) (13, GPU helper kernels)
 - **GPU kernels:** [MatrixGPU.md](MatrixGPU.md), [MatrixGPU_cu.md](MatrixGPU_cu.md), [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-10-19; the GPU initialization forwards re-traced 2026-11-15
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs compiled
 > against the real `Matrix.cpp` (AVX2/FMA + OpenMP, and the portable `-march=x86-64` configuration).
@@ -62,7 +62,7 @@ nothing calls it on the hot path.
 
 | Member | Behaviour |
 |---|---|
-| `gpu_available()`, `gpu_initialize()`, `gpu_try_initialize()` (probe, then initialize, catching exceptions), `gpu_cleanup()`, `gpu_info()` | Thin forwards to `GPUManager`; CPU-only stubs otherwise |
+| `gpu_available()`, `gpu_initialize()`, `gpu_try_initialize()` (probe, then initialize, catching exceptions), `gpu_cleanup()`, `gpu_info()` | Thin forwards to `GPUManager`; CPU-only stubs otherwise. The initializers take a `gpu::QueuePriority` (default `NORMAL` since November 17, 2026, `LOW` before; since November 15, 2026, instead of `bool use_low_priority`), which callers get from `GPU_STRATEGY` through `adai::gpu_queue_priority()` |
 | `multiply_gpu()`, `add_gpu()`, `transpose_gpu()`, `scale_gpu()`, `hadamard_gpu()` | **Allocate, upload, compute, download and free on every call** (TD-033). They **fall back silently to the CPU** when no GPU is available; they don't throw. Only `multiply_gpu()` has a production caller, through `operator*`'s auto-dispatch; the others are used by tests |
 | `to_gpu()` / `from_gpu()` | Persistent `GPUMatrix` upload/download (TD-003). `to_gpu()` throws `runtime_error` without a GPU. `from_gpu()` is used by `LLMEncoder`'s and `Decoder`'s GPU backward paths |
 

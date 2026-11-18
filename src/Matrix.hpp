@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033, TD-435 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-11-10
-
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-17
 
 #include <cmath>
 #include <iostream>
@@ -12,6 +11,7 @@
 #include <vector>
 
 #include "MatrixSIMD.hpp"
+#include "gpu/QueuePriority.hpp"
 
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/GPUUtils.hpp"
@@ -245,8 +245,9 @@ class Matrix {
      * @return false if no CUDA device is present (operations will use CPU).
      * @throws std::runtime_error for unexpected CUDA initialisation errors.
      */
-    static bool gpu_initialize(int device_id = 0, float memory_fraction = 0.5f,
-                               bool use_low_priority = true);
+    static bool gpu_initialize(
+        int device_id = 0, float memory_fraction = 0.5f,
+        adai::gpu::QueuePriority priority = adai::gpu::QueuePriority::NORMAL);
 
     /**
      * Attempt GPU initialisation and silently fall back to CPU on any failure.
@@ -254,12 +255,13 @@ class Matrix {
      * Never throws.  Returns false immediately on CPU-only builds.
      * @param device_id        CUDA device index (default: 0).
      * @param memory_fraction  Memory budget fraction (default: 0.5).
-     * @param use_low_priority true = low-priority stream (background mode);
-     *                         false = high-priority stream (full mode).
+     * @param priority         the queue/stream priority GPU_STRATEGY maps to
+     *                         (adai::gpu_queue_priority()): NORMAL (no hint) by default.
      * @return true  if GPU is ready, false if CPU-only mode is in effect.
      */
-    static bool gpu_try_initialize(int device_id = 0, float memory_fraction = 0.5f,
-                                   bool use_low_priority = true);
+    static bool gpu_try_initialize(
+        int device_id = 0, float memory_fraction = 0.5f,
+        adai::gpu::QueuePriority priority = adai::gpu::QueuePriority::NORMAL);
 
     /**
      * Release all GPU resources owned by ADAI.  No-op on CPU-only builds.

@@ -2,11 +2,11 @@
 
 - **File:** [`src/ChatbotAPIServer.cpp`](../../../../src/ChatbotAPIServer.cpp) (the `main()` of `chatbot_api_server`; no header)
 - **Built into:** `chatbot_api_server` (with `Config.cpp` and `ChatbotApiServerArgs.cpp`; links `adai_api` and the model libraries); only when `BUILD_API_SERVER` is on
-- **Status tag:** `@adai-status: stable`, `@adai-version: 2.11.0`, `@adai-reviewed: 2026-11-14`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 2.12.0`, `@adai-reviewed: 2026-11-15`
 - **Tests:** none directly. The argv layer is tested by `chatbotApiServerArgsTests` and the HTTP layer by `chatbotapiTests`; `main()` itself is untested
 - **Related references:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (its CLI parsing), [ChatbotAPI.md](ChatbotAPI.md) (the HTTP class it runs), [BPETokenizer.md](BPETokenizer.md)
 - **Operator docs:** [chatbot-guide.md](../../../operations/guides/chatbot-guide.md), [SYSTEMD_DEPLOYMENT.md](../../../operations/deployment/SYSTEMD_DEPLOYMENT.md), [configuration_guide.md](../../configuration_guide.md)
-- **Last traced against the code:** 2026-10-08; §6's RAG paragraph and step 10 re-traced 2026-11-12 (TD-349); step 5 re-traced 2026-11-14 (TD-574). The other sections predate later fixes, recorded in the addenda below
+- **Last traced against the code:** 2026-10-08; §6's RAG paragraph and step 10 re-traced 2026-11-12 (TD-349); step 5 re-traced 2026-11-14, 2026-11-15 and 2026-11-15 (TD-574). The other sections predate later fixes, recorded in the addenda below
 
 > Code-traced reference. The shutdown-race finding was confirmed against the vendored cpp-httplib
 > source (`external/cpp-httplib/httplib.h`); the rest is from reading `main()` and the code it calls.
@@ -45,8 +45,9 @@ something other than what the operator asked for (§9).
              ─► linked world model: artifact path, architecture, connection + hippocampal params
              (any failure: warn, keep local config)
  4. [1/4] Tokenizer: BPETokenizer().load_vocab(VOCAB_PATH)   ← throws to main's catch → exit 1
- 5. GPU (if GPU_ENABLED): gpu_try_initialize(device, memory fraction); else CPU
-             ─► initialized: set_gpu_queue_depth(GPU_QUEUE_DEPTH), default 8 (TD-574)
+ 5. GPU (if GPU_ENABLED): gpu_try_initialize(device, memory fraction, gpu_queue_priority(GPU_STRATEGY)); else CPU
+             ─► initialized: set_gpu_queue_depth(GPU_QUEUE_DEPTH), default 8;
+                 set_gpu_wait_timeout(GPU_WAIT_TIMEOUT_SECONDS), default 60 s (TD-574)
  6. [2/4] Model: EncoderDecoderModel(vocab size, architecture, inject_every_n if world model on)
              ─► load_model(MODEL_PATH)   (failure → warn, RANDOM weights; no path → random)
  7. Draft model (if DRAFT_MODEL_PATH): its own checkpoint's architecture (TD-507), same vocabulary, load weights (failure → disabled)
@@ -279,10 +280,20 @@ the 9 routes (no `/chat/batch`, `/chat/batch-session`, `/chat/session/export` or
 `/admin/profile` is always listed, marked `[not enabled]` without `--profile`. `--help` now says the architecture flags
 are fallbacks that MNS's architecture and model path replace when the model resolves.
 
-## Addendum (November 14, 2026): the GPU queue bound (TD-574)
+## Addendum (November 14, 2026): the GPU queue bound and wait timeout (TD-574)
 
 After the GPU initializes, startup passes `GPU_QUEUE_DEPTH` (default 8, 0 = unbounded) to
-`adai::gpu::set_gpu_queue_depth()` and logs `[GPU] Queue depth: …`. A SYCL build then waits for the
-GPU before every 8th operation, which stopped the Arc engine resets in the ai-machine test rounds,
-including the ones every GPU generation attempt hit. The setting is read at startup only; a reload
-doesn't change it. See [GPUDebugSync.md](GPUDebugSync.md).
+`adai::gpu::set_gpu_queue_depth()` and `GPU_WAIT_TIMEOUT_SECONDS` (default 60, 0 = no limit) to
+`adai::gpu::set_gpu_wait_timeout()`, and logs `[GPU] Queue depth: …; wait timeout: …`. The bound cuts
+the Arc's engine resets without stopping them (it was opt-in for a few hours after the third round).
+Some resets are never reported by the oneAPI runtime, so a wait on the lost work never returns; here
+that would hang a chat request while it holds the model lock, and every request after it. With the
+timeout, a SYCL build's wait gives up instead: that request gets a 500 and releases the lock, and,
+since the queue stays marked stuck, every later GPU request fails at once until the server is
+restarted (it doesn't fall back to the CPU). Both are read at startup only;
+a reload doesn't change them. `main()` is now a wrapper around the former body (`run_server()`): when
+it returns and a wait has timed out (`adai::gpu::gpu_work_stuck()`), it logs `[GPU] GPU work is stuck:
+exiting without the GPU runtime's teardown (exit N)`, flushes, and ends with
+`exit_without_gpu_teardown()` (`std::_Exit` with the same code), since on the Level Zero v1 adapter the
+oneAPI runtime's teardown blocked on the stuck work at exit. With `ADAI_GPU_KEEP_TEARDOWN=1` (a TD-574 diagnostic) it logs
+that the work is stuck and returns normally instead. See [GPUDebugSync.md](GPUDebugSync.md).

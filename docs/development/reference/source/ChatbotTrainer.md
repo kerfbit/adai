@@ -204,7 +204,7 @@ fails with the check moved back.
 | Skipped pairs biasing validation; `end_epoch()` only with validation; optimizer state and LR schedule per pass; adaptive clipping per epoch; split vs cache; mid-window losses; unread backfills; the best-weights file; `<eos>` lost; hygiene | — | **Fixed** October 17 – November 4, 2026 | TD-267–TD-276 |
 | Device-resident optimizer and embeddings | — | **Fixed** October 19, 2026 | TD-468, TD-547 |
 | A lost GPU retried every sample; an epoch with no update recorded as loss 0 | — | **Fixed November 10, 2026** | TD-566 |
-| TD-574 diagnostics: phase sync points and the last GPU work on a lost device (§7) | Off by default | Added November 13, 2026 | [TD-574](../../guides/TECHNICAL_DEBT.md#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) |
+| TD-574 diagnostics: phase sync points and the last GPU work on a lost device (§7) | Off by default | Added November 13, 2026 | [TD-574](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) |
 | The whole class below `stable` | Still changing shape (it changed again today) | — | TD-039 |
 
 ## 12. History

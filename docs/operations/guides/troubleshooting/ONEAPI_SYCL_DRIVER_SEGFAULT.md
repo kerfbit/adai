@@ -21,7 +21,12 @@ compute of a run):
    blocked forever in `MultiHeadAttention::gpu_upload_weights() → upload_sq_matrix() →
    sycl::event::wait → urEventWait → libze_intel_gpu.so` — a **lost completion notification**: the
    Level-Zero driver never signals the event back to userspace, and nothing on either side times
-   out, so it never self-recovers.
+   out, so it never self-recovers. **Update (November 14, 2026, TD-574):** the GPU crash dumps
+   now kept on ai-machine show this state is most likely an engine reset the runtime never
+   reports: the GuC resets the compute engine within a second of the last progress, but the
+   process's events never complete. Every SYCL wait now gives up after `GPU_WAIT_TIMEOUT_SECONDS`
+   (60 s) and the pass fails like a lost device. See the
+   [draft report for Intel](ARC_B60_ENGINE_RESETS_INTEL_REPORT.md).
 2. **Segfault** — `incremental_trainer` crashes outright, symbolized (via ASAN+SYCL build +
    `coredumpctl`/`gdb`) to `SIGSEGV` inside `IgcOclTranslationCtx::TranslateImpl` in `libigc.so.2`
    (Intel's Graphics Compiler, JIT-compiling the run's first SYCL kernel), dereferencing a
@@ -134,7 +139,10 @@ instead of hours of re-tokenization) instead of needing manual intervention ever
    all bt"`. Look for the main thread stuck in `urEventWait`/`libze_intel_gpu.so`. If found, it will
    not self-recover — kill (SIGTERM then SIGKILL; it may not respond to plain TERM while blocked in
    the driver call) and let crash-resilience resume it.
-2. **Crash**: `coredumpctl list` to find the PID, then:
+2. **Crash**: on ai-machine, `./coredumps.sh install` from the GPU test package (once) keeps process core
+   dumps 30 days instead of systemd's 3, enables them for the adai services (whose units set
+   `LimitCORE=0`), and saves every xe GPU crash dump to `/var/lib/adai/gpu-coredumps/` before the driver
+   discards it (see `scripts/sycl_gpu_tests/README.md`). `coredumpctl list` to find the PID, then:
    ```bash
    coredumpctl dump <PID> -o core.<PID>
    gdb <binary> core.<PID> -batch -ex "bt full" -ex "thread apply all bt"

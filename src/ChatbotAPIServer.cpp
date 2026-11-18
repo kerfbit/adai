@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.11.0
-// @adai-reviewed: 2026-11-14
+// @adai-version: 2.12.0
+// @adai-reviewed: 2026-11-15
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -175,7 +175,7 @@ static RAGInference::RAGConfig rag_config_from(const adai::ServiceConfig& config
     return rag_config;
 }
 
-int main(int argc, char* argv[]) {
+static int run_server(int argc, char* argv[]) {
 #ifdef _OPENMP
     // If OMP_NUM_THREADS is not set, default to maximum available cores
     if (std::getenv("OMP_NUM_THREADS") == nullptr) {
@@ -370,18 +370,22 @@ int main(int argc, char* argv[]) {
 #ifdef ADAI_ENABLE_GPU
             // TD-381: GPU_STRATEGY used to be left out here, so the server always got the
             // low-priority queue; mapped the same way as incremental_trainer.
-            const bool low_priority = (config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
             if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction,
-                                           low_priority)) {
-                const char* mode = low_priority ? "background (low-priority stream)"
-                                                : "full (high-priority stream)";
-                adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
-                // TD-574: wait for the queue before every Nth GPU operation (0 = unbounded).
+                                           adai::gpu_queue_priority(config.gpu_strategy))) {
+                adai::Logger::info("[GPU] GPU ready — strategy: {}. {}",
+                                   adai::gpu_strategy_description(config.gpu_strategy),
+                                   Matrix::gpu_info());
+                // TD-574: the queue bound (default 8, 0 = unbounded) and how long a wait may take.
                 adai::gpu::set_gpu_queue_depth(static_cast<unsigned>(config.gpu_queue_depth));
-                adai::Logger::info("[GPU] Queue depth: {}",
+                adai::gpu::set_gpu_wait_timeout(
+                    static_cast<unsigned>(config.gpu_wait_timeout_seconds));
+                adai::Logger::info("[GPU] Queue depth: {}; wait timeout: {}",
                                    config.gpu_queue_depth == 0
                                        ? std::string("unbounded")
-                                       : std::to_string(config.gpu_queue_depth));
+                                       : std::to_string(config.gpu_queue_depth),
+                                   config.gpu_wait_timeout_seconds == 0
+                                       ? std::string("none")
+                                       : std::to_string(config.gpu_wait_timeout_seconds) + " s");
             } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
                 adai::Logger::warn(
@@ -959,4 +963,26 @@ int main(int argc, char* argv[]) {
     adai::Logger::info("");
     adai::Logger::info("Server shutdown complete");
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    const int code = run_server(argc, argv);
+#ifdef ADAI_ENABLE_GPU
+    // TD-574: after a wait for GPU work timed out, the oneAPI runtime's own teardown can block on
+    // the stuck work forever (on the Level Zero v1 adapter); the server has already shut down.
+    if (adai::gpu::gpu_work_stuck() && adai::gpu::keep_gpu_teardown_requested()) {
+        adai::Logger::warn(
+            "[GPU] GPU work is stuck: running the GPU runtime's teardown anyway "
+            "(ADAI_GPU_KEEP_TEARDOWN=1, exit {})",
+            code);
+    } else if (adai::gpu::gpu_work_stuck()) {
+        adai::Logger::warn(
+            "[GPU] GPU work is stuck: exiting without the GPU runtime's teardown (exit {})", code);
+        adai::Logger::get()->flush();
+        std::cout.flush();
+        std::cerr.flush();
+        adai::gpu::exit_without_gpu_teardown(code);
+    }
+#endif
+    return code;
 }

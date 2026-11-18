@@ -2,12 +2,13 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (capped by TD-383; CUDA paths never run on a device — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-11-17
 
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include "QueuePriority.hpp"
 
 namespace adai {
 namespace gpu {
@@ -158,7 +159,7 @@ class GPUManager {
     // TODO: See TD-383 in TECHNICAL_DEBT.md - ignores new arguments once initialized; leaks the stream if a
     // later step throws
     static bool initialize(int device_id = 0, float memory_fraction = 0.5f,
-                           bool use_low_priority = true) {
+                           QueuePriority priority = QueuePriority::NORMAL) {
         if (initialized_)
             return true;
 
@@ -192,20 +193,27 @@ class GPUManager {
         }
 
         // ----------------------------------------------------------------
-        // Low-priority stream: ADAI kernels run at the lowest priority so
-        // that other GPU work (display, other ML frameworks) can preempt them.
+        // Stream priority from GPU_STRATEGY. By default (normal) the stream takes CUDA's default
+        // priority; background runs ADAI kernels at the lowest so other GPU work can preempt them.
         // ----------------------------------------------------------------
         int priority_low = 0;
         int priority_high = 0;
         cudaDeviceGetStreamPriorityRange(&priority_low, &priority_high);
         // priority_low is numerically the *lowest* scheduling priority.
-        // use_low_priority=true  → background mode: yields to other GPU work.
-        // use_low_priority=false → full mode: highest priority, never preempted.
-        const int stream_priority = use_low_priority ? priority_low : priority_high;
-        CUDA_CHECK(cudaStreamCreateWithPriority(&stream_, cudaStreamNonBlocking, stream_priority));
+        // LOW    → background mode: yields to other GPU work.
+        // NORMAL → the default stream priority (0), which CUDA also makes the lowest.
+        // HIGH   → full mode: highest priority, never preempted.
+        if (priority == QueuePriority::NORMAL) {
+            CUDA_CHECK(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
+        } else {
+            const int stream_priority =
+                priority == QueuePriority::LOW ? priority_low : priority_high;
+            CUDA_CHECK(
+                cudaStreamCreateWithPriority(&stream_, cudaStreamNonBlocking, stream_priority));
+        }
 
         // ----------------------------------------------------------------
-        // cuBLAS handle bound to the low-priority stream so that all BLAS
+        // cuBLAS handle bound to ADAI's stream so that all BLAS
         // calls inherit the same scheduling policy.
         // ----------------------------------------------------------------
         CUBLAS_CHECK(cublasCreate(&cublas_handle_));
@@ -296,7 +304,7 @@ class GPUManager {
         current_device_ = device;
     }
 
-    /** @brief cuBLAS handle (already bound to the low-priority stream). */
+    /** @brief cuBLAS handle (already bound to ADAI's stream). */
     static cublasHandle_t get_cublas_handle() {
         if (!initialized_) {
             throw std::runtime_error("GPU not initialized. Call GPUManager::initialize() first.");
@@ -620,7 +628,7 @@ class GPUManager {
     static std::string probe_diagnostic() {
         return "GPU support not compiled";
     }
-    static bool initialize(int = 0, float = 0.5f, bool = true) {
+    static bool initialize(int = 0, float = 0.5f, QueuePriority = QueuePriority::NORMAL) {
         return false;
     }
     static void cleanup() {}

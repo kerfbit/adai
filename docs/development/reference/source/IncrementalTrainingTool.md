@@ -1,11 +1,11 @@
 # `IncrementalTrainingTool` — Source File Reference
 
-- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,159 lines): the `main()` of `incremental_trainer`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.39.0`, `@adai-reviewed: 2026-11-14`
+- **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,184 lines): the `main()` of `incremental_trainer`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.40.0`, `@adai-reviewed: 2026-11-15`
 - **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp`, `IncrementalTrainerArgs.cpp`, `LeJEPATrainingPass.cpp` and `TrainingPassFiles.cpp` (the LeJEPA pass and the shared download step, moved out of this file November 12, 2026) and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [LeJEPATrainingPass.md](LeJEPATrainingPass.md) (the LeJEPA pass and the download step), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
 - **Tests:** `retrainRemoteTests` ([`tests/retrain_remote_test.cpp`](../../../../tests/retrain_remote_test.cpp), TD-411) runs the real binary's `train` and `retrain` against a real `registry_server` with FTP on; otherwise none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
-- **Last traced against the code:** 2026-11-12; `retrain` (§2) and GPU initialization (§1, step 4) re-traced 2026-11-14
+- **Last traced against the code:** 2026-11-12; `retrain` (§2) and GPU initialization (§1, step 4) and `main()` re-traced 2026-11-14, `main()` again 2026-11-15, GPU initialization again 2026-11-15
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the built `build/debug/bin/incremental_trainer` (and
 > `dataset_manager`, `vocab_builder`) against a scratch session directory.
@@ -33,8 +33,12 @@ incremental_trainer [--config F] [--model N] [--gpu-strategy S] [--foreground] [
    (TD-288). `--seed`/`SEED` seeds initialization (TD-368).
 3. Set `DATASET_KIND` from the objective, or `--dataset-kind` (TD-202/TD-204), and apply `--gpu-strategy`.
 4. Initialize the GPU now, unless the command is `train`/`retrain`/`resume`, which initialize it in the worker after any fork, once
-   the pass's `PassAdminApi` exists (TD-571). A GPU that initializes gets the queue bound, `GPU_QUEUE_DEPTH` (default 8, 0 =
-   unbounded), through `adai::gpu::set_gpu_queue_depth()`, logged as `[GPU] Queue depth: …` (TD-574, [GPUDebugSync.md](GPUDebugSync.md)).
+   the pass's `PassAdminApi` exists (TD-571), at the queue priority `GPU_STRATEGY` maps to (`adai::gpu_queue_priority()`:
+   `background` low, `normal` no hint, `full` high; `normal` added November 15, 2026, TD-574), logged as `[GPU] GPU ready — strategy:
+   …`. A GPU that initializes gets the queue bound, `GPU_QUEUE_DEPTH` (default 8, 0 =
+   unbounded), and the wait timeout, `GPU_WAIT_TIMEOUT_SECONDS` (default 60 s, 0 = none), through `adai::gpu::set_gpu_queue_depth()`
+   and `set_gpu_wait_timeout()`, logged as `[GPU] Queue depth: …; wait timeout: …` (TD-574, [GPUDebugSync.md](GPUDebugSync.md)). A
+   wait that times out fails the pass like a lost device (TD-566).
 5. With `NAME_SERVICE_URL` set: resolve the model (`--model` > `MODEL_NAME` > an interactive pick, refused without a terminal, TD-416); take
    its artifact path and `run_group` from MNS; take the 6 architecture fields from MNS; and, when a world model is linked, its artifact path,
    architecture, injection and `HIPPOCAMPAL_*` settings and SIGReg sketch count (TD-196). Each lookup that fails is logged with its
@@ -61,7 +65,12 @@ pass registered yet, or on a second signal, it `_exit(1)`s.
 FTP and remove them afterwards; they live in `TrainingPassFiles.cpp` since November 12, 2026 ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)
 §1).
 
-`main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414).
+`main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414). In a GPU build, if a wait for GPU work timed
+out during the command (`adai::gpu::gpu_work_stuck()`, TD-574), it then logs `[GPU] GPU work is stuck: exiting without the GPU
+runtime's teardown (exit N)`, flushes the logger and streams, and ends with `exit_without_gpu_teardown()` (`std::_Exit` with the same
+code): on the Level Zero v1 adapter the oneAPI runtime's teardown blocked on the stuck work at exit. With `ADAI_GPU_KEEP_TEARDOWN=1`
+(a TD-574 diagnostic, for a stack of that hang) it logs that the work is stuck and returns normally instead. The command's own objects have
+been destroyed by then; only static destructors and `atexit` handlers are skipped.
 
 ---
 
@@ -127,4 +136,6 @@ run with the fixed binary left no trained record and the claim cleared.
   October sections and folding in its addenda; the findings were fixed the same day (TD-571).
 - **November 14, 2026:** `retrain` re-queues the trained units and claims the whole pool, so every file comes over FTP from a remote registry
   (TD-411's last item); `retrainRemoteTests`.
-- **November 14, 2026:** after the GPU initializes, the GPU queue bound is set from `GPU_QUEUE_DEPTH` (TD-574).
+- **November 14, 2026:** after the GPU initializes, the GPU queue bound is set from `GPU_QUEUE_DEPTH` (TD-574). Later that day,
+  after ai-machine's third round, the bound became opt-in (default 0) and the wait timeout (`GPU_WAIT_TIMEOUT_SECONDS`) is set too.
+  After the fourth round the default is 8 again, and `main()` exits without the GPU runtime's teardown once a wait has timed out.

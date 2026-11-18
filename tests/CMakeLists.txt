@@ -1238,10 +1238,10 @@ add_test(NAME DeviceSelectionTests COMMAND deviceSelectionTests)
 # and also checks the host kernel versions against the device; other builds compile it directly.
 if(ENABLE_GPU OR ENABLE_SYCL)
     add_executable(gpuDebugSyncTests gpu_debug_sync_test.cpp)
-    target_link_libraries(gpuDebugSyncTests adai_core GTest::gtest_main)
+    target_link_libraries(gpuDebugSyncTests adai_core GTest::gtest_main GTest::gmock)
 else()
     add_executable(gpuDebugSyncTests gpu_debug_sync_test.cpp ${CMAKE_SOURCE_DIR}/src/gpu/GPUDebugSync.cpp)
-    target_link_libraries(gpuDebugSyncTests GTest::gtest_main)
+    target_link_libraries(gpuDebugSyncTests GTest::gtest_main GTest::gmock)
 endif()
 add_test(NAME GPUDebugSyncTests COMMAND gpuDebugSyncTests)
 

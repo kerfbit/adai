@@ -1,11 +1,11 @@
 # `gpu/sycl/MatrixGPU_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 241 lines)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 282 lines)
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, the SYCL `GPUMatrix`)
 - **Built into:** SYCL builds; included by `gpu/MatrixGPU.hpp` in place of its CUDA section. Kernels in [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md); queue and memory in [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** the CUDA section of [MatrixGPU.md](MatrixGPU.md) (`gpu/MatrixGPU.hpp`), which also holds the shared `GPUKVCache`/`GPUDecoderKVCache`
-- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.16.0`, `@adai-reviewed: 2026-11-13`
-- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-14`
+- **Last traced against the code:** 2026-11-14 (the TD-574 wait timeout)
 
 > Code-traced reference. The `GPUMatrix` here, and the shared `GPUKVCache`/`GPUDecoderKVCache`
 > built on it, were **run** on the oneAPI CPU device through the scratch harness described in
@@ -29,7 +29,7 @@ layer's GPU path uses the `GPUMatrix` defined here.
 
 | Member | CUDA | SYCL (this file) |
 |---|---|---|
-| `copy()` | Async device copy | `q.memcpy(...).wait()`, an **unnecessary full-queue drain** on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule (and the TD-390 bubbles) |
+| `copy()` | Async device copy | `GPUManager::wait_for(q.memcpy(...), false)` (with TD-574's wait timeout), an **unnecessary full-queue drain** on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule (and the TD-390 bubbles) |
 | `zero()` | `cudaMemsetAsync` | `q.memset` (async) |
 | Everything else | — | The same code, member for member (operators, LayerNorm, softmax, bias, diagnostics) |
 
@@ -76,7 +76,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | SYCL `copy()` does a `.wait()` (§1) | An extra full-queue drain wherever a matrix is copied | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 | Unchecked `add_inplace` and other operations; uninitialized memory; zero-size throws (§2) | As in the CUDA class | **Verified** on the CPU device (TD-389, TD-392) | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (amended), [TD-392](../../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | Over-length encoder output throws from the cross-attention cache (§2) | GPU serving fails over-length requests | **Verified** at the cache level (TD-387) | [TD-387](../../guides/TECHNICAL_DEBT.md#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (amended) |
-| Header status note says "capped by TD-050", but TD-050 is mostly resolved; the GPU KV cache it added now has a first run | Stale status note | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
+| Header status note says "capped by TD-050", but TD-050 is resolved (November 17, 2026: the GPU KV cache validated and benchmarked on ai-machine's Arc) | Stale status note | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 
 ## Addendum (November 4, 2026): `matrix_token_correct_gpu()` (TD-276)
 
@@ -90,3 +90,8 @@ and out-of-range targets), run on the oneAPI CPU device; the CUDA version is com
 
 `GPUMatrix::copy()` and `zero()`, the two operations that use the queue directly, call `GPUManager::trace_kernel()`
 (`gpu_matrix_copy`, `gpu_matrix_zero`), like every kernel entry point; see [GPUDebugSync.md](GPUDebugSync.md).
+
+## Addendum (November 14, 2026): the wait timeout (TD-574)
+
+`GPUMatrix::copy()`'s wait goes through `GPUManager::wait_for()`, so it gives up after `GPU_WAIT_TIMEOUT_SECONDS` on a GPU that
+stopped running work, like every other wait in the SYCL backend ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)).

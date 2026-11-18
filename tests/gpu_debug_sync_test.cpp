@@ -5,15 +5,20 @@
  *        for the oneAPI CPU device), each kernel family's host version must give the device
  *        kernel's results, and ADAI_GPU_SYNC=kernel must name the kernel that ran.
  */
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../src/gpu/GPUDebugSync.hpp"
@@ -37,6 +42,7 @@ struct ResetSettings {
     ~ResetSettings() {
         adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
         adai::gpu::set_gpu_queue_depth(adai::gpu::kDefaultGpuQueueDepth);
+        adai::gpu::set_gpu_wait_timeout(adai::gpu::kDefaultGpuWaitTimeoutSeconds);
     }
 };
 
@@ -124,13 +130,58 @@ TEST(GPUDebugSyncTest, KernelEveryNWaitsBeforeEveryNthOperation) {
     EXPECT_FALSE(adai::gpu::wait_before_gpu_operation());
 }
 
-// TD-574: with no diagnostic set, the GPU code waits for the queue before every 8th operation.
-TEST(GPUDebugSyncTest, DefaultQueueDepthWaitsBeforeEveryEighthOperation) {
+// TD-574: by default the GPU code waits for the queue before every 8th operation (it cut the Arc's
+// engine resets in every round on ai-machine); GPU_QUEUE_DEPTH=0 leaves the queue unbounded.
+TEST(GPUDebugSyncTest, QueueWaitsBeforeEveryEighthByDefaultAndDepthZeroIsUnbounded) {
     ResetSettings reset;
     adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
-    EXPECT_EQ(adai::gpu::gpu_queue_depth(), 8u);
+    EXPECT_EQ(adai::gpu::kDefaultGpuQueueDepth, 8u);
+    adai::gpu::set_gpu_queue_depth(adai::gpu::kDefaultGpuQueueDepth);
     EXPECT_EQ(wait_pattern(17), "W.......W.......W");
     EXPECT_TRUE(adai::gpu::gpu_debug_summary().empty()) << "the bound isn't a diagnostic";
+    adai::gpu::set_gpu_queue_depth(0);
+    adai::gpu::set_gpu_debug_settings_for_testing(GPUDebugSettings{});
+    EXPECT_EQ(wait_pattern(17), std::string(17, '.'));
+}
+
+// TD-574: a timed-out wait marks GPU work stuck for the process, and the binaries then end with
+// exit_without_gpu_teardown(), which keeps the exit code and runs no atexit handler or static
+// destructor (where the oneAPI runtime's teardown blocked on the stuck work).
+TEST(GPUDebugSyncTest, StuckWorkIsRecordedAndTheExitSkipsTeardown) {
+    EXPECT_FALSE(adai::gpu::gpu_work_stuck());
+    adai::gpu::note_gpu_work_stuck();
+    EXPECT_TRUE(adai::gpu::gpu_work_stuck());
+    adai::gpu::clear_gpu_work_stuck_for_testing();
+    EXPECT_FALSE(adai::gpu::gpu_work_stuck());
+
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(
+        {
+            std::atexit([] { std::fputs("teardown ran\n", stderr); });
+            std::fputs("before exit\n", stderr);
+            adai::gpu::exit_without_gpu_teardown(3);
+        },
+        testing::ExitedWithCode(3),
+        testing::AllOf(testing::HasSubstr("before exit"),
+                       testing::Not(testing::HasSubstr("teardown ran"))));
+}
+
+TEST(GPUDebugSyncTest, KeepTeardownOnlyForExactlyOne) {
+    const char* old = std::getenv("ADAI_GPU_KEEP_TEARDOWN");
+    const std::string saved = old ? old : "";
+    ::unsetenv("ADAI_GPU_KEEP_TEARDOWN");
+    EXPECT_FALSE(adai::gpu::keep_gpu_teardown_requested());
+    for (const char* other : {"", "0", "yes", "1 "}) {
+        ::setenv("ADAI_GPU_KEEP_TEARDOWN", other, 1);
+        EXPECT_FALSE(adai::gpu::keep_gpu_teardown_requested()) << other;
+    }
+    ::setenv("ADAI_GPU_KEEP_TEARDOWN", "1", 1);
+    EXPECT_TRUE(adai::gpu::keep_gpu_teardown_requested());
+    if (old) {
+        ::setenv("ADAI_GPU_KEEP_TEARDOWN", saved.c_str(), 1);
+    } else {
+        ::unsetenv("ADAI_GPU_KEEP_TEARDOWN");
+    }
 }
 
 TEST(GPUDebugSyncTest, ParsesGpuQueueDepth) {
@@ -140,6 +191,19 @@ TEST(GPUDebugSyncTest, ParsesGpuQueueDepth) {
     for (const char* bad : {"", "abc", "8x", "-4", "2000000"}) {
         EXPECT_EQ(adai::gpu::parse_gpu_queue_depth(bad), 8u) << bad;
     }
+}
+
+TEST(GPUDebugSyncTest, ParsesGpuWaitTimeout) {
+    ResetSettings reset;
+    EXPECT_EQ(adai::gpu::parse_gpu_wait_timeout(nullptr), 60u);
+    EXPECT_EQ(adai::gpu::parse_gpu_wait_timeout("0"), 0u);
+    EXPECT_EQ(adai::gpu::parse_gpu_wait_timeout(" 15 "), 15u);
+    EXPECT_EQ(adai::gpu::parse_gpu_wait_timeout("86400"), 86400u);
+    for (const char* bad : {"", "abc", "5s", "-1", "86401"}) {
+        EXPECT_EQ(adai::gpu::parse_gpu_wait_timeout(bad), 60u) << bad;
+    }
+    adai::gpu::set_gpu_wait_timeout(3);
+    EXPECT_EQ(adai::gpu::gpu_wait_timeout(), 3u);
 }
 
 TEST(GPUDebugSyncTest, QueueDepthZeroNeverWaits) {
@@ -175,6 +239,7 @@ TEST(GPUDebugSyncTest, RecordsLastWorkAndKeepsOneTraceRecord) {
     GPUDebugSettings s;
     s.trace_file = path;
     adai::gpu::set_gpu_debug_settings_for_testing(s);
+    adai::gpu::set_gpu_queue_depth(8);
 
     adai::gpu::note_gpu_phase("forward");
     adai::gpu::note_gpu_kernel("a_rather_long_kernel_name_gpu");
@@ -381,6 +446,55 @@ TEST_F(GPUHostKernelTest, KernelModeNamesTheKernelAndPhase) {
     auto e = upload(random_vector(4, 12));
     EXPECT_NE(adai::gpu::describe_last_gpu_work().find("kernel upload"), std::string::npos);
     std::filesystem::remove(path);
+}
+
+// TD-574: on the Arc, GPU work could stop without an engine reset and a wait on it never returned.
+// A kernel that spins until the host lets it go stands in for that: the wait gives up after
+// GPU_WAIT_TIMEOUT_SECONDS, the queue counts as stuck, every later wait fails at once and the
+// probe reports the device as lost (so TD-566's handling ends the pass).
+TEST_F(GPUHostKernelTest, AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost) {
+    using adai::gpu::GPUManager;
+    using clock = std::chrono::steady_clock;
+    auto& q = GPUManager::get_queue();
+    // The queue is held by a host task waiting on a host flag, not by a spinning device kernel: on
+    // the Arc a kernel spinning on a host-written flag never saw the write and hung the test for
+    // its hour (November 14, 2026), and nothing on the host can stop a device kernel.
+    std::atomic<bool> release{false};
+    q.submit([&](sycl::handler& h) {
+        h.host_task([&] {
+            while (!release.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        });
+    });
+    adai::gpu::set_gpu_wait_timeout(1);
+
+    auto start = clock::now();
+    EXPECT_THROW(GPUManager::wait_for_queue(), std::runtime_error);
+    const auto waited = clock::now() - start;
+    EXPECT_GE(waited, std::chrono::seconds(1));
+    EXPECT_LT(waited, std::chrono::seconds(10));
+    EXPECT_TRUE(GPUManager::queue_stuck());
+    EXPECT_TRUE(adai::gpu::gpu_work_stuck()) << "the binaries check this to exit without teardown";
+
+    start = clock::now();
+    EXPECT_FALSE(GPUManager::device_usable());
+    std::vector<float> host(4);
+    GPUMemory<float> d(4);
+    try {
+        d.copy_to_host(host.data(), host.size());
+        ADD_FAILURE() << "a download on a stuck queue returned";
+    } catch (const std::runtime_error& e) {
+        EXPECT_NE(std::string(e.what()).find("GPU_WAIT_TIMEOUT_SECONDS"), std::string::npos)
+            << e.what();
+    }
+    EXPECT_LT(clock::now() - start, std::chrono::milliseconds(500)) << "later waits must not wait";
+
+    release.store(true);  // let the host task finish
+    q.wait();
+    GPUManager::clear_stuck_for_testing();
+    EXPECT_FALSE(adai::gpu::gpu_work_stuck());
+    EXPECT_TRUE(GPUManager::device_usable());
 }
 
 #endif  // ADAI_GPU_BACKEND_SYCL

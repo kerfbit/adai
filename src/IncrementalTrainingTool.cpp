@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.39.0
-// @adai-reviewed: 2026-11-14
+// @adai-version: 0.40.0
+// @adai-reviewed: 2026-11-17
 
 #include <array>
 #include <atomic>
@@ -381,10 +381,13 @@ int output_usage(char* argv[]) {
     std::cout << "                               Sets model architecture, training params, "
                  "vocab/model paths\n";
     std::cout
-        << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
-    std::cout << "                               background: low-priority stream, yields to other "
+        << "  --gpu-strategy <mode>        GPU scheduling strategy: normal (default), background "
+           "or full\n";
+    std::cout << "                               background: low-priority queue, yields to other "
                  "GPU work\n";
-    std::cout << "                               full:       high-priority stream, maximises "
+    std::cout << "                               normal:     no priority hint (TD-574: avoids the "
+                 "Arc B60's resets)\n";
+    std::cout << "                               full:       high-priority queue, maximises "
                  "throughput\n";
     std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n";
     std::cout << "  --model <name>               Model name (overrides MODEL_NAME in config)\n";
@@ -520,18 +523,22 @@ static int run_main(int argc, char* argv[]) {
         if (!svc_config.gpu_enabled)
             return;
 #ifdef ADAI_ENABLE_GPU
-        const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
-                                       low_priority)) {
-            const char* mode =
-                low_priority ? "background (low-priority stream)" : "full (high-priority stream)";
-            adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
-            // TD-574: wait for the queue before every Nth GPU operation (0 = unbounded).
+                                       adai::gpu_queue_priority(svc_config.gpu_strategy))) {
+            adai::Logger::info("[GPU] GPU ready — strategy: {}. {}",
+                               adai::gpu_strategy_description(svc_config.gpu_strategy),
+                               Matrix::gpu_info());
+            // TD-574: the queue bound (default 8, 0 = unbounded) and how long a wait may take.
             adai::gpu::set_gpu_queue_depth(static_cast<unsigned>(svc_config.gpu_queue_depth));
-            adai::Logger::info("[GPU] Queue depth: {}",
+            adai::gpu::set_gpu_wait_timeout(
+                static_cast<unsigned>(svc_config.gpu_wait_timeout_seconds));
+            adai::Logger::info("[GPU] Queue depth: {}; wait timeout: {}",
                                svc_config.gpu_queue_depth == 0
                                    ? std::string("unbounded")
-                                   : std::to_string(svc_config.gpu_queue_depth));
+                                   : std::to_string(svc_config.gpu_queue_depth),
+                               svc_config.gpu_wait_timeout_seconds == 0
+                                   ? std::string("none")
+                                   : std::to_string(svc_config.gpu_wait_timeout_seconds) + " s");
         } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
             adai::Logger::warn(
@@ -1150,11 +1157,30 @@ static int run_main(int argc, char* argv[]) {
 // with a clear message and exit 1. It used to reach std::terminate, which printed "terminate called
 // after throwing an instance of ..." and aborted with exit 134.
 int main(int argc, char* argv[]) {
+    int code = 1;
     try {
-        return run_main(argc, argv);
+        code = run_main(argc, argv);
     } catch (const std::exception& e) {
         adai::Logger::error("incremental_trainer: {}", e.what());
         std::cerr << "❌ " << e.what() << "\n";
-        return 1;
     }
+#ifdef ADAI_ENABLE_GPU
+    // TD-574: after a wait for GPU work timed out, the oneAPI runtime's own teardown can block on
+    // the stuck work forever (on the Level Zero v1 adapter, 3 of 3 times on ai-machine). The pass
+    // has already saved and released what it could, so end here without it.
+    if (adai::gpu::gpu_work_stuck() && adai::gpu::keep_gpu_teardown_requested()) {
+        adai::Logger::warn(
+            "[GPU] GPU work is stuck: running the GPU runtime's teardown anyway "
+            "(ADAI_GPU_KEEP_TEARDOWN=1, exit {})",
+            code);
+    } else if (adai::gpu::gpu_work_stuck()) {
+        adai::Logger::warn(
+            "[GPU] GPU work is stuck: exiting without the GPU runtime's teardown (exit {})", code);
+        adai::Logger::get()->flush();
+        std::cout.flush();
+        std::cerr.flush();
+        adai::gpu::exit_without_gpu_teardown(code);
+    }
+#endif
+    return code;
 }

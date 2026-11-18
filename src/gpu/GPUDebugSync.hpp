@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-11-14
 
 // TD-574: diagnostics for finding which GPU work an Arc engine reset interrupts. Off by default; a
@@ -69,23 +69,58 @@ inline bool host_kernel(HostKernelFamily family) {
     return (gpu_debug_settings().host_kernels & family) != 0;
 }
 
-/// TD-574: the default bound on the GPU queue. Arc engine resets stopped when the queue was waited
-/// on at least every 8 operations (0 device losses in 567 s on ai-machine, about one a minute
-/// without), so the GPU code waits before every 8th operation unless GPU_QUEUE_DEPTH says
-/// otherwise.
+/// TD-574: the default bound on the GPU queue: a wait before every 8th GPU operation. Over the
+/// second to fourth rounds on ai-machine it cut the Arc's engine resets by 2 to 12 times without
+/// stopping them. The passes that seemed to hang in the bound's wait were resets the runtime never
+/// reported, which happen unbounded too; the wait timeout below ends them.
 constexpr unsigned kDefaultGpuQueueDepth = 8;
 
 /// GPU_QUEUE_DEPTH's value: a whole number from 0 to 1000000, else (unset or malformed)
 /// kDefaultGpuQueueDepth. The bound starts from the environment's value, so a binary that reads
-/// no config file (gpu_encode_soak, gpu_decode_bench, the GPU tests) can still be run unbounded.
+/// no config file (gpu_encode_soak, gpu_decode_bench, the GPU tests) can still be bounded.
 unsigned parse_gpu_queue_depth(const char* value);
 
 /// The queue bound: wait for the queue before every @p depth-th GPU operation, so at most @p depth
-/// are queued; 0 = unbounded (the behaviour before TD-574's fix). Set from GPU_QUEUE_DEPTH by
+/// are queued; 0 = unbounded (the behaviour before TD-574). Set from GPU_QUEUE_DEPTH by
 /// incremental_trainer and chatbot_api_server. An explicit ADAI_GPU_SYNC=kernel or kernel:N
 /// diagnostic takes precedence.
 void set_gpu_queue_depth(unsigned depth);
 unsigned gpu_queue_depth();
+
+/// TD-574: how long a wait for GPU work may take before the work counts as stuck. In the third
+/// round on ai-machine the Arc stopped running work without an engine reset, and the waits that
+/// were waiting on it never returned. With a timeout the wait fails instead, the queue is marked
+/// stuck, and the caller's device-loss handling (TD-566) takes over.
+constexpr unsigned kDefaultGpuWaitTimeoutSeconds = 60;
+
+/// GPU_WAIT_TIMEOUT_SECONDS's value: a whole number from 0 to 86400, else (unset or malformed)
+/// kDefaultGpuWaitTimeoutSeconds. Read from the environment first, as for GPU_QUEUE_DEPTH.
+unsigned parse_gpu_wait_timeout(const char* value);
+
+/// The wait timeout in seconds; 0 = wait as long as it takes (the behaviour before). Set from
+/// GPU_WAIT_TIMEOUT_SECONDS by incremental_trainer and chatbot_api_server. SYCL only: the CUDA
+/// backend's waits don't use it.
+void set_gpu_wait_timeout(unsigned seconds);
+unsigned gpu_wait_timeout();
+
+/// TD-574: records that a wait for GPU work timed out in this process (the SYCL backend's
+/// GPUManager::wait_for()). It stays set for the life of the process: the stuck work may still
+/// hold the device, and on the Level Zero v1 adapter the oneAPI runtime's own teardown at exit then
+/// blocks on it, so a binary checks gpu_work_stuck() before returning from main() and ends with
+/// exit_without_gpu_teardown() instead.
+void note_gpu_work_stuck();
+bool gpu_work_stuck();
+void clear_gpu_work_stuck_for_testing();
+
+/// Flushes the C streams and ends the process with @p code at once (std::_Exit), running no static
+/// destructors or atexit handlers, so the GPU runtime's teardown can't block on stuck work. Flush
+/// the logger and the C++ streams first.
+[[noreturn]] void exit_without_gpu_teardown(int code);
+
+/// Whether ADAI_GPU_KEEP_TEARDOWN=1 asks a binary to return from main() normally even after its GPU
+/// work got stuck, running the runtime's teardown (TD-574 diagnostics: to take a stack of the Level
+/// Zero v1 adapter's hang at exit). Read from the environment on each call.
+bool keep_gpu_teardown_requested();
 
 /// Whether the next GPU operation should first wait for the queue: always in kernel mode, before
 /// every sync_every-th operation with kernel:N, otherwise before every gpu_queue_depth()-th one

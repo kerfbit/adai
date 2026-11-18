@@ -55,6 +55,10 @@ This directory contains solutions and fixes for common issues encountered during
   - Root cause: upstream `libigc.so.2` bug, not fixable from this codebase
   - Diagnostic playbook (gdb/coredumpctl/ASAN recipes for GPU-driver crashes)
   - Crash-resilience mitigation (auto-restart + tokenized-data cache) instead of a fix
+- **[Arc B60 Engine Resets: Draft Report for Intel](ARC_B60_ENGINE_RESETS_INTEL_REPORT.md)** - TD-574: GuC
+  resets of the compute engine during device-resident training, and resets the Level Zero runtime never reports
+  - Environment, dump signature, rates per queue bound and adapter, and what Intel will ask for before filing
+  - Workarounds: `GPU_QUEUE_DEPTH`, `GPU_WAIT_TIMEOUT_SECONDS`
 
 ### GUI Issues
 

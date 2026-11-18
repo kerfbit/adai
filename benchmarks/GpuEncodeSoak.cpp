@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-17
 
 // TD-574: a forward-only GPU soak. Runs LeJEPAEncoder::gpu_encode() over a set of texts for a given
 // time: our own SYCL kernels (embedding gather, LayerNorm, attention, softmax, GELU) and oneMKL
@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <stdexcept>
@@ -112,7 +113,14 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "built without GPU support\n");
     return 3;
 #else
-    if (!Matrix::gpu_try_initialize(0, 0.3f, true)) {
+    // TD-574: GPU_STRATEGY from the environment, mapped as Config.cpp's gpu_queue_priority() does
+    // (default normal: no priority hint).
+    const char* env_strategy = std::getenv("GPU_STRATEGY");
+    const std::string strategy = env_strategy ? env_strategy : "normal";
+    const auto priority = strategy == "full"         ? adai::gpu::QueuePriority::HIGH
+                          : strategy == "background" ? adai::gpu::QueuePriority::LOW
+                                                     : adai::gpu::QueuePriority::NORMAL;
+    if (!Matrix::gpu_try_initialize(0, 0.3f, priority)) {
         std::fprintf(stderr, "no GPU device\n");
         return 3;
     }

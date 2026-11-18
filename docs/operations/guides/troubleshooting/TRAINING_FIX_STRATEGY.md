@@ -249,7 +249,7 @@ The model is memorizing rather than generalizing.
 
 - Confirm OpenMP is active (parallel attention): `lscpu | grep CPU`. If the build has OpenMP, training uses all cores automatically.
 - Reduce `BATCH_SIZE` if RAM is the bottleneck (counter-intuitively, smaller batches may train faster on memory-bound systems).
-- Set `GPU_STRATEGY=full` on a dedicated training machine (default `background` yields to other GPU work).
+- Set `GPU_STRATEGY=full` on a dedicated training machine (the default, `normal`, sets no priority; `background` yields to other GPU work, but on an Arc B60 its low-priority queue gets reset, TD-574).
 - Reduce model size for prototyping; scale up once dynamics are validated.
 
 ---

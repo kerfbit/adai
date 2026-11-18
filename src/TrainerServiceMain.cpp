@@ -1,6 +1,6 @@
 // @adai-status: beta
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-11-11
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-11-17
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -88,7 +88,7 @@ static void print_usage(const char* program) {
               << "  --config <path>          config.trainer.conf to use (default: ./config.trainer.conf,\n"
               << "                           then /etc/adai/config.trainer.conf)\n"
               << "  --model <name>           MODEL_NAME override\n"
-              << "  --gpu-strategy <s>       GPU_STRATEGY override: background or full\n"
+              << "  --gpu-strategy <s>       GPU_STRATEGY override: normal (default), background or full\n"
               << "  --objective=<name>       chatbot (default) or lejepa (world-model pretraining;\n"
               << "                           needs WORLD_MODEL_ENABLED=true)\n"
               << "  --dataset-kind <kind>    pool to train from: encoder, decoder, world_model or chatbot\n"

@@ -1,10 +1,893 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (474 on November 14, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (477 on November 18, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-574: Arc Engine Resets During Device-Resident Training: Find the GPU Work They Interrupt
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | GPU / Testing | Ubuntu's 7.0.0-43 kernel on ai-machine (the 6.17 OEM kernel's xe driver reset low-priority contexts); runtime side filed as intel/compute-runtime#1057 (MEDIUM, filed November 13, 2026) |
+
+Status when resolved: Resolved November 18, 2026 — Ubuntu's 7.0 kernel, November 18, 2026: the full test run had no failure and no engine reset, and the bisection had no failure and no engine reset in 260 passes (0 of 160 in the variants that failed 65 of 160 times on 6.17.0-1025-oem the run before, with the same GuC and runtime), so the resets come from the 6.17 OEM kernel's xe driver; 7.0 is ai-machine's default kernel since November 18 and the runtime's side is filed as intel/compute-runtime#1057; full run at `normal`, November 17, 2026: no engine reset in anything before the bisection (unit tests, the decode benchmark at both shapes, training, LeJEPA, 40 Level Zero soak passes), which failed the same day at `background` (the decode benchmark 4 of 4, the Level Zero soak 6 of 40, a trainer test); the low-priority reproducer ran about 3 times slower; priority run, November 16, 2026: at GuC log level 1 nothing at `GPU_STRATEGY=normal` or `full` was reset (0 of 60 and 0 of 40 passes over training, the encode soak and the reproducer) against 34 of 60 at low priority (p ≈ 10⁻¹³), so `normal` is the default `GPU_STRATEGY` since November 17; eighth round, second part, November 15, 2026: back at GuC log level 1 the same variants failed 42 of 160 (so level 3's 6 of 160 was the level, not the reboot); the reproducer on a queue with no priority failed 0 of 40 against 31 of 40 at low priority, the codebase's default; every reported reset followed a refused submission, every unreported one a process only polling its event (`drm.debug`); first part: with the GuC log at level 3 the polled workloads failed 6 of 160 against the seventh round's 52 of 160, but the blocking-wait reproducer 11 of 20, once stalling 60 s with no reset; seventh round: the newest compute runtime (26.40) and GuC (70.83.0) change nothing (57 of 220 passes failed against 52 of 220); a standalone SYCL reproducer with no project code resets the engine the same way (65 of 80 passes of 15 s over two rounds); every failure is a GuC reset of the compute context, often never reported by the runtime; a 5 s preempt timeout only delays the reset; a queue bound of 8 cuts them (4 of 160 against 26 of 200) and is the default (`GPU_QUEUE_DEPTH`), every SYCL wait gives up after `GPU_WAIT_TIMEOUT_SECONDS` (60) and the binaries then exit without the runtime's teardown; next the mainline kernel, then the report to Intel
+
+Description:
+ai-machine's Arc Pro B60 has engine resets (`GT0: Engine reset: engine_class=ccs`) during chatbot training, which end a pass with a
+lost device (TD-566) or, on the Level Zero v1 adapter, a hang (TD-569). The soaks of November 10, 11 and 12, 2026 saw them in about one
+pass in eight, on both adapters and with either GuC firmware. **The LeJEPA world-model pass ran 220 passes on the same card the same day
+without one** (TD-572). The difference is what reaches the GPU:
+- The LeJEPA pass has no device training path. Its only GPU work comes from `Matrix::operator*` → `multiply_gpu()`: an upload, one
+  oneMKL GEMM and a download it waits for. Attention, softmax, LayerNorm, SIGReg, backward and the optimizer run on the CPU, and the
+  GPU is idle in between.
+- The chatbot pass (`ChatbotTrainer` with `GPUOptimizer`, TD-468/TD-547) keeps the whole step on the device: our own SYCL kernels for
+  softmax, LayerNorm and cross-entropy (scratch reductions), the embedding gather and a float-atomic scatter-add, device dropout masks
+  (TD-344) and the optimizer update and norms (float atomics), queued in long in-order chains with no host waits.
+
+The compute engine's job timeout on ai-machine is 5000 ms, and at the soak's size (d_model 64, 16 tokens) no correct kernel takes more
+than milliseconds, so a reset means a job stopped making progress or faulted, not a slow job. On November 12 the resets also came in
+bursts (22:28–22:30, 22:45–22:46, 23:01); the last two began within about 30 s of the harness killing a hung v1 pass. This is not proof
+the cause is in our code (the driver remains a suspect), but resets appeared only with our device-resident kernels.
+
+**Diagnostics (November 13, 2026).** All off by default, set through the environment
+([GPUDebugSync.md](../reference/source/GPUDebugSync.md)):
+- `ADAI_GPU_SYNC=step|kernel`: wait for the GPU where each training phase starts (`forward`, `backward`, `optimizer`, `validation`), or
+  also before every kernel, upload and download. A failure is then attributed to its phase, or to the exact kernel; a lost device logs
+  `Last GPU work: kernel <k> in phase <p>`. Every SYCL kernel entry point records its name whatever the setting.
+- `ADAI_GPU_HOST_KERNELS=embedding,optimizer,dropout`: those kernel families run on the host instead (download, same formulas, upload),
+  taking out the float atomics and the device masks one family at a time. The optimizer's per-parameter update is now one function
+  shared by the kernel and the host version (`optimizer_update_element()`). A pass logs how many kernel calls ran on the host.
+- `ADAI_GPU_TRACE_FILE=<path>`: one record of the last GPU work, rewritten in place, so a pass killed in a hang leaves it behind.
+- `gpu_encode_soak`: a forward-only soak through `LeJEPAEncoder::gpu_encode()` (our forward kernels, chained, no backward, atomics or
+  optimizer).
+- The GPU test package's `run_gpu_tests.sh` copies the xe driver's crash dump after every step (`coredumps/`; one per reset, freed after
+  copying so the next reset can write one), and its new engine-reset bisection (`--bisect-only`, `--bisect-passes N`) runs eight
+  variants round-robin: `control`, `sync_step`, `sync_kernel`, `no_dropout`, `host_embedding`, `host_optimizer`, `host_all`,
+  `encode_soak`. Results in `bisect_report.txt`.
+
+How to read it: resets that stop under `sync_kernel`/`sync_step` point at the long un-waited chains; resets that stop under one
+`host_*` variant point at that family; resets in `encode_soak` mean forward kernels alone are enough; `sync_kernel`'s `Last GPU work`
+names the kernel whenever a reset still happens, and the crash dumps show the engine state.
+
+**First run on ai-machine (November 13, 2026, 20 rounds of the eight variants, Level Zero v2, GuC 70.72.1).** Device losses per
+variant: `control` 1, `sync_step` 1, `sync_kernel` **0**, `no_dropout` 3, `host_embedding` 3, `host_optimizer` 1, `host_all` 4,
+`encode_soak` 7. Per minute on the GPU, the other variants lost the device about 1.5 times, so `sync_kernel`'s 189 s would have expected
+about 4.7 losses (0 is about a 1% chance); counted per pass (each does the same work but `sync_kernel` takes 3× longer) it is only about
+10%. Taking our dropout, embedding atomics and optimizer kernels out changed nothing, and the forward-only soak had resets too, so no
+single kernel family of ours is the cause. All 27 crash dumps (bisection and soak, both adapters) have one signature: `Reason: LR job
+cleanup`, a GuC-captured reset of the process's long-running compute context (job timeout infinite, so the 5 s job timeout did not
+fire; preempt timeout 640 ms, time slice 1 ms), the command streamer parked at the same `MI_STORE_DATA_IMM` (`IPEHR 0x10400002`) with
+`RING_ESR`/`RING_EIR` clear, and no page fault or CAT error in the kernel log. That reads as the firmware resetting the engine because a
+context switch didn't finish within 640 ms (an inference about GuC behaviour, not stated in the dump), which fits a busy context being
+switched out and the resets stopping only when the queue is nearly always empty. Every pass so far used the low-priority queue
+(`GPU_STRATEGY=background`). The run's "kernel events" counted the `coredump has been deleted` line that freeing the previous pass's
+dump writes; fixed in the package.
+
+**Second round (packaged November 13, 2026).** `ADAI_GPU_SYNC=kernel:N` waits before every Nth GPU operation only. The bisection adds
+`sync_every_8`, `sync_every_64`, `sync_every_512` (how deep a chain the resets need, and whether a cheap periodic wait is enough),
+`full_priority` (`GPU_STRATEGY=full`), runs `control` and `sync_kernel` twice per round (40 passes each by default), reports seconds on
+the GPU and losses per minute per variant, and with `--engine-tuning` (opt-in, sudo) adds `long_preempt` (the compute engine's
+`preempt_timeout_us` raised to 5 s) and `long_timeslice` (`timeslice_duration_us` raised to 100 ms), set in sysfs before each such pass
+(the driver copies them into each new exec queue), capped at the driver's maxima and restored after every pass and on exit. A sharp drop
+under either would confirm the context-switch reading.
+
+**Second round on ai-machine (November 14, 2026, package `f19c0aee`, 20 rounds, Level Zero v2; `--engine-tuning` not used).**
+
+| Variant | Passes | Device lost | Hung | Seconds on the GPU | Losses per minute |
+|---|---|---|---|---|---|
+| `control` | 40 | 2 | 0 | 124 | 0.97 |
+| `sync_kernel` | 40 | **0** | 0 | 253 | 0 |
+| `sync_step` | 20 | **0** | 0 | 60 | 0 |
+| `sync_every_8` | 20 | **0** | 0 | 65 | 0 |
+| `sync_every_64` | 20 | 1 | 0 | 65 | 0.92 |
+| `sync_every_512` | 20 | 1 | 0 | 63 | 0.95 |
+| `full_priority` | 20 | 0 | 0 | 28 | 0 (too little time to tell) |
+| `no_dropout` | 20 | 2 | 1 | 661 (600 of it the hang) | 0.27 |
+| `host_embedding` | 20 | 1 | 0 | 72 | 0.83 |
+| `host_optimizer` | 20 | 2 | 0 | 113 | 1.06 |
+| `host_all` | 20 | 0 | 0 | 120 | 0 (4 losses on November 13) |
+| `encode_soak` | 20 | 2 | 0 | 208 | 0.58 |
+
+- **The resets need a deep queue.** The variants that wait before at most 8 queued operations or at every training phase lost the
+  device 0 times in 378 s this run, and `sync_kernel` 0 times in 189 s on November 13: 0 in 567 s, where the other variants' rate,
+  about 1 per minute (11 losses and 1 hang in about 706 s outside the hang), would expect about 9; 0 is about a 0.01% chance by luck.
+  Waiting every 64 or 512 operations doesn't help. The host-kernel variants are as likely to reset as `control` (`host_all`'s 0 here
+  and 4 on November 13 are noise), so no kernel family of ours is the cause, and the failed passes' last work is spread over ordinary
+  copies, transposes, zeroing, uploads and downloads in every phase.
+- **Cost:** `sync_every_8` about 5% slower per pass than `control`, `sync_step` no measurable cost, `sync_kernel` about twice as long.
+- **Inference resets far more often.** All four `gpu_decode_bench` runs (TD-050, small and configured shapes, each retried) and
+  `chatbotapiTests`' `PlainCpuBeamSearchEchoesExactly` (each large multiply sent to the GPU on its own, then a device loss; every later
+  test's setup failed with `OUT_OF_DEVICE_MEMORY` on the dead device) lost the device within about 4 s of starting, each with a crash
+  dump. The benchmark reports `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` first, but it's the reset: the kernel log has an engine reset 4 s
+  into each run, and the dumps have the same signature as training's.
+- **Every dump the same.** All 30 crash dumps (bisection, soak, decode, `chatbotapiTests`) are again `Reason: LR job cleanup`,
+  `IPEHR 0x10400002`, `RING_ESR`/`RING_EIR` clear, time slice 1 ms.
+- **Level Zero soak:** v2 lost the device in 10 of 20 passes, v1 in 2 of 20 plus one hang (900 s, the soak's own limit; `trainer_service`
+  stops one after `TRAINER_PASS_STALL_MINUTES`, TD-569). Every one of the 12 losses was handled as TD-566 expects. The LeJEPA lifecycle
+  and its 20 soak passes were all fine again (one waited-for oneMKL GEMM at a time).
+- **Next:** a bounded queue as the default on SYCL, for training and serving alike: wait for the queue at least every 8 operations
+  (what `ADAI_GPU_SYNC=kernel:8` does today as a diagnostic), then rerun the decode benchmark and the bisection with it. The
+  `--engine-tuning` round is still worth running, since it tests the context-switch reading directly and, if it holds, an upstream
+  report.
+
+**The bound was the default for a few hours (November 14, 2026).** `GPUManager::trace_kernel()` waited for the queue before every
+8th GPU operation unless told otherwise: `GPU_QUEUE_DEPTH` (config key and environment variable, default 8, 0 = unbounded, validated
+0–1,000,000) sets it. `incremental_trainer` and `chatbot_api_server` apply their `ServiceConfig::gpu_queue_depth` after the GPU
+initializes and log `[GPU] Queue depth: …`; every other binary (the GPU tests, `gpu_decode_bench`, `gpu_encode_soak`) starts from the
+environment's value or 8. `ADAI_GPU_SYNC=kernel`/`kernel:N` still take precedence; `step` keeps the bound between its phase waits.
+Only the SYCL backend counts its operations, so CUDA is unaffected. On the oneAPI CPU device a 3-epoch pass gave the same validation
+loss bounded and unbounded (2.0402), in 9.1 s against 8.6 s; the cost on the Arc is what the next run measures. It is a workaround:
+the GuC still resets a long-running compute context that runs too long, which the `--engine-tuning` round and an upstream report
+are for. See [GPUDebugSync.md](../reference/source/GPUDebugSync.md).
+
+The GPU test package's third round (`run_gpu_tests.sh` 0.6.0) compared the two: `control` (`GPU_QUEUE_DEPTH=0`) and `default` (8),
+each twice per round, `depth_16` and `depth_32`, `sync_step`, and `encode_soak` without and with the bound (`encode_soak_default`);
+the rest of the package ran with the bound.
+
+**Third round (run November 14, 2026, package `e7b5f0c1`).**
+- **Bisection** (seconds on the GPU, device losses per minute of it): `control` 6 lost in 40 passes (144 s, 2.50/min), `default` 1
+  in 40 (138 s, 0.43/min), `depth_16` 2 in 20, `depth_32` 3 in 20 (as `control`), `sync_step` 0 in 20, `encode_soak` 10 in 20
+  (3.21/min), `encode_soak_default` 1 lost and 3 hung in 20. 1 against 6 is borderline on its own (about a 6% chance if the bound did
+  nothing).
+- **Soak:** the Level Zero soak, the same training pass at the bound of 8, lost the device in 6 of 20 v2 passes (three within 30 s
+  at 21:36) and 1 of 20 v1 passes, so the loss rate varies with time and the bound doesn't hold up in a bad stretch. Only
+  `sync_kernel` (a wait after every operation, about twice as slow) has never lost the device: 0 in 60 passes over three rounds,
+  against about 1 in 11 unbounded.
+- **The bound hangs.** All three hung `encode_soak_default` passes stopped in the bound's own wait (GPU work #149208, #126032,
+  #321032: multiples of 8; the last work queued a device-to-device copy each time), and `decode_small`'s retry hung for its hour
+  right after building the model. None had an engine reset until the runner killed it: 21:51:36 for a pass silent since about 21:41,
+  21:28:46.5 for the retry started at 20:28:46. So the GPU stopped running work without the GuC resetting it, and an unbounded wait
+  waited forever; unbounded, the next copy finds the loss instead. **Corrected by the fourth round:** these were engine resets the
+  runtime never reported. With every GPU dump kept, each such pass has a reset within a second of its last progress, and they
+  happen unbounded too (the reading above relied on the kernel log of a run where most dumps were lost).
+- **Decode benchmark:** lost the device or hung in all four attempts again.
+- **Dumps:** the one copied back (`devcd124`, a bisection training pass at 22:11:29) is again `LR job cleanup` on GuC 70.72.1; the
+  context has no job timeout, a 1 ms time slice and a 640 ms preempt timeout, consistent with the GuC resetting the engine when our
+  context doesn't yield to preemption within 640 ms. `coredumps.sh` was installed during the run, so ai-machine holds a saved dump for
+  each of the 32 resets after 21:29.
+- **Also:** `feedforwardTests`' `ClipGradients` failed once on float rounding (5.00011 against a tolerance of 5.0001; passed in the
+  other five runs); LeJEPA 20 of 20 ok; the seed replay was close, not byte-exact (TD-368).
+
+**Opt-in bound and a wait timeout (November 14, 2026).** `GPU_QUEUE_DEPTH` defaults to 0 again (the library, `ServiceConfig` and the
+shipped configs). Every blocking wait in the SYCL backend (`GPUMemory`'s copies, `matrix_download_gpu()`, `GPUMatrix::copy()`, the
+bound's and the diagnostics' waits, `synchronize()`, `device_usable()`) goes through `GPUManager::wait_for()`, which polls the work's
+status and gives up after `GPU_WAIT_TIMEOUT_SECONDS` (config key and environment variable, default 60, 0 = no limit, validated
+0–86,400): the queue is marked stuck and the wait throws a `std::runtime_error` naming the setting. `device_usable()` is then false, so
+`ChatbotTrainer` and the LeJEPA pass stop as on a lost device (TD-566), later waits throw at once, and `cleanup()` leaves the stuck
+queue to process exit. `incremental_trainer` and `chatbot_api_server` log `[GPU] Queue depth: …; wait timeout: …`. In
+`chatbot_api_server` the request fails with a 500 and every later GPU request fails until a restart. A wait inside the SYCL or Level
+Zero runtime itself (its teardown on a stuck queue, for example) isn't covered; the step limit or TD-569's stall timer stays the
+backstop. The package (`run_gpu_tests.sh` 0.8.0) renames `default` to `depth_8` and `encode_soak_default` to
+`encode_soak_depth_8`, and reports a pass whose wait timed out as `stuck`.
+
+**Keeping the crash dumps (November 14, 2026).** The xe driver holds one GPU crash dump at a time for at most 5 minutes and writes none
+for a later reset while it holds one, so only the runner's per-step copy kept any, and only for steps it ran; systemd-coredump deletes
+process core dumps after 3 days and the adai services set `LimitCORE=0`. `scripts/sycl_gpu_tests/coredumps.sh install` (in the package,
+run once on ai-machine) keeps process core dumps 30 days, turns them on for every `adai*` service and the operator's logins, and adds a
+udev rule that saves each GPU dump to `/var/lib/adai/gpu-coredumps/` the moment it is written and frees it, so every reset leaves one,
+during a test run or in service. `run_gpu_tests.sh` (0.7.0) copies the dumps saved during a run into `coredumps/` (per step, as before)
+and lists the run's process core dumps in `process_coredumps.txt`.
+
+**Fourth round (run November 14, 2026, 18:38–21:15 PST; package `e7b5f0c1-dirty`, runner 0.8.0, with `coredumps.sh`
+installed, so every GPU dump was kept: 45 in this run).**
+
+| Variant | Passes | Failed (lost + stuck) | Per minute on the GPU |
+|---|---|---|---|
+| `control` (unbounded) | 40 | 7 (4 + 3) | 1.34 |
+| `depth_8` | 40 | 3 (0 + 3) | 0.56 |
+| `depth_16` | 20 | 1 (0 + 1) | 0.47 |
+| `depth_32` | 20 | 3 (1 + 2) | 0.96 |
+| `sync_step` | 20 | 1 (1 + 0) | 0.94 |
+| `encode_soak` (unbounded) | 20 | **12** (0 + 12) | 0.79 |
+| `encode_soak_depth_8` | 20 | **1** (0 + 1) | 0.22 |
+
+- **No pass hung:** the wait timeout turned every unreported reset into a `stuck` pass about 61 s in.
+- **Every stall is an engine reset.** Each stuck pass has a GPU dump from its own process within a second of its last progress
+  (`bisect_control_04`: last progress 04:43:18.55 UTC, `Engine reset … guc_id=8` and the dump at 04:43:19.32, pid 179894); its waits
+  just never completed. A pass the runtime told (`DEVICE_LOST`/`OUT_OF_RESOURCES`) failed within a second; the kernel's `exec queue
+  reset detected` follows 3.6–5.4 s after such a reset, and after a stuck one only once the process gave up, or never. So the third
+  round's "GPU stopped without a reset" was this, and it isn't caused by the bound.
+- **The bound helps.** Over the third and fourth rounds, `depth_8` failed 4 of 80 training passes against 13 of 80 unbounded
+  (Fisher p ≈ 0.04); forward-only, 1 of 20 against 12 of 20 (p ≈ 0.0004). Cost: a 3 s training pass about 0.5 s longer; the
+  forward-only soak no slower.
+- **Every dump the same** (all 77 from the third and fourth rounds): `LR job cleanup`, GuC-captured, the `ccs` context with an
+  infinite job timeout, 1 ms time slice and 640 ms preempt timeout, all EU rows busy (`ROW_INSTDONE` 0), `IPEHR 0x10400002`
+  (`MI_STORE_DATA_IMM`), `RING_ESR`/`RING_EIR` clear, the ring wrapped. They confirm the kind of reset but don't tell failures apart.
+- **A long kernel alone isn't reset.** `gpuDebugSyncTests`' stuck-work test (a device kernel spinning on a `malloc_shared` flag the host
+  sets) never saw the host's write and spun for the step's hour with no reset; killing it reset the engine with no dump. That fits
+  the GuC resetting only when a preemption request isn't honoured in 640 ms.
+- **Level Zero soak (at 8):** v2 failed 9 of 20, v1 3 of 20 (over two rounds 15 of 40 against 4 of 40, p ≈ 0.008), but all three v1
+  failures, already stuck and released, then hung at exit inside the runtime's teardown until the 900 s limit.
+- **Also:** the decode benchmark lost the device in all four attempts again; LeJEPA lifecycle and 20 of 20 soak passes ok;
+  `seed7_a` lost the device in epoch 1, so the seed replay compared nothing.
+
+**The bound is the default again; exit without the runtime's teardown (November 14, 2026).** `GPU_QUEUE_DEPTH` defaults to 8
+again (the library, `ServiceConfig`, the shipped configs and the installer). A timed-out wait now also records the stuck work for the
+process (`adai::gpu::note_gpu_work_stuck()`), and `incremental_trainer`'s and `chatbot_api_server`'s `main()` (the latter now a
+wrapper around `run_server()`) check `gpu_work_stuck()` when done: if set, they log `[GPU] GPU work is stuck: exiting without the GPU
+runtime's teardown (exit N)`, flush, and end with `exit_without_gpu_teardown()` (`std::_Exit` with the same code), skipping static
+destructors and `atexit` handlers. `gpuDebugSyncTests`' stuck-work test now holds the queue with a host task waiting on a host flag,
+which the test can always release. The findings so far are written up as a
+[draft report for Intel](../../operations/guides/troubleshooting/ARC_B60_ENGINE_RESETS_INTEL_REPORT.md), with what Intel will ask
+for before it is filed.
+
+**Fifth round (run November 14, 2026, 22:27–23:22 PST; package `e7b5f0c1-dirty` rebuilt with the default bound, the fast exit and
+the host-task test; `--engine-tuning`; 33 GPU dumps).**
+
+| Variant | Passes | Failed (lost + stuck) | 4th round |
+|---|---|---|---|
+| `control` (unbounded) | 40 | 5 (0 + 5) | 7 of 40 |
+| `depth_8` | 40 | **0** | 3 of 40 |
+| `depth_16` | 20 | 2 (0 + 2) | 1 of 20 |
+| `depth_32` | 20 | 0 | 3 of 20 |
+| `sync_step` | 20 | 2 (2 + 0) | 1 of 20 |
+| `encode_soak` (unbounded) | 20 | 6 (0 + 6) | 12 of 20 |
+| `encode_soak_depth_8` | 20 | 5 (0 + 5) | 1 of 20 |
+| `long_preempt` (unbounded, `preempt_timeout_us` 5 s) | 20 | 1 (0 + 1) | — |
+| `long_timeslice` (unbounded, `timeslice_duration_us` 100 ms) | 20 | 0 | — |
+
+- **A longer preempt timeout only delays the reset.** In every failed training pass the engine reset came 0.68–0.90 s after the
+  pass's last log line (19 passes, 640 ms preempt timeout); in `bisect_long_preempt_06` it came 5.07 s after (the dump's context
+  shows `Preempt timeout: 5000000`). So the context never completes the preemption however long it gets: the work has stopped
+  before the GuC asks, and the preempt timeout is only how long the GuC waits before resetting. The 100 ms time slice had 0 of 20
+  (against 5 of 40, p ≈ 0.16): too few passes to tell.
+- **Bound, pooled over three rounds:** `depth_8` 4 failed of 120 against 18 of 120 unbounded (p ≈ 0.003). Forward-only over two:
+  6 of 40 against 18 of 40 (p ≈ 0.007), though in this round alone the bound made no difference (5 against 6 of 20). Rates swing
+  between rounds by more than between variants, so only pooled comparisons count.
+- **Almost no reset was reported:** 29 of 31 failures were stuck waits, released by the 60 s timeout. The two reported were both
+  `sync_step` (`OUT_OF_RESOURCES`, and for the first time `OUT_OF_DEVICE_MEMORY`).
+- **The fast exit works.** Every stuck pass exited within 30 ms of giving up, the four v1 soak failures included (the fourth
+  round's three hung at exit for 900 s). Level Zero soak at the bound: v2 3 of 20, v1 4 of 20 (over three rounds v2 18 of 60, v1
+  8 of 60, p ≈ 0.045).
+- **`gpuDebugSyncTests` passes on the Arc** (18 tests, 1 s; the host-task stuck test 1001 ms) instead of spinning for its hour.
+- **Also:** the decode benchmark failed all four attempts, now as stuck waits; LeJEPA lifecycle and 20 of 20 soak passes ok;
+  `seed7_b` got stuck in epoch 3, and its first two epochs matched `seed7_a`'s losses to the printed 6 decimals (grad norms to
+  about 1e-6, TD-368's close-not-exact GPU replay). All 33 dumps have the same signature as before.
+
+The [report for Intel](../../operations/guides/troubleshooting/ARC_B60_ENGINE_RESETS_INTEL_REPORT.md) has these results
+(observation 6 and the engine-settings table).
+
+**Sixth round (run November 15, 2026, 09:08–10:04 UTC; the same package, the runtime not yet updated; `--engine-tuning`; 52 GPU
+dumps, one per failure, all the usual signature).**
+
+| Variant | Passes | Failed (lost + stuck) |
+|---|---|---|
+| `control` (unbounded) | 40 | 2 (0 + 2) |
+| `depth_8` | 20 | **0** |
+| `encode_soak` (unbounded) | 20 | 12 (0 + 12) |
+| `repro_mkl` (reproducer, oneMKL, unbounded) | 20 | **14** (9 + 5) |
+| `repro_sycl` (reproducer, SYCL multiply, unbounded) | 20 | **17** (8 + 9) |
+| `repro_mkl_wait_8` (reproducer, a wait every 8 operations) | 20 | 1 (0 + 1) |
+| `ur_debug` (unbounded, Level Zero debug log) | 20 | 1 (1 + 0) |
+| `v1_teardown` (unbounded, v1, teardown kept) | 20 | 1 (1 + 0) |
+| `long_timeslice` (unbounded, 100 ms time slice) | 40 | 4 (3 + 1) |
+
+- **The reproducer reproduces it.** `sycl_engine_reset_repro` (SYCL and optionally oneMKL, no project code) failed 31 of 40 passes
+  of 15 s, about 1.4 failures per GPU minute, with the same dump; oneMKL isn't needed. With a wait every 8 operations 1 of 20 (p ≈
+  4·10⁻⁵), but it then does a seventh of the steps, so per operation the bound helps about 3 times.
+- **Reported or not:** 30 of the 52 failures went unreported. The reproducer's 17 reported ones failed within 1 ms of the kernel's
+  `Engine reset`. The 100 ms time slice had 3 of its 4 reported, the unbounded control and soak none of 14.
+- **Timing again:** the eight failed training passes reset 0.68–0.93 s after their last log line, the time-slice ones included.
+- **No effect from the time slice** (4 of 40 against control 2 of 40; over two rounds 4 of 60 against 7 of 80, p ≈ 0.76). The
+  driver refused `preempt_timeout_us` 0, so `no_preempt` didn't run.
+- **Bound, pooled over four rounds:** `depth_8` 4 of 140 against 20 of 160 (p ≈ 0.002).
+- **Stacks:** a process stuck on an unreported reset has one thread, in our own polling `wait_for()`, so there's nothing of the
+  runtime's to see. After a reported loss the reproducer (which exits normally) spun about 10 s in a `libze_intel_gpu.so` destructor
+  (`exit → _dl_fini → … → sched_yield`) before exiting, alongside the kernel's two `exec queue reset detected` lines. The watcher
+  took its 5 stacks on the round's first five failures.
+- **Not answered:** the v1 exit hang (`v1_teardown`'s one failure was reported and its teardown finished); the debug log
+  (`UR_LOG_LEVEL_ZERO=level:debug` logs only initialization, 95 lines; its one failure was reported).
+
+**Seventh round (run November 15, 2026, 10:48–11:50 UTC; after `update_gpu_stack.sh install --dbgsym` and a reboot: compute
+runtime 26.40.40196.15, IGC 2.42.14, gmmlib 22.10.2, Level Zero loader 1.34.0, GuC 70.83.0; the sixth round's variants, since the
+run used the package built before the blocking and traced reproducers were added; 57 GPU dumps, all the usual signature).**
+
+| Variant | Passes | Failed (lost + stuck) | 6th round |
+|---|---|---|---|
+| `control` (unbounded) | 40 | 6 (5 + 1) | 2 of 40 |
+| `depth_8` | 20 | **0** | 0 of 20 |
+| `encode_soak` (unbounded) | 20 | 11 (0 + 11) | 12 of 20 |
+| `repro_mkl` | 20 | 16 (9 + 7) | 14 of 20 |
+| `repro_sycl` | 20 | 18 (6 + 12) | 17 of 20 |
+| `repro_mkl_wait_8` | 20 | 1 (0 + 1) | 1 of 20 |
+| `ur_debug` | 20 | 3 (3 + 0) | 1 of 20 |
+| `v1_teardown` | 20 | 0 | 1 of 20 |
+| `long_timeslice` | 40 | 2 (1 + 1) | 4 of 40 |
+
+- **The newest runtime and GuC change nothing:** 57 of 220 failed against 52 of 220 (p ≈ 0.66), 33 of them unreported against 30;
+  same dump, same 0.65–0.93 s from the last progress to the reset. Training passes now mostly report `UR_RESULT_ERROR_DEVICE_LOST`.
+- **Bound, pooled over five rounds:** `depth_8` 4 of 160 against 26 of 200 (p ≈ 0.0002); the reproducer 2 of 40 against 30 of 40
+  over two rounds. The time slice over three rounds: 6 of 100 against 13 of 120 (p ≈ 0.24), no effect.
+- **Stacks with symbols:** the reproducer's exit after a reported loss (now 12.5–16 s) waits in
+  `L0::DriverHandle::~DriverHandle → UsmMemAllocPoolsFacade::cleanup → freeSVMAlloc → MemoryManager::waitForEnginesCompletion →
+  CommandStreamReceiver::baseWaitFunction` for a task count the reset context never reaches. A process polling an unreported
+  reset's event sits in `L0::EventImp::queryCounterBasedEventStatus`, reading a counter the reset context will never write.
+- **Not answered yet:** the plain `sycl::event::wait()` stack and the call trace (the next round, `repro_sycl_blocking` and
+  `repro_sycl_trace`); the v1 exit hang (no v1 failure); an upstream kernel.
+- **Outside the run:** `/opt/adai/bin/incremental_trainer` (the deployed trainer, not the package's) dumped core with `SIGABRT` five
+  times, 48 s apart, from 10:49:26 to 10:52:38 UTC, on the updated runtime. None of the GPU dumps name it. Not yet looked at
+  (`coredumpctl info 2455` on ai-machine).
+
+**Eighth round, first part (run November 15, 2026, 22:22–23:19 UTC; stock kernel, after `xe_debug.sh enable` and a reboot, so the
+GuC log at level 3; `--kernel-debug` asked for but left out by a runner bug, below):**
+
+| Variant | Passes | Failed (lost + stuck) | 7th round (level 1) |
+|---|---|---|---|
+| `control` (unbounded) | 40 | **0** | 6 of 40 |
+| `depth_8` | 20 | 0 | 0 of 20 |
+| `encode_soak` | 20 | 4 (0 + 4) | 11 of 20 |
+| `repro_mkl` | 20 | 1 (1 + 0) | 16 of 20 |
+| `repro_sycl` | 20 | **0** | 18 of 20 |
+| `repro_mkl_wait_8` | 20 | 0 | 1 of 20 |
+| `v1_teardown` | 20 | 1 (0 + 1, hung at exit) | 0 of 20 |
+| `repro_sycl_blocking` | 20 | **11** (10 + 1) | |
+| `repro_sycl_trace` | 20 | 0 | |
+| `repro_sycl_normal`, `repro_mkl_normal` | 40 | 0 | |
+
+- **The GuC log level changed the rate:** the variants both rounds ran, 6 of 160 against 52 of 160 (p ≈ 6·10⁻¹²); the
+  reproducer 1 of 40 against 34 of 40. Only the level and a reboot changed, so the level-1 rerun has to confirm it's the level.
+- **Blocking waits still fail:** `repro_sycl_blocking` 11 of 20 against the polled `repro_sycl`'s 0 of 20 (p ≈ 0.0002). One
+  (`_08`) stalled 60 s with no reset at all; the engine reset 13 ms after the watchdog ended the process, with no devcoredump. The
+  first failure without a reset while the work was stuck.
+- **The v1 exit hang recurred** (`v1_teardown_15`), with a stack: the same `~DriverHandle → UsmMemAllocPool::cleanup →
+  baseWaitFunction` wait as v2's teardown, never ending; no `exec queue reset detected` line, and a copy-engine (`bcs`) reset when
+  it was killed.
+- **Still missing:** the plain-wait stack (the stuck blocking pass had no reset to trigger the stack watcher, and two reported
+  losses' exits used the variant's stacks); the `drm.debug` log; the normal-priority comparison (needs level 1); a traced failure.
+- **Runner bugs, fixed:** `--kernel-debug` checked `/sys/module/drm/parameters/debug` (mode 0600) for reading without sudo, so it
+  always left `repro_sycl_drm_debug` out, and `host_details.txt` showed `drm.debug: ?`; both now read it through sudo. The stack
+  watcher now takes a `stalled` stack of a reproducer whose log stops for 20 s with no dump and no give-up, and no `waiting` stack
+  after a reproducer's reported loss (its exit, already named).
+
+**Eighth round, second part (run November 15–16, 2026, 23:55–01:16 UTC; stock kernel, after `xe_debug.sh disable` and a reboot, so
+the GuC log back at level 1 (`host_details.txt`, and all 80 dumps say `Log level: 1`); `--kernel-debug` this time):**
+
+| Variant | Passes | Failed (lost + stuck) | 1st part (level 3) | 7th round (level 1) |
+|---|---|---|---|---|
+| `control` (unbounded) | 40 | 6 (3 + 3) | 0 | 6 of 40 |
+| `depth_8` | 20 | 0 | 0 | 0 of 20 |
+| `encode_soak` | 20 | 5 (0 + 5) | 4 | 11 of 20 |
+| `repro_mkl` | 20 | 12 (6 + 6) | 1 | 16 of 20 |
+| `repro_sycl` | 20 | **19** (7 + 12) | 0 | 18 of 20 |
+| `repro_mkl_wait_8` | 20 | 0 | 0 | 1 of 20 |
+| `v1_teardown` | 20 | 0 | 1 | 0 of 20 |
+| `repro_sycl_blocking` | 20 | **20** (20 + 0) | 11 | |
+| `repro_sycl_trace` | 20 | 0 | 0 | |
+| `repro_sycl_normal`, `repro_mkl_normal` | 40 | **0** | 0 | |
+| `repro_sycl_drm_debug` | 20 | 18 (12 + 6) | | |
+
+- **The level, not the reboot:** the variants all three runs share failed 42 of 160 (level 3: 6, p ≈ 10⁻⁸; seventh round: 52, p ≈
+  0.27).
+- **Priority:** the reproducer with no priority hint (`--normal-priority`, a queue with only `in_order`) failed 0 of 40, the
+  low-priority one 31 of 40 (p ≈ 4·10⁻¹⁴), while doing more work (about 9,100 and 8,100 steps in 15 s, against about 5,300). The
+  codebase's `GPU_STRATEGY` offers only `background` (`priority_low`, the default) and `full` (`priority_high`); the one training
+  variant at `full` (second round) had 0 of 20, too short to tell. Training at both other priorities is the next run, with
+  `GPU_STRATEGY=normal` (no hint), added for it.
+- **Why some resets go unreported (`drm.debug` 0x2):** in all 12 reported failures the process submitted again after the reset and
+  the kernel refused it (`xe_exec_ioctl … xe_exec.c:147: q->ops->reset_status(q)`), followed by `exec queue reset detected`; in all 6
+  unreported ones it made no call into the kernel after the reset, only polling its event (stack: `queryCounterBasedEventStatus`, as
+  in the seventh round). No driver message precedes the reset. Blocking waits were reported 20 of 20 (polled 7 of 19, p ≈ 10⁻⁵).
+- **Blocking waits at level 1:** 20 of 20 failed (level 3: 11 of 20), all reported, so no plain-wait stack again; half within 1 ms
+  of the reset, half 0.358 s after it.
+- **Still missing:** the plain-wait stack of an unreported reset (blocking waits weren't left unreported at level 1); a traced
+  failure (`repro_sycl_trace` 0 of 20 again: tracing slows it to about 2,350 steps).
+
+**Priority run (November 16, 2026, 22:14–22:59 UTC; the same package, stock kernel, GuC log level 1 (`host_details.txt`, and the
+dumps say `Log level: 1`), `BISECT_VARIANTS="control normal_priority full_priority encode_soak encode_soak_normal_priority
+encode_soak_full_priority repro_sycl repro_sycl_normal"`, 20 rounds):**
+
+| Workload | Low priority (`background`, the default) | No hint (`normal`) | High priority (`full`) |
+|---|---|---|---|
+| Training (`control`, unbounded) | 5 of 20 (4 lost + 1 stuck) | **0 of 20** | **0 of 20** |
+| Forward-only soak (`encode_soak`) | 11 of 20 (11 stuck) | **0 of 20** | **0 of 20** |
+| Reproducer, SYCL kernel multiply | 18 of 20 (9 lost + 9 stuck) | **0 of 20** | |
+| All | 34 of 60 | **0 of 60** | **0 of 40** |
+
+- **Low priority is what gets reset.** No hint against low: 0 of 60 against 34 of 60 (p ≈ 1.5·10⁻¹³); training alone 0 of 20
+  against 5 of 20 (p ≈ 0.047), the soak 0 of 20 against 11 of 20 (p ≈ 1.5·10⁻⁴). High priority is the same as no hint (0 of 40).
+  The 34 failed passes match the kernel log's 34 `Engine reset: engine_class=ccs` and the run's 34 dumps, one each; nothing at
+  `normal` or `full` logged a kernel event. Every log shows the strategy it ran at (`GPU ready — strategy: normal (no priority
+  hint)`), with all 38 parameter groups stepped on the device.
+- **The low-priority rates match earlier level-1 rounds** (training 6 of 40 in the second part, the soak 11 of 20 in the seventh
+  round, the reproducer 19 of 20), so nothing else changed between the variants.
+- **Caveat:** a training pass here is short (about 1 s of GPU work in 2–3 s), so 0 of 20 bounds training's rate at normal
+  priority only loosely; the soak and the reproducer, 10–15 s each, carry most of the weight.
+
+**Full run, November 17, 2026 (20:32–22:10 UTC; the November 15 package, so everything at `background` except the reproducer's
+normal-priority variants; stock kernel, GuC log level 1, 82 `Engine reset` lines and 80 dumps):**
+
+| Variant | Passes | Failed (lost + stuck) | 8th round, second part |
+|---|---|---|---|
+| `control` (unbounded) | 40 | 5 (3 + 2) | 6 of 40 |
+| `depth_8` | 20 | 0 | 0 of 20 |
+| `encode_soak` | 20 | 9 (0 + 9) | 5 of 20 |
+| `repro_mkl` | 20 | 17 (12 + 5) | 12 of 20 |
+| `repro_sycl` | 20 | 18 (8 + 10) | 19 of 20 |
+| `repro_mkl_wait_8` | 20 | 0 | 0 of 20 |
+| `v1_teardown` | 20 | 1 (hung at exit, 240 s) | 0 of 20 |
+| `repro_sycl_blocking` | 20 | 20 (20 + 0) | 20 of 20 |
+| `repro_sycl_trace` | 20 | 0 | 0 of 20 |
+| `repro_sycl_normal`, `repro_mkl_normal` | 40 | **0** | 0 of 40 |
+
+- **The priority result holds a third time.** The reproducer with no hint failed 0 of 40 against 35 of 40 at low priority (p ≈
+  10⁻¹⁷); over the three level-1 runs, 0 of 100 against 84 of 100.
+- **Everything else at `background` failed as before:** `chatbottrainerTests` lost the device once (a 60 s wait timed out in
+  `MetricsTrackerWiringTest.ValidationReportsTokenAccuracy`, and the tests after it failed on the lost device); the Level Zero soak
+  4 of 20 on v1 and 2 of 20 on v2; the LeJEPA soak 20 of 20 ok.
+- **`gpu_decode_bench` got further** (TD-050): `decode_small` validated in both attempts, the GPU KV cache agreeing with the GPU full
+  recompute at all 100 steps (largest logit difference 8.3·10⁻⁷) and with the CPU, and timed `gpu_cached` at 7.7 ms per token for 50
+  tokens and 7.1 for 100, then lost the device (a 60 s wait timed out after a device-to-device copy). `decode_configured` lost it
+  before validating, twice. This run says nothing about `normal`; the November 17 package's full run does.
+
+**Full run at `normal`, November 17, 2026 (22:52–00:21 UTC; package `e7b5f0c1-dirty-20261117`, so `GPU_STRATEGY=normal` by default
+everywhere but the bisection, which keeps `background`; stock kernel, GuC log level 1):**
+
+| Workload | At `normal` (this run) | At `background` (the run before, same day) |
+|---|---|---|
+| GPU unit tests (15 binaries) | all pass | `chatbottrainerTests` lost the device |
+| `gpu_decode_bench`, two shapes | 2 of 2 complete, no retry | 4 of 4 lost the device |
+| Seed-replay training passes | 3 of 3 | 3 of 3 |
+| LeJEPA lifecycle and soak | 5 of 5, 20 of 20 | 5 of 5, 20 of 20 |
+| Level Zero soak, v1 and v2 | **0 of 40 failed** | 6 of 40 (p ≈ 0.013) |
+
+- **No engine reset before the bisection.** The kernel log's first `Engine reset` (23:07:14) is the bisection's first failed pass;
+  all 64 dumps and 65 failed steps are from the bisection's `background` variants. Every log before it says `strategy: normal`.
+- **Low priority is also slower.** `gpu_decode_bench`'s cached decode took 2.61 ms per token at the small shape at `normal` against
+  7.70 ms at `background` the run before, on an otherwise idle GPU; the reproducer already did about 9,100 steps in 15 s with no hint
+  against 5,300 at low priority (eighth round).
+- **The decode benchmark** (TD-050, TD-033, both now resolved): validated at both shapes against the GPU full recompute and the CPU;
+  at the configured shape the KV-cached GPU decode takes 19.8 ms per token for 100 tokens, against 300.3 for the GPU full recompute
+  and 300.8 for `chatbot_api_server`'s path before TD-033.
+- **The bisection at `background` repeats the earlier rounds:** `control` 2 of 40, `depth_8` 1 of 20 (its first since the fourth
+  round), `encode_soak` 9 of 20, `repro_mkl` 12 of 20, `repro_sycl` 20 of 20, `repro_sycl_blocking` 20 of 20, `v1_teardown` one exit
+  hang; `repro_mkl_wait_8`, `repro_sycl_trace` and both no-hint reproducers 0 of 20 each. The reproducer with no hint: 0 of 140
+  over the four level-1 runs, against 116 of 140 at low priority.
+- **Seed replay** (TD-368): `SEED=7` again gave identical losses to six digits with different weight hashes, as before (GPU replays
+  are close, not exact).
+
+**Ubuntu's 7.0 kernel, November 18, 2026 (01:40–01:57 UTC; `7.0.0-43-generic`, upstream 7.0.14, Canonical-signed, booted once;
+the same package, GuC 70.83.0 and oneAPI runtime as the run above; `--bisect-only --kernel-debug`, GuC log level 1):** nothing failed.
+The mainline 7.3.5 build could not be used: ai-machine has Secure Boot on and no console, and enrolling its key needs someone at the
+console when the machine boots (MokManager), so shim refused it. 7.0 was already installed and boots without that.
+
+| Variant (bisection's priority) | 7.0.0-43 (this run) | 6.17.0-1025-oem (the run above) |
+|---|---|---|
+| `control` (background) | 0 of 40 | 2 of 40 |
+| `depth_8` (background) | 0 of 20 | 1 of 20 |
+| `encode_soak` (background) | 0 of 20 | 9 of 20 |
+| `repro_mkl` (background) | 0 of 20 | 12 of 20 |
+| `repro_sycl` (background) | 0 of 20 | 20 of 20 |
+| `repro_sycl_blocking` (background) | 0 of 20 | 20 of 20 |
+| `v1_teardown` (background) | 0 of 20 | 1 exit hang |
+| `repro_sycl_drm_debug` (background) | 0 of 20 | not run (8th round: failed) |
+| `repro_mkl_wait_8`, `repro_sycl_trace`, both no-hint reproducers | 0 of 80 | 0 of 80 |
+| Kernel GPU events (engine resets, timeouts, faults) | **0** | 130 |
+
+- **The variants that fail on 6.17 failed 0 of 160 times on 7.0, against 65 of 160 the run before** (`control`, `depth_8`,
+  `encode_soak`, `repro_mkl`, `repro_sycl`, `repro_sycl_blocking`, `v1_teardown`), and the low-priority reproducer 0 of 60 against
+  116 of 140 over the four level-1 runs on 6.17. The kernel log has no engine reset and no new GPU crash dump.
+- **The low-priority hint still takes effect:** the reproducer logs `low priority` and did a median 6,597 steps in 15 s against
+  9,740 with no hint (on 6.17, 5,491 against 9,783 in the passes that finished). So 7.0 still schedules the low-priority context
+  behind others; it just doesn't reset it.
+- So the resets come from the 6.17 OEM kernel's xe driver, not from the GuC, the compute runtime or the project's GPU code. The fix
+  is somewhere between 6.17 and 7.0; this run doesn't say which change.
+- The kernel log has only `drm.debug`'s ioctl argument checks (the runtime probing for newer flags), which the `--kernel-debug`
+  variant turns on.
+
+**Full run on 7.0, November 18, 2026 (started 03:49 UTC; same boot of `7.0.0-43-generic`, same package):** nothing failed and
+the kernel logged no GPU event. All 15 GPU unit-test binaries pass; `gpu_decode_bench` validated both shapes (100 of 100 steps,
+max logit difference 1.67e-6) and timed the configured shape's cached decode at 19.9 ms per token for 100 tokens, as on 6.17; the
+seed replay matched losses to six digits; the LeJEPA lifecycle and 20 soak passes, the Level Zero soak (0 of 40) and the whole
+bisection at `background` (0 of 240, again including `repro_sycl` and `repro_sycl_blocking`, 20 of 20 each on 6.17) all ok.
+
+Tests: `gpuDebugSyncTests` (19 on the oneAPI CPU device, 14 of them in every build: parsing including `kernel:N`, `GPU_QUEUE_DEPTH`
+and `GPU_WAIT_TIMEOUT_SECONDS`, the stuck flag and the exit that skips teardown (a death test), `ADAI_GPU_KEEP_TEARDOWN`, a host task holding the queue timing
+out a 1 s wait and leaving the device unusable until it finishes, which operations wait under each mode and queue depth, the record and trace file, each host family against its device kernel
+with the host path's run count checked, and kernel mode naming the kernel); `ConfigTest.GpuQueueDepthDefaultFileEnvAndRange`, `ConfigTest.GpuWaitTimeoutDefaultFileEnvAndRange`;
+`gpuutilsTests`' `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal` (SYCL, the queue's priority property for each `GPU_STRATEGY`,
+kept by `set_device()`, and no hint by default), `ConfigTest.GpuStrategyNormalFileEnvAndMapping`, `ConfigTest.GpuStrategyDefaultsToNormal`,
+`ConfigTest.GpuStrategyUnknownDefaultsToNormal`;
+`package_sycl_gpu_tests_test.sh` (the priority variants' settings, every other training variant pinned to `background`, the eighth round's variants and reproducer arguments, the normal-priority and `drm.debug` variants, `drm.debug` read through sudo, the stalled-reproducer stack and none after a reported loss,
+`xe_debug.sh`'s and `mainline_kernel.sh`'s usage and refusals, the mainline release and package choice, the GRUB entry lookup,
+`mainline_kernel.sh`'s code-signing key, its console check before queuing a key (and the Canonical-signed newer kernels it lists), its reading of the key's MOK state and a real `sbsign` of an EFI image (when the machine has
+`sbsigntool`), and
+the apt plan check, the per-variant stack cap, the new options, the kernel-event pattern, `coredumps.sh` installing into and removing from a
+scratch root, the sixth round's variant settings, the reproducer in the package, and the stack watcher taking one stack, with a
+stand-in `gdb`, of a step whose log says a wait gave up).
+
+Action items:
+- [x] Diagnostics, the forward-only soak, crash-dump capture and the bisection in the GPU test package (November 13, 2026).
+- [x] Run `run_gpu_tests.sh --bisect-only` on ai-machine and read `bisect_report.txt` and `coredumps/` (November 13, 2026; results
+  above).
+- [x] Second round: `kernel:N`, priority, engine-setting variants, more control/`sync_kernel` passes, event-count fix (November 13,
+  2026).
+- [x] Run the second-round bisection on ai-machine (November 14, 2026; results above, without `--engine-tuning`).
+- [x] Make a bounded GPU queue the default on SYCL (a wait at least every 8 operations, for training and serving): `GPU_QUEUE_DEPTH`,
+  default 8 (November 14, 2026).
+- [x] Keep process core dumps and every GPU crash dump on ai-machine: `coredumps.sh` (November 14, 2026).
+- [x] Run `./coredumps.sh install` on ai-machine (during the third round, November 14, 2026; the adai services still need a restart
+  for their core limit).
+- [x] Run the third round on ai-machine (November 14, 2026; results above: the bound cut the losses without stopping them, and hung).
+- [x] Make the bound opt-in again and give every SYCL wait a timeout, so a GPU that stops without a reset fails the pass instead
+  of hanging it (November 14, 2026).
+- [x] Copy `/var/lib/adai/gpu-coredumps/` back from ai-machine and compare the dumps (77 over the third and fourth rounds, all one
+  signature; November 14, 2026).
+- [x] Run the fourth round on ai-machine (November 14, 2026; results above: the "hangs" were unreported resets, the bound helps).
+- [x] Make the bound the default again, exit without the runtime's teardown once work is stuck, and hold the stuck-work test's queue
+  with a host task (November 14, 2026).
+- [x] Draft the report for Intel (November 14, 2026).
+- [x] Fix `FeedForwardGradientTest.ClipGradients`' tolerance (relative, not 1e-4 absolute): it failed once on the Arc. Moved to
+  [TD-576](../guides/TECHNICAL_DEBT.md#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) on November 18, 2026.
+- [x] Run `run_gpu_tests.sh --engine-tuning` on ai-machine (the 640 ms preempt timeout and the 1 ms time slice), and the Level Zero
+  soak at the bound with the fast exit (November 14, 2026; fifth round above: a longer preempt timeout only delays the reset, the
+  fast exit ends v1's hang at exit).
+- [x] Package the sixth round (November 15, 2026): the standalone reproducer (`sycl_engine_reset_repro`, SYCL and oneMKL only,
+  source shipped in the package), `gdb` stacks of a step's processes after an engine reset and after a wait gave up (`prepare_host.sh`
+  offers `gdb`), a `ur_debug` variant with the Level Zero adapter's debug log, `v1_teardown` (`ADAI_GPU_KEEP_TEARDOWN=1`, so the v1
+  exit hang can be stacked), and with `--engine-tuning` `long_timeslice` twice per round and `no_preempt` (preempt timeout 0) if the
+  driver accepts it.
+- [x] Run the sixth round on ai-machine and add its results to the report (November 15, 2026; results above: the standalone
+  reproducer fails 31 of 40, the time slice makes no difference, the driver refuses no preempt timeout).
+- [x] Package the next round (November 15, 2026; run as the eighth, since the seventh used the earlier package): `repro_sycl_blocking` (the reproducer's `--blocking-wait`: plain
+  `sycl::event::wait()` calls and a watchdog thread that ends the process after 60 s, so a stuck process's stack shows the runtime's
+  wait), `repro_sycl_trace` (`SYCL_UR_TRACE=2`, the last 64 MiB of a failed pass's call trace in `ur_trace/`), both in place of
+  `ur_debug`, and stacks capped at two per variant (30 per run) instead of five per run.
+- [x] Run the sixth round's variants on the newest compute runtime and GuC and add them to the report (November 15, 2026; seventh
+  round above: no change; the teardown and the event query named with debug symbols).
+- [x] Package the rest of what the report lacks for the eighth round (November 15, 2026): `repro_sycl_normal` and
+  `repro_mkl_normal` (the reproducer's `--normal-priority`), `run_gpu_tests.sh --kernel-debug` (`repro_sycl_drm_debug`:
+  `drm.debug` 0x2 for its passes, the kernel log of a failed one in `kernel_debug/`), `host_details.txt` (`lspci -vvv`,
+  `dmidecode`, the driver's debugfs `info`, the debug settings) and `kernel_boot_log.txt.gz` in every run, `xe_debug.sh`
+  (the GuC log level as a module option) and `mainline_kernel.sh` (Ubuntu's mainline build, booted once with the stock
+  kernel kept as GRUB's default).
+- [x] Run the eighth round's first part (stock kernel, GuC log level 3) and add it to the report (November 15, 2026; results above:
+  the level cut the polled resets, blocking waits still fail, the v1 exit hang stacked, host details collected).
+- [x] Fix the runner's `--kernel-debug` check (read `drm.debug` through sudo) and take a stack of a reproducer that stalls with no
+  reset (November 15, 2026).
+- [x] Sign the mainline kernel for Secure Boot (November 15, 2026): ai-machine has Secure Boot on, so `mainline_kernel.sh install`
+  refused. It now signs the kernel with a code-signing key of its own and enrolls the key as a MOK (`mokutil --import`, confirmed
+  at the console at the next boot); `remove` offers to take the key off again.
+- [x] Run the eighth round's second part (November 15–16, 2026): the stock kernel at GuC log level 1; results above and in the
+  report (observations 3, 9 and 10).
+- [x] `GPU_STRATEGY=normal` (November 15, 2026): a queue with no priority hint (`gpu::QueuePriority::NORMAL`, now passed through
+  `Matrix::gpu_try_initialize()`/`GPUManager::initialize()` instead of a `bool`), for `incremental_trainer`, `chatbot_api_server`,
+  `trainer_service`'s `--gpu-strategy` and, from the environment, `gpu_encode_soak` and `gpu_decode_bench`. The runner gains
+  `normal_priority`, `encode_soak_normal_priority` and `encode_soak_full_priority`, run when named in `BISECT_VARIANTS`.
+- [x] Run training passes at other priorities at level 1 (November 16, 2026; priority run above): `normal` and `full` 0 of 100
+  passes over training, the soak and the reproducer, against 34 of 60 at low priority.
+- [x] Make `normal` the default `GPU_STRATEGY` (November 17, 2026): `ServiceConfig::gpu_strategy`, an unknown value's fallback,
+  `GPUManager::initialize()`'s and `Matrix::gpu_initialize()`/`gpu_try_initialize()`'s default priority (CUDA, SYCL and the stub),
+  and the benchmarks' environment default. So the GPU unit tests and the benchmarks run without the low-priority hint too. The
+  runner's bisection keeps every variant without a priority in its name at `background`, comparable with the earlier rounds. The
+  shipped `config.trainer.conf`, `config.chatbot.conf` and `config.conf` still set `full` explicitly.
+- [x] Check what ai-machine's deployed configs set (`grep -H GPU_STRATEGY /etc/adai/config.*.conf`): an explicit `background` there
+  overrides the new default. Moved to [TD-575](../guides/TECHNICAL_DEBT.md#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) on November 18, 2026 (less urgent on 7.0, which resets neither).
+- [x] Rerun `gpu_decode_bench` (TD-050, TD-033), now at `normal` by default: the full test run, not `--bisect-only` (November 17,
+  2026: both shapes validated and timed, no engine reset before the bisection; TD-050 and TD-033 resolved).
+- [x] Run the eighth round's last part (README): a newer kernel at level 1, `--bisect-only --kernel-debug`; add its rate to
+  the report (November 18, 2026: Ubuntu's Canonical-signed 7.0.0-43 instead of the mainline build, which Secure Boot refused on the
+  headless ai-machine; 0 of 260 passes failed).
+- [x] Remove the unbootable mainline 7.3.5 packages from ai-machine (`./mainline_kernel.sh remove`): GRUB's first entry follows the
+  newest kernel, so if `saved_entry` were ever lost the machine would try to boot the one shim refuses. (November 18, 2026.)
+- [x] Run the full tests (not `--bisect-only`) on 7.0, including the training passes at `background` (November 18, 2026: no
+  failure, no engine reset; results above).
+- [x] Make 7.0 ai-machine's default kernel (November 18, 2026: `GRUB_DEFAULT=saved`, `update-grub`, `grub-set-default`; the
+  restored `/etc/default/grub` had kept 6.17 the default, so the first `grub-set-default` had no effect).
+- [x] Then close TD-574: keep `GPU_QUEUE_DEPTH`/`GPU_WAIT_TIMEOUT_SECONDS` (cheap protection), and decide whether `normal` stays the
+  default (it is also faster). (November 18, 2026: both kept, and `normal` stays the default.)
+- [x] Find why the deployed `incremental_trainer` aborted five times during the seventh round (`coredumpctl info 2455` on ai-machine).
+  Moved to [TD-575](../guides/TECHNICAL_DEBT.md#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) on November 18, 2026: the journal shows an uncaught exception from `BPETokenizer::load_vocab` at startup.
+- [x] A script to update ai-machine to the newest compute runtime and GuC (November 15, 2026): `update_gpu_stack.sh` in the GPU
+  test package (the PPA's runtime 26.40.40196.15 with IGC 2.42.14, upstream GuC 70.83.0, debug symbols with `--dbgsym`, rollback).
+- [x] File the report (November 18, 2026): the runtime's side (an unreported reset under a polled event, the teardown wait) as
+  [intel/compute-runtime#1057](https://github.com/intel/compute-runtime/issues/1057), from the kerfbit account. Not filed with the xe driver: 7.0 fixes the resets.
+
+Location in code: `src/gpu/GPUDebugSync.{hpp,cpp}` (the queue bound and wait timeout too), `src/Config.{hpp,cpp}` (`GPU_QUEUE_DEPTH`,
+`GPU_WAIT_TIMEOUT_SECONDS`), `src/gpu/sycl/MatrixGPU_SYCL.hpp` (`GPUMatrix::copy()`),
+`src/IncrementalTrainingTool.cpp` and `src/ChatbotAPIServer.cpp` (applying it, and the exit without teardown), `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`trace_kernel()` calls, host versions),
+`src/gpu/sycl/GPUUtils_SYCL.hpp` (`trace_kernel()`, `debug_sync_point()`, `wait_for()`), `src/ChatbotTrainer.cpp` (sync points),
+`benchmarks/GpuEncodeSoak.cpp`, `benchmarks/SyclEngineResetRepro.cpp` (the standalone reproducer), `scripts/sycl_gpu_tests/run_gpu_tests.sh`, `scripts/sycl_gpu_tests/coredumps.sh`, `scripts/sycl_gpu_tests/xe_debug.sh`,
+`scripts/sycl_gpu_tests/mainline_kernel.sh`;
+the draft upstream report, `docs/operations/guides/troubleshooting/ARC_B60_ENGINE_RESETS_INTEL_REPORT.md`.
+
+Related: TD-566, TD-569, TD-572, TD-468, TD-547, TD-344.
+
+---
+
+### TD-050: GPU-Resident KV-Cache for Autoregressive Generation
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 17, 2026 | GPU / Inference / Training | Validated and benchmarked on ai-machine's Arc at `GPU_STRATEGY=normal`, November 17, 2026 (MEDIUM, filed July 4, 2026) |
+
+Status when resolved: Resolved November 17, 2026 — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); matches the CPU on ai-machine's Arc (November 10 and 12, 2026); `gpu_decode_bench` lost the device to TD-574's engine resets in every run at `background`, then at `normal` (November 17) validated against the GPU full recompute at both shapes and measured it (2.5 ms per token against 33 ms at the small shape, 19.8 against 300 at the configured one, for 100 tokens)
+
+Description:
+The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU.
+
+**Update (September 14, 2026):** the CPU side is resolved. `generate_response_with_strategy()`'s
+greedy branch used to bypass `DecoderKVCache`/`forward_with_cache()` entirely via a dedicated
+non-cached `greedy_model_fn`, on the assumption (never actually verified) that the cache had a
+self-attention/cross-attention indexing bug producing incorrect results specifically for greedy
+decoding. The real diagnostic this item's own tracker text had been calling for since September
+8 — "an actual multi-step incremental-decode-vs-single-shot-full-recompute numerical comparison
+with identical weights" — was finally run: `tests/inference_optimization_test.cpp`'s new
+`IncrementalCacheMatchesFullRecomputePerStep` reproduces the real production call pattern (one new
+token per `forward_with_cache()` call, one `DecoderKVCache` instance threaded across every step, a
+real non-null `encoder_output` so cross-attention is exercised) and compares each step's hidden
+state against a from-scratch `forward_with_encoder()` recompute of the identical growing prefix.
+Across 40 decode steps (`d_model=128`, 4 layers, 8 heads): max abs diff stays flat at ~1e-6-2e-6
+for every single step, with no growth or accumulation trend as the sequence lengthens — the
+signature of ordinary float32 summation-order rounding noise, not an algorithmic bug (a real
+indexing/masking bug would show either an immediate large divergence or unbounded growth). **No
+CPU cache correctness bug exists.** The workaround's premise was wrong; it has been removed —
+`generate_response_with_strategy()`'s greedy branch now uses the same cached `model_fn` every
+other non-beam strategy already used, closing the O(n) vs O(n^2) gap the workaround left open for
+greedy specifically. The previous, much older (pre-existing, disabled) `DISABLED_
+CacheOutputConsistency` test this replaces had actually tested something different and much
+weaker — a single non-incremental `forward_with_cache()` call with `encoder_output=nullptr` (no
+cross-attention at all) against a 0.5-tolerance threshold loose enough to hide a real bug either
+way — and never actually confirmed or refuted anything about the real incremental, cross-attention
+call pattern production uses.
+
+**Update (September 14, 2026, same day):** the GPU-resident cache itself is designed and
+implemented, compile-verified under both the `gpu` (CUDA, `nvcc`) and `sycl` (Intel oneAPI,
+`icpx`) presets (this sandbox has both toolchains but no physical GPU device — see TD-059's own
+writeup for the identical residual-verification gap this inherits). Followed TD-059's own
+precedent throughout: every new method is built from already-existing, already-verified
+primitives (`GPUMatrix`'s own operators, `matrix_copy_device_to_device_gpu()`, the per-head
+`gpu_slice_head_columns()`/`gpu_scatter_head_columns()` helpers TD-059 itself introduced) — no new
+low-level CUDA/SYCL kernels were written, so correctness risk is bounded by what those primitives
+already proved, not by new, unverifiable kernel code.
+
+- `adai::gpu::GPUKVCache`/`GPUDecoderKVCache` (`src/gpu/MatrixGPU.hpp`, placed *outside* the
+  CUDA-vs-SYCL `#if`/`#else` split so one definition compiles under either backend unchanged):
+  unlike the CPU `KVCache` (which reallocates a bigger `Matrix` on every `append()`), this
+  pre-allocates a `[max_seq_length, d_model]` device buffer once and grows a length counter in
+  place — no per-decode-step device malloc/free churn, per this item's own original ask.
+- `MultiHeadAttention::gpu_forward_with_cache()` / `CrossAttention::gpu_forward_with_cache()`:
+  mirror the CPU `forward_with_cache()` algorithms exactly (new-token Q/K/V, append to cache,
+  attend against the full cached K/V) using `gpu_forward()`'s own already-verified per-head loop
+  unchanged. Cross-attention's cache is populated from the encoder output exactly once (first
+  call) and simply read back on every later call, matching the CPU cache's identical design.
+- `DecoderBlock::gpu_forward_with_cache()` / `LLMDecoder::gpu_decode_step()`: same Pre-LN residual
+  structure as the existing `gpu_forward()`/`gpu_decode()`, swapping in the cache-based attention
+  calls. `gpu_decode_step()`'s positional-encoding-with-offset math is copied verbatim from
+  `Decoder.cpp`'s own CPU `forward_with_cache()` for exact parity (`current_position =
+  kv_cache.current_length()`, absolute position = that plus each new token's index).
+- `EncoderDecoderModel::gpu_generate_response()`/`gpu_generate_response_with_strategy()`: now use
+  `gpu_decode_step()` + one `GPUDecoderKVCache` threaded across a whole generation, replacing the
+  previous full-recompute-every-step `gpu_decode()` call, for every strategy **except beam
+  search**. Found and closed a real correctness trap while wiring this in: `generate_beam_search()`
+  calls `model_fn` once per beam per step with each beam's own *diverging* token sequence — a
+  single shared KV cache has no way to correctly serve more than one hypothesis at once, so using
+  the cached `model_fn` there would silently corrupt every beam but whichever one happened to
+  match the cache's assumed prefix. The CPU `generate_response_with_strategy()` already avoids
+  this (its own "beam" branch never uses `DecoderKVCache`); the GPU path previously didn't need
+  to care (no cache existed at all, so beam search always used full recompute) but *would* have
+  silently broken the moment a shared cache was introduced without this guard. Both GPU methods
+  now check for `num_beams > 1` and route to a separate, deliberately non-cached
+  `beam_model_fn` (the original full-recompute `gpu_decode()` call) in that case.
+- A related, pre-existing gap was found and flagged as a separate follow-up task rather than fixed
+  in the moment (out of this item's own GPU-cache scope): the CPU `EncoderDecoderModel::
+  generate_response()` (the plain, non-strategy method) had no equivalent beam-vs-cache guard at
+  all — it always built one cached `model_fn` regardless, and `TextGenerator::generate()` would
+  silently route to beam search using it if `generator`'s persistent config happened to have
+  `num_beams > 1` left over from an earlier `generate_response_with_strategy(..., "beam", ...)`
+  call.
+
+  **Fixed September 14, 2026** (same day, later): confirmed genuinely reachable, not just
+  theoretical — `RAGInference::generateResponse()` calls `generate_response_with_strategy(...,
+  /*strategy=*/"", ..., config.gen_config.num_beams)` (see its own TD-101 comment), so any RAG
+  caller that ever sets `num_beams > 1` hits exactly this path. Reproduced directly: a
+  `generate_response_with_strategy(..., "beam", ..., num_beams=3)` call followed by a plain
+  `generate_response()` call on the same instance **segfaults** — worse than silently wrong output.
+  Root cause: at beam-search step 0 every beam shares the same starting token sequence and length;
+  the first beam's call advances the shared `DecoderKVCache`'s `processed_length` to that length,
+  so the *second* beam's call computes an empty "new tokens" slice, producing a 0-row `Matrix`
+  whose `rows - 1` the caller then indexes as `-1` — a genuine out-of-bounds access, not merely a
+  numerical divergence. Fixed the same way `gpu_generate_response()` already was: check
+  `generator->get_config().num_beams > 1` and route to a separate, non-cached `beam_model_fn`
+  (mirroring `generate_response_with_strategy()`'s own, vocab-masking included) via
+  `generate_beam_search()` directly instead of the generic `generate()`. Also found and fixed the
+  identical class of gap one level deeper: `generate_response_with_strategy()`'s own `else`
+  (unrecognized-strategy) fallback branch called the generic `generate()` with its *cached*
+  `model_fn` too, so a single call with an unrecognized/empty strategy string **and** `num_beams >
+  1` — exactly `RAGInference`'s own calling pattern — hit the same corruption in one call, with no
+  leftover state from a previous call required. Fixed by widening that branch's guard condition
+  from `normalized_strategy == "beam"` to `normalized_strategy == "beam" || num_beams > 1`.
+  Checked every other `TextGenerator::generate()`/`generate_text()` call site in the codebase
+  (`gpu_generate_response_with_strategy()`, `ChatbotAPI::generate_response()`/
+  `generate_batch_responses()`'s CPU fallbacks, `BatchedInferenceEngine::process_batch()`) for the
+  same class of risk: all dispatch explicitly per strategy without a generic-`generate()` fallback,
+  or use an inherently stateless (no persistent cache) `model_fn`, except
+  `BatchedInferenceEngine`, which is generic enough that a *future* caller could hit this if it
+  ever passes both a cached `model_fn` and `num_beams > 1` — not reachable today (no caller sets
+  `num_beams > 1` through it), so left as a documented contract on `InferenceRequest::model_fn`
+  rather than a code change. Added `EncoderDecoderModelTest.
+  GenerateResponseNotCorruptedByLeftoverBeamConfig` (`tests/encoderdecoder_test.cpp`): confirmed
+  against the pre-fix code that it reproduces the exact segfault (via a scoped `git stash` of just
+  the fix, rebuild, run, restore — not merely inferred), and against the post-fix code that
+  `generate_response()`'s output with leftover `num_beams > 1` now exactly matches an explicit
+  `generate_response_with_strategy(..., "beam", ...)` call (beam search has no sampling RNG, so
+  the two safe, non-cached paths are deterministic and must agree). Full `ctest` suite: 129/129
+  passing.
+
+**Update (November 13, 2026): validation and benchmark packaged.** The hardware block is gone:
+ai-machine's Arc Pro B60 has run the GPU test package since November 10, 2026, and its
+`EncoderDecoderGPUTest` cases already cover this cache on the device. `CachedGpuDecodeMatchesCpuOverALongGeneration`
+(TD-388: 20 greedy tokens, 2+2 layers, 4 heads) and `GpuAndCpuGenerationAgree` (TD-362) passed there
+on November 10 and November 12, 2026: the GPU KV-cached decode gives the same tokens as the CPU,
+whose cache was itself checked against full recompute (September 14 above). What the tests don't
+do is compare the GPU cache directly with the GPU full recompute it replaced, or time anything.
+`benchmarks/GpuDecodeBenchmark.cpp` (`gpu_decode_bench`, GPU builds only) does both, on a randomly
+initialized `EncoderDecoderModel` decoding greedily with no stop tokens:
+
+- **Validation:** the GPU cache (`gpu_decode_step()` with one `GPUDecoderKVCache`), the GPU full
+  recompute (`gpu_decode()` every step) and the CPU cache (`forward_with_cache()` under
+  `ScopedCpuOnly`) run in lockstep on the full recompute's tokens. At every step the cache's
+  last-row logits must be within 1e-3 × (1 + the largest |logit|) of the full recompute's and pick
+  the same token; a different pick is allowed only at a near tie (the top two logits closer than
+  twice the difference). Checked against two deliberately broken caches on the oneAPI CPU device:
+  one that re-feeds tokens overflows the cache and fails; one that forgets its history (logits
+  1.7 apart, 8 of 12 different picks inside the old near-tie rule) failed only once the logit
+  tolerance was added. The real cache passes at 7e-7.
+- **Benchmark:** each path then generates on its own, one warm-up and three timed runs for 50 and
+  100 tokens, encoding included: `gpu_cached`, `gpu_full`, `cpu_cached`, and `cpu_dispatch` (the CPU
+  cache with `Matrix::operator*` sending each large product to the GPU on its own, which is what
+  `chatbot_api_server` did on a GPU host before TD-033).
+
+The GPU test package runs it (`run_gpu_tests.sh`'s benchmark section, skipped by
+`--skip-benchmark`, one timed run under `--quick`) at a small shape (256/8/1024, 4+4 layers) and at
+`config.trainer.conf`'s architecture (768/12/3072, 8+24 layers, `max_seq` 512, vocabulary 16,000),
+retrying once in a fresh process after a lost device (TD-574's engine resets reach forward-only
+work too), and writes `decode_benchmark.txt`. On the oneAPI CPU device (no GPU, so its timings
+say nothing about the Arc) at 128/4/256, 2+4 layers: validation passed with a largest logit
+difference of 9.5e-7, and per token `gpu_cached` 31–34 ms against `gpu_full` 104–111 ms.
+
+Action Items:
+
+- [x] Root-cause the existing CPU `DecoderKVCache` correctness bug (self-attention and/or
+  cross-attention cache indexing) in `src/KVCache.hpp` / `src/Decoder.cpp` `forward_with_cache()`
+  before building the GPU equivalent on top of the same flawed model. **Resolved: no bug found**
+  — see the Update above. `src/KVCache.hpp`/`src/Decoder.cpp` needed no changes; the fix was
+  removing the now-unnecessary greedy-decoding workaround in `src/EncoderDecoderModel.cpp`.
+- [x] Design a GPU-resident cache type (e.g. `GPUKVCache`) holding persistent per-layer `GPUMatrix` key/value buffers, sized for `max_seq_length` and appended to in-place as new tokens are generated (no per-step malloc_device/free churn). Done — see the Update above.
+- [x] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps. Done — no new kernels needed, built from existing primitives (see Update above).
+- [x] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache). Done.
+- [x] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step. Done — for every strategy except beam search, which keeps the full-recompute path deliberately (see Update above).
+- [x] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding). On ai-machine's Arc the cached GPU decode already gives the CPU's tokens (November 10 and 12, 2026, see the November 13 update); `gpu_decode_bench`'s `VALIDATE` line compares it with the GPU full recompute directly. **Packaged November 13, 2026. Run November 14, 2026: every attempt (two shapes, each retried) lost the device to an engine reset about 4 s in, during validation, before any result. The second run, the same day with TD-574's queue bound of 8, lost the device in three attempts and hung in the fourth (`decode_small`'s retry, for its whole hour). This waits on TD-574. Run November 17, 2026, still at `background` (the November 15 package): `decode_small` validated in both attempts, 100 of 100 steps agreeing with the GPU full recompute (largest logit difference 8.3e-7) and with the CPU, before losing the device later in the benchmark; `decode_configured` lost it before validating, twice. So the small shape is done and the configured shape waits on the run at `normal`.** **Done November 17, 2026 (package `e7b5f0c1-dirty-20261117`, `GPU_STRATEGY=normal`): both shapes validated, 100 of 100 steps agreeing with the GPU full recompute (largest logit difference 8.3e-7 small, 1.7e-6 configured) and with the CPU.**
+- [x] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. `gpu_decode_bench`'s `RESULT` lines, for TD-033's before/after too. **Packaged November 13, 2026; the November 14 run reset before it got this far (see the item above). November 17 (at `background`): `decode_small`'s `gpu_cached` took 7.7 ms per token for 50 tokens and 7.1 for 100; the device was lost before `gpu_full` and the CPU paths were timed.** **Done November 17, 2026, at `normal`, per token for 50/100 tokens:**
+
+  | Shape | `gpu_cached` (TD-050) | `gpu_full` (before) | `cpu_cached` | `cpu_dispatch` (before TD-033) |
+  |---|---|---|---|---|
+  | small (256/8/1024, 4+4) | 2.61 / 2.46 ms | 21.35 / 33.23 ms | 1.92 / 2.27 ms | 10.95 / 11.59 ms |
+  | configured (768/12/3072, 8+24) | 20.23 / 19.80 ms | 190.55 / 300.29 ms | 61.22 / 67.46 ms | 289.48 / 300.81 ms |
+
+  The cache keeps the GPU's per-token cost flat (19.8–20.2 ms at the configured shape) where full recompute grows with the
+  sequence (191 to 300 ms), 15 times faster at 100 tokens. At the small shape the CPU cache is still slightly faster than the GPU
+  (the model is too small to pay for the launches); at the configured shape the GPU cache is 3.4 times faster than the CPU's.
+- [x] Fix the flagged CPU `generate_response()` beam-vs-cache gap (and the identical gap in
+  `generate_response_with_strategy()`'s unrecognized-strategy fallback). Done — see the
+  September 14, 2026 (same day, later) update above.
+
+Files to Modify:
+
+- `src/KVCache.hpp` / `src/Decoder.{hpp,cpp}` (CPU) — done, no fix needed (root-cause investigation found no bug)
+- `src/EncoderDecoderModel.{hpp,cpp}` — done: greedy-decoding cache-bypass workaround removed; `gpu_generate_response()`/`gpu_generate_response_with_strategy()` wired to the incremental GPU path with a beam-search guard; `generate_response()`'s own beam-vs-cache guard added, `generate_response_with_strategy()`'s unrecognized-strategy fallback guard widened (see the September 14, 2026, same day, later update above)
+- `tests/inference_optimization_test.cpp` — done: real incremental-vs-full-recompute regression test added (CPU)
+- `tests/encoderdecoder_test.cpp` — done: `GenerateResponseNotCorruptedByLeftoverBeamConfig` regression test, confirmed to reproduce the pre-fix segfault
+- `src/BatchedInferenceEngine.hpp` — done: documented the same beam-vs-cache contract on `InferenceRequest::model_fn` (not currently reachable, no code change needed)
+- `src/gpu/MatrixGPU.hpp` — done: new `GPUKVCache`/`GPUDecoderKVCache` types (backend-agnostic, one definition for both CUDA and SYCL)
+- `src/MultiHeadAttention.{hpp,cpp}` / `src/CrossAttention.{hpp,cpp}` — done: `gpu_forward_with_cache()` on both
+- `src/DecoderBlock.{hpp,cpp}` / `src/Decoder.{hpp,cpp}` (GPU) — done: `gpu_forward_with_cache()` / `gpu_decode_step()`
+- `tests/` — done since: `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration` (TD-388) and `GpuAndCpuGenerationAgree` (TD-362), run on the oneAPI CPU device and on ai-machine's Arc
+- `benchmarks/GpuDecodeBenchmark.cpp`, `src/CMakeLists.txt` (`gpu_decode_bench`), `scripts/package_sycl_gpu_tests.sh`, `scripts/sycl_gpu_tests/run_gpu_tests.sh` and its README — done November 13, 2026: the direct check against GPU full recompute and the benchmark
+
+Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 2026), which GPU-accelerated validation loss and BLEU/ROUGE scoring — see git history around that change for the full-recompute implementation this replaces.
+
+---
+
+### TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 17, 2026 | GPU / Inference / Performance | Before/after benchmarked on ai-machine's Arc at `GPU_STRATEGY=normal`, November 17, 2026 (MEDIUM, filed September 7, 2026) |
+
+Status when resolved: Resolved November 17, 2026 — wired in and verified September 13, 2026; before/after benchmark (`gpu_decode_bench`, TD-050) run on ai-machine's Arc at `GPU_STRATEGY=normal`: 19.8 ms per token against 300.8 before, at the configured shape and 100 tokens
+
+Description:
+Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
+
+**Training already has full persistent GPU residency.** `ChatbotTrainer::train_epoch()` calls `EncoderDecoderModel::gpu_forward()`/`gpu_backward()` (`src/ChatbotTrainer.cpp`) under `#ifdef ADAI_ENABLE_GPU`, which cascades through `EncoderBlock`/`DecoderBlock::gpu_forward()`/`gpu_backward()` (`src/EncoderBlock.cpp`, `src/DecoderBlock.cpp`) into `MultiHeadAttention`/`FeedForward`/`LayerNorm::gpu_forward()`/`gpu_backward()`, all chaining `GPUMatrix` end-to-end with cached device-resident buffers (`cached_Q`, `cached_K`, `cached_hidden`, etc.). This is exactly TD-003's intended design (resolved May 3, 2026), fully wired up, and identical on both backends — `GPUMatrix` exposes the same API in `src/gpu/MatrixGPU.hpp` (CUDA) and `src/gpu/sycl/MatrixGPU_SYCL.hpp` (SYCL).
+
+**The real, live gap is inference serving.** `ChatbotAPI::generate_response()` (`src/ChatbotAPI.cpp`) builds its `model_fn` around `EncoderDecoderModel::forward()` — the plain CPU `Matrix` path — never the GPU-resident one. `Matrix::operator*()` (`src/Matrix.cpp`) auto-dispatches per call to `Matrix::multiply_gpu()` whenever `GPUManager::is_available()` and both inner dimensions are ≥32; `multiply_gpu()` (and `add_gpu`/`transpose_gpu`/`scale_gpu`/`hadamard_gpu`) allocate device memory, upload, compute, and download on every single call, with zero reuse of `GPUMatrix`. So on a GPU build, every live chat request re-pays a full alloc+upload+compute+download for every matmul, in every layer, for every generated token — worse than the training case, since it's per-token request latency rather than amortized training throughput. Confirmed backend-symmetric: `GPUMemory` does a fresh `cudaMalloc` (`src/gpu/GPUUtils.hpp`) or `sycl::malloc_device` (`src/gpu/sycl/GPUUtils_SYCL.hpp`) per call either way — this is a `Matrix.cpp`/`ChatbotAPI.cpp` dispatch problem, not a CUDA-vs-SYCL difference.
+
+`EncoderDecoderModel::gpu_generate_response()` (`src/EncoderDecoderModel.cpp`) already exists as a persistent-residency decode path, but it's wired only into `ChatbotTrainer`'s internal generation-quality backfill / BLEU-ROUGE scoring (`src/ChatbotTrainer.cpp`), never into `ChatbotAPI` — so the one caller that would most benefit (real chat latency) has never been connected to it.
+
+Related: TD-050 (GPU-Resident KV-Cache) covers a different problem inside `gpu_generate_response()` itself — once called, it recomputes the full sequence from scratch every step (no KV-cache), which is O(n²) instead of O(n). TD-050 is about making `gpu_generate_response()` fast once used; this item is about it not being used by `chatbot_api_server` at all.
+
+Discovered during the per-file production-readiness rollout (September 7, 2026) — see [file-status-standard.md](file-status-standard.md); corrected same day after tracing both GPU backends end-to-end.
+
+**Wired in September 13, 2026.** `ChatbotAPI::generate_response()`'s plain path now checks
+`GPUManager::is_available()` and, when true, calls a new
+`EncoderDecoderModel::gpu_generate_response_with_strategy()` instead of building the CPU
+`model_fn`/`TextGenerator` path — added alongside the existing `gpu_generate_response()` (kept
+unchanged for its original BLEU/ROUGE-scoring caller in `ChatbotTrainer.cpp`) rather than
+extending it, since `ChatbotAPI` needs per-request `strategy`/`temperature`/`top_k`/`top_p`/
+`num_beams`, which the original method never took as parameters (it relied on whatever config
+`generator` already held).
+
+Confirmed by reading `TextGenerator.cpp` directly (not merely assumed) that a single model_fn
+returning only the last position's logits — the same shape `gpu_generate_response()`'s model_fn
+already used — is the correct, sufficient contract for *every* strategy: `generate_greedy()`,
+`generate_sampling()`, `generate_top_k()`, `generate_nucleus()`, and `generate_beam_search()`
+(called once per beam per step, with that beam's own token sequence) all extract only
+`logits.rows - 1`'s row from whatever model_fn returns. This means, unlike the CPU
+`generate_response_with_strategy()`, the GPU-resident version needs no separate KV-cache-vs-
+no-cache branch per strategy — `gpu_decode()` already recomputes the full sequence from scratch
+every call regardless (no GPU KV-cache exists yet — TD-050), so one model_fn serves every
+strategy uniformly, including beam search.
+
+**Found and fixed a real concurrency gap while doing this wiring — not merely a hypothetical
+one.** `model_mutex_` (added by TD-156 to serialize `forward()`/`backward()`/`generate_response()`/
+`generate_response_with_strategy()` against `chatbot_api_server`'s real concurrent request
+threads) was deliberately *not* held across `gpu_forward()`/`gpu_backward()`/
+`gpu_generate_response()`, justified at the time by "not reachable from chatbot_api_server's live
+serving path" — a justification this exact fix removes. Confirmed by reading
+`MultiHeadAttention::gpu_forward()` (and the analogous `EncoderBlock`/`LayerNorm`/`FeedForward`
+methods it calls into): `encoder->gpu_encode()`/`decoder->gpu_decode()`/`lm_head->gpu_forward()`
+all write through to those sub-objects' own persistent per-instance `GPUState` (`cached_Q`,
+`cached_K`, `cached_head_weights`, `cached_attn_out`) — exactly as shared and exactly as
+unsynchronized as the four CPU-side `cached_*` members TD-156 already found racing. Two
+concurrent chat requests hitting the newly-wired GPU-resident path would have reintroduced that
+same class of heap-corruption bug. Fixed by holding `model_mutex_` for the full duration of both
+`gpu_generate_response()` and the new `gpu_generate_response_with_strategy()` — the same fix
+shape TD-156 used, applied before this bug could ever manifest for real rather than after.
+
+Action Items:
+
+- [x] Give `ChatbotAPI::generate_response()`'s `model_fn` a GPU-resident branch that calls a
+  GPU-resident decode path when `GPUManager::is_available()`, instead of unconditionally calling
+  `model_->forward()`.
+- [x] Confirm `TextGenerator`'s beam/top-k/nucleus/temperature strategies all work against the
+  GPU-resident decode path — confirmed by reading `TextGenerator.cpp` directly; see above.
+- [x] Benchmark chat response latency before/after on a representative prompt/`max_length` on
+  both CUDA and SYCL builds to confirm the per-token round-trip elimination — **not performed**:
+  this dev environment has the CUDA (`nvcc`) and Intel oneAPI (`icpx`) toolchains but no physical
+  GPU device in either configuration (confirmed directly — see TD-041's writeup for the same
+  finding), so `GPUManager::is_available()` never becomes true here and the new branch, while
+  compiled and reachable, has never actually executed end-to-end on real hardware. Needs the
+  user's own GPU-equipped machine. **November 13, 2026:** ai-machine's Arc has run this branch's
+  tests since November 10, 2026 (`chatbotapiTests` in the GPU test package), and the GPU test
+  package's `gpu_decode_bench` (TD-050) now times the before and after on SYCL: `cpu_dispatch` is
+  this item's "before" (the CPU path with each large multiply sent to the GPU on its own) and
+  `gpu_cached` its "after". Needs a run on ai-machine; CUDA stays compile-checked only. **November 14, 2026:**
+  the run lost the device to engine resets in every attempt (TD-574), as did `chatbotapiTests`'s beam-search echo
+  test. The second and third November 14 runs, bounded and unbounded, lost the device or hung in every attempt too, so this waits on
+  TD-574. **November 17, 2026, at `GPU_STRATEGY=normal`:** done on SYCL. At the configured shape (768/12/3072, 8+24
+  layers), the "before" (`cpu_dispatch`) took 289.5 ms per token for 50 tokens and 300.8 for 100; the "after" (`gpu_cached`) 20.2
+  and 19.8, 15 times faster (the CPU alone, `cpu_cached`, 61–67 ms). At the small shape: 11.0–11.6 against 2.5–2.6 ms. CUDA stays
+  compile-checked only: this project has no CUDA host.
+- [x] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix`
+  data and no persistent-residency alternative — untouched; this item routed the identified hot
+  path around them rather than removing them.
+
+Files Modified:
+
+- `src/ChatbotAPI.cpp` — `generate_response()`'s plain path, GPU-resident branch
+- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp` — new
+  `gpu_generate_response_with_strategy()`; `model_mutex_` now held across both GPU generation
+  methods (concurrency fix, see above)
+- `tests/chatbotapi_test.cpp` — two new tests (functional correctness across every strategy;
+  concurrent-request safety mirroring TD-156's own regression test), both `GTEST_SKIP()`-guarded
+  on `GPUManager::is_available()`/`initialize()` for the reason given in the benchmark item above
+  — real, permanent coverage for whenever a GPU is available, not exercised by this session's own
+  verification run
+
+---
 
 ### TD-301: `CrossAttention` GPU Path Diverges from the CPU Path
 
@@ -23808,6 +24691,39 @@ notes run oldest first in their own block, and the September notes come last. Wh
 they say was true on their date; the entries above are the current record, and notes about items that are still open stay in the
 Overview.
 
+**November 18, 2026:** Ubuntu's 7.0 kernel ended the Arc engine resets; [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt) moved here, its open items split into
+[TD-575](../guides/TECHNICAL_DEBT.md#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) and [TD-576](../guides/TECHNICAL_DEBT.md#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance).
+
+**November 13, 2026:** Filed [TD-574](#td-574-arc-engine-resets-during-device-resident-training-find-the-gpu-work-they-interrupt)
+(MEDIUM) from the November 12 GPU run: Arc engine resets happen only when training runs our own device kernels (the LeJEPA pass, which
+sends the GPU one waited-for GEMM at a time, ran 220 passes without one). Added diagnostics to find the work they interrupt:
+`ADAI_GPU_SYNC`, `ADAI_GPU_HOST_KERNELS`, `ADAI_GPU_TRACE_FILE`, a forward-only `gpu_encode_soak`, crash-dump capture and an
+engine-reset bisection in the GPU test package. **November 14:** the second round found the resets stop when the GPU queue is waited
+on at least every 8 operations (0 losses in 567 s across both runs, against about one a minute otherwise), and that GPU inference
+resets far more often than training. **November 14:** that bound became the default, `GPU_QUEUE_DEPTH=8`; the third round, the same day,
+showed it cut the losses in the interleaved bisection but not in the soak, and hung some passes waiting on a GPU that had stopped
+without a reset. So the bound became opt-in (default 0), and every SYCL wait gives up after `GPU_WAIT_TIMEOUT_SECONDS` (60), so such
+a GPU fails the pass like a lost device instead of hanging it. **November 14, fourth round:** with every GPU crash dump now kept,
+those "stopped" GPUs turned out to be engine resets the oneAPI runtime never reported (about half of all resets, bounded or not), and
+the bound cut the failures again (4 in 80 training passes against 13 over two rounds, 1 in 20 forward-only against 12). So 8 is the
+default again; once a wait has timed out the binaries exit without the runtime's teardown, which hung on the Level Zero v1 adapter.
+The findings are written up as a [draft report for Intel](../../operations/guides/troubleshooting/ARC_B60_ENGINE_RESETS_INTEL_REPORT.md). **November 18:** on Ubuntu's 7.0.0-43 kernel nothing was
+reset in two full runs, against 65 of 160 passes on 6.17 the run before, so the 6.17 OEM kernel's xe driver caused them; 7.0 is
+ai-machine's default kernel, the runtime's side is filed as intel/compute-runtime#1057, and TD-574 moved here.
+
+**November 17, 2026:** The full GPU test run at `GPU_STRATEGY=normal` validated and benchmarked `gpu_decode_bench` at both
+shapes; [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) and
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) moved here.
+
+**November 13, 2026:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation) and
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode): added `gpu_decode_bench` to the GPU
+test package. It checks the GPU KV-cached decode step by step against the GPU full recompute it replaced, then times both, the CPU
+cache, and the CPU with each large multiply sent to the GPU (`chatbot_api_server` before TD-033), for 50 and 100 tokens at a small
+shape and at `config.trainer.conf`'s architecture. The cached GPU decode already matched the CPU on ai-machine's Arc on November 10
+and 12 (`EncoderDecoderGPUTest`). Its first run, November 14, lost the device to TD-574's engine resets in all four attempts, and so did the
+second, with TD-574's queue bound, where one retry hung instead, and the third (it now waits on TD-574). On November 17, at `GPU_STRATEGY=normal`, it ran
+through at both shapes, and TD-050 and TD-033 moved here.
+
 **November 14, 2026:** The GPU test package's run on ai-machine passed [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path)'s
 eight attention GPU-contract tests on the Arc; TD-301 moved here.
 
@@ -25395,14 +26311,14 @@ not document the current single-head behavior as-is), and the code side of that 
 paths, verified via an independent-reference test and finite-difference gradient checks, full
 ctest green. What's still outstanding is the actual retrain: this dev environment has no real
 trained checkpoint or dataset to retrain against, so that step needs the user's own training
-infrastructure. [TD-050](../guides/TECHNICAL_DEBT.md#td-050-gpu-resident-kv-cache-for-autoregressive-generation)'s incremental
+infrastructure. [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)'s incremental
 attention kernels are now unblocked to build against final math (the code fix is in);
-[TD-033](../guides/TECHNICAL_DEBT.md#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) was never
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) was never
 blocked on this in the first place (its routing work doesn't touch attention math).
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
-- [TD-033](../guides/TECHNICAL_DEBT.md#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) —
+- [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) —
   wired in and verified September 13, 2026 (code + concurrency fix + tests); only the before/after
   latency benchmark remains, blocked on real GPU hardware not available in this dev environment.
 - TD-053 resolved September 13, 2026 (`/save`/`/load`/auto-save-on-exit implemented for real,
@@ -25439,7 +26355,7 @@ every `opsdashboard` piece once a Wear-capable device is available)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) — closed
 November 10, 2026: Qt Test widget suites for both GUIs, after the earlier logic extraction.
 
-**Tier 5 — Resolved except hardware validation:** [TD-050](../guides/TECHNICAL_DEBT.md#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
+**Tier 5 — Resolved except hardware validation:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
 (4-6h remaining). The CPU-side root-cause step is done (a real incremental-vs-full-recompute
 comparison found no `DecoderKVCache` bug, and the greedy-decoding workaround built around that
 assumption was removed), and the GPU-resident cache itself is designed and implemented the same

@@ -3,10 +3,10 @@
 - **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 492 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`), plus the `CUDA_CHECK`/`CUBLAS_CHECK` macros
 - **Built into:** every GPU-enabled target via `adai_gpu`; the no-GPU stub is used by every other build
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-13`
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.14.0`, `@adai-reviewed: 2026-11-15`
 - **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (19 tests; 9 need a CUDA device and skip without one)
 - **SYCL counterpart:** `src/gpu/sycl/GPUUtils_SYCL.hpp` (documented separately)
-- **Last traced against the code:** 2026-11-13 (the TD-574 addendum)
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum); `initialize()`'s priority and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default)
 
 > Code-traced reference. No CUDA device is available in this environment, so nothing here was run on
 > real hardware. The CUDA test build (`build/cuda-gputest`) was run: its 9 host-side tests pass and
@@ -33,7 +33,7 @@ The rest of the codebase reaches it mostly through `Matrix`'s wrappers (`gpu_try
 **every** `Matrix::operator*` with inner dimensions of at least 32 goes to cuBLAS on this one stream,
 in every thread of the process, and the layers' `gpu_*` paths allocate through `GPUMemory`. The design
 goals in the header are about sharing a GPU politely with other tenants:
-- a low-priority stream that other work can preempt;
+- a stream at the priority `GPU_STRATEGY` picks (by default `normal`, CUDA's default stream priority; `background` the lowest, so other work can preempt it);
 - a memory budget as a fraction of the device;
 - a `cleanup()` that never calls `cudaDeviceReset()`, which would kill other processes' contexts.
 
@@ -50,7 +50,7 @@ training threads start (TD-383).
 |---|---|
 | `probe()` | `cudaGetDeviceCount() == cudaSuccess && n > 0`. Safe before `initialize()` |
 | `probe_diagnostic()` | `"CUDA found N device(s)"`. It ignores the error code, so a driver failure reports "0 device(s)" without saying why |
-| `initialize(device_id = 0, memory_fraction = 0.5, use_low_priority = true)` | Idempotent (returns true once initialized, **ignoring any new arguments**). Soft-fails (returns false) with no device. Throws `out_of_range` for a bad device, `invalid_argument` for a fraction outside (0, 1]. Then: `cudaSetDevice`, budget = **total** device memory × fraction (not free memory), a non-blocking stream at the lowest priority (or the highest when `use_low_priority` is false), and a cuBLAS handle bound to it. If a later step throws, the stream created earlier is leaked and `initialized_` stays false |
+| `initialize(device_id = 0, memory_fraction = 0.5, priority = QueuePriority::LOW)` | Idempotent (returns true once initialized, **ignoring any new arguments**). Soft-fails (returns false) with no device. Throws `out_of_range` for a bad device, `invalid_argument` for a fraction outside (0, 1]. Then: `cudaSetDevice`, budget = **total** device memory × fraction (not free memory), a non-blocking stream at the lowest priority for `LOW`, the highest for `HIGH`, or the default priority for `NORMAL` (`cudaStreamCreateWithFlags`; CUDA's default is also the lowest, so `NORMAL` and `LOW` schedule alike on CUDA), and a cuBLAS handle bound to it. If a later step throws, the stream created earlier is leaked and `initialized_` stays false |
 | `cleanup()` | Synchronizes and destroys the stream, destroys the cuBLAS handle, **sets `allocated_bytes_` to 0**, and clears `initialized_`. It doesn't free (or know about) live `GPUMemory` objects. Layers keep persistent `GPUState` mirrors, so after `cleanup()` and a re-`initialize()` the budget undercounts what's really allocated |
 | `is_available()`, `device_count()`, `current_device()` | Plain getters |
 | `set_device(d)` | Bounds-checks and calls `cudaSetDevice(d)`. Its doc says it "also resets the memory budget to the new device's capacity", but **it doesn't**. It also doesn't recreate the stream or cuBLAS handle, which stay bound to the old device, so any GPU work after switching would fail or run on the old device's stream. **No caller exists** |
@@ -77,8 +77,8 @@ training threads start (TD-383).
 | Caller | Uses |
 |---|---|
 | `Matrix::gpu_try_initialize()` | `probe()` then `initialize()`, catching exceptions and falling back to CPU with a warning. Called once at startup by `incremental_trainer` and `chatbot_api_server` |
-| `incremental_trainer` | Passes `GPU_DEVICE_ID`, `GPU_MEMORY_FRACTION` and `GPU_STRATEGY` (`background` → low-priority stream, `full` → high) |
-| `chatbot_api_server` | Passes only the device and fraction. **`GPU_STRATEGY` is ignored**, so the server always uses the low-priority stream, even though `config.chatbot.conf` ships `GPU_STRATEGY=full` |
+| `incremental_trainer`, `chatbot_api_server` | Pass `GPU_DEVICE_ID`, `GPU_MEMORY_FRACTION` and `GPU_STRATEGY` through `adai::gpu_queue_priority()` (`background` → `LOW`, `normal` → `NORMAL`, `full` → `HIGH`; [Config.md](Config.md)) |
+| `gpu_encode_soak`, `gpu_decode_bench` | The same, from the `GPU_STRATEGY` environment variable (default `normal`) |
 | `Matrix::operator*` | `multiply_gpu()` whenever `is_available()` and both inner dimensions are at least 32, **from any thread** |
 | Layers' `gpu_*` methods, `MatrixGPU` | `GPUMemory`, `get_stream()`, `get_cublas_handle()` |
 
@@ -164,3 +164,17 @@ low-priority queue under both strategies; the fixed server's queue is high prior
 The CUDA `GPUManager` has `debug_sync_point(phase)`, which `ChatbotTrainer` calls where each training phase starts: it records the
 phase and, with `ADAI_GPU_SYNC=step` or `kernel`, synchronizes the stream first ([GPUDebugSync.md](GPUDebugSync.md)). The CUDA
 kernels don't trace themselves and have no host versions; the investigation is on the SYCL backend.
+
+## Addendum (November 15, 2026): `GPU_STRATEGY=normal` (TD-574)
+
+`initialize()`'s third argument is now `QueuePriority` (`src/gpu/QueuePriority.hpp`: `LOW`, `NORMAL`, `HIGH`) instead of
+`bool use_low_priority`, so `GPU_STRATEGY` can ask for a stream with no priority of its own. On the Arc B60 the GuC resets
+low-priority compute contexts that a queue with no priority hint runs without a reset (TD-574's eighth round); on CUDA, `NORMAL`
+creates the stream with the default priority, which CUDA also makes the lowest. The no-GPU stub takes the same argument.
+
+## Addendum (November 17, 2026): `normal` is the default (TD-574)
+
+`initialize()`'s `priority` defaults to `QueuePriority::NORMAL` (was `LOW`), in the CUDA backend and the stub, and so does
+`ServiceConfig::gpu_strategy` (`GPUStrategy::NORMAL`). On the Arc B60, at no hint and at high priority none of 100 passes was
+reset, against 34 of 60 at low priority (TD-574's priority run). On CUDA this changes nothing in scheduling, since the default
+stream priority is also the lowest.

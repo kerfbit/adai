@@ -2,9 +2,12 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-383, TD-392 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-17
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <mutex>
@@ -12,10 +15,12 @@
 #include <string>
 #include <sycl/ext/oneapi/properties/properties.hpp>
 #include <sycl/sycl.hpp>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include "../DeviceSelection.hpp"
-#include "../GPUDebugSync.hpp"  // TD-574
+#include "../GPUDebugSync.hpp"   // TD-574
+#include "../QueuePriority.hpp"  // TD-574
 
 namespace adai {
 namespace gpu {
@@ -56,7 +61,11 @@ class GPUManager {
     inline static std::mutex memory_mutex_;
     /// Remembered from initialize() so set_device() can recreate the queue
     /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
-    inline static bool low_priority_ = true;
+    inline static QueuePriority priority_ = QueuePriority::NORMAL;
+    /// TD-574: set when a wait timed out (wait_for()). The queue still holds the work that never
+    /// finished, so every later wait fails at once, device_usable() is false and cleanup() leaves
+    /// the queue alone. A new queue (initialize(), set_device()) starts clear.
+    inline static std::atomic<bool> stuck_{false};
 
     static std::string backend_name(const sycl::device& dev) {
         switch (dev.get_backend()) {
@@ -98,21 +107,27 @@ class GPUManager {
 
     /**
      * @brief Build the ADAI queue with a scheduling-priority hint, mirroring
-     *        the CUDA backend's low/high-priority stream selection.
+     *        the CUDA backend's stream priority selection.
      *
-     * use_low_priority=true  → background mode (GPU_STRATEGY=background,
-     *                           default): yields to other GPU work.
-     * use_low_priority=false → full mode (GPU_STRATEGY=full): highest
-     *                           priority, never preempted.
+     * LOW    → background mode (GPU_STRATEGY=background): priority_low,
+     *          yields to other GPU work.
+     * NORMAL → GPU_STRATEGY=normal, the default: no priority hint (TD-574: the Arc B60's GuC
+     *          resets low-priority compute contexts this one runs without).
+     * HIGH   → full mode (GPU_STRATEGY=full): priority_high.
      *
      * priority_low/priority_high are hints (sycl_ext_oneapi_queue_priority);
      * backends that don't support them fall back to normal scheduling.
      */
-    static sycl::queue make_queue(const sycl::device& dev, bool use_low_priority) {
-        if (use_low_priority) {
-            return sycl::queue(dev, sycl::property_list{
-                                        sycl::property::queue::in_order{},
-                                        sycl::ext::oneapi::property::queue::priority_low{}});
+    static sycl::queue make_queue(const sycl::device& dev, QueuePriority priority) {
+        switch (priority) {
+            case QueuePriority::LOW:
+                return sycl::queue(
+                    dev, sycl::property_list{sycl::property::queue::in_order{},
+                                             sycl::ext::oneapi::property::queue::priority_low{}});
+            case QueuePriority::NORMAL:
+                return sycl::queue(dev, sycl::property_list{sycl::property::queue::in_order{}});
+            case QueuePriority::HIGH:
+                break;
         }
         return sycl::queue(dev, sycl::property_list{
                                     sycl::property::queue::in_order{},
@@ -141,7 +156,12 @@ class GPUManager {
         if (cached_bytes_ == 0) {
             return;
         }
-        queue_->wait();
+        if (stuck_) {  // TD-574: blocks the stuck work may use can't be freed; drop the cache
+            free_blocks_.clear();
+            cached_bytes_ = 0;
+            return;
+        }
+        wait_for_queue(false);
         for (auto& [size, blocks] : free_blocks_) {
             (void)size;
             for (void* block : blocks) {
@@ -183,7 +203,7 @@ class GPUManager {
     }
 
     static bool initialize(int device_id = 0, float memory_fraction = 0.5f,
-                           bool use_low_priority = true) {
+                           QueuePriority priority = QueuePriority::NORMAL) {
         if (initialized_)
             return true;
 
@@ -200,10 +220,11 @@ class GPUManager {
         }
 
         current_device_ = device_id;
-        low_priority_ = use_low_priority;
+        priority_ = priority;
         auto& selected = gpus[device_id];
 
-        queue_ = new sycl::queue(make_queue(selected, use_low_priority));
+        queue_ = new sycl::queue(make_queue(selected, priority));
+        stuck_ = false;
 
         size_t total_bytes = selected.get_info<sycl::info::device::global_mem_size>();
         {
@@ -230,8 +251,11 @@ class GPUManager {
             ++pool_generation_;
         }
         if (queue_) {
-            queue_->wait();
-            delete queue_;
+            // TD-574: a stuck queue would never finish; leave it (and its memory) to process exit.
+            if (!stuck_) {
+                queue_->wait();
+                delete queue_;
+            }
             queue_ = nullptr;
         }
         initialized_ = false;
@@ -272,7 +296,8 @@ class GPUManager {
         // Recreate with the same priority the queue was originally initialized
         // with (GPU_STRATEGY), matching CUDA's set_device() staying on the
         // stream priority chosen at GPUManager::initialize() time.
-        queue_ = new sycl::queue(make_queue(gpus[device], low_priority_));
+        queue_ = new sycl::queue(make_queue(gpus[device], priority_));
+        stuck_ = false;
         current_device_ = device;
     }
 
@@ -289,7 +314,7 @@ class GPUManager {
     /// (describe_last_gpu_work()).
     static void trace_kernel(const char* kernel) {
         if (queue_ && wait_before_gpu_operation()) {
-            queue_->wait_and_throw();
+            wait_for_queue();
         }
         note_gpu_kernel(kernel);
     }
@@ -298,7 +323,7 @@ class GPUManager {
     /// it first waits for the previous phase's work, so an error is attributed to that phase.
     static void debug_sync_point(const char* phase) {
         if (gpu_debug_settings().sync != DebugSyncMode::Off && queue_) {
-            queue_->wait_and_throw();
+            wait_for_queue();
         }
         note_gpu_phase(phase);
     }
@@ -455,16 +480,79 @@ class GPUManager {
 
     static void synchronize() {
         if (queue_) {
-            queue_->wait();
+            wait_for_queue(false);
         }
+    }
+
+    /// TD-574: waits for @p event like event.wait() (or wait_and_throw() when @p throw_async), but
+    /// gives up after gpu_wait_timeout() seconds (0 = no limit): the queue is then marked stuck
+    /// and this throws std::runtime_error, which callers handle as a lost device (TD-566). On the
+    /// Arc, work that stops without an engine reset otherwise blocks the wait forever.
+    static void wait_for(sycl::event event, bool throw_async = true) {
+        if (stuck_) {
+            throw std::runtime_error(stuck_message());
+        }
+        const unsigned timeout = gpu_wait_timeout();
+        if (timeout != 0) {
+            using clock = std::chrono::steady_clock;
+            const auto start = clock::now();
+            const auto deadline = start + std::chrono::seconds(timeout);
+            auto pause = std::chrono::microseconds(10);
+            while (event.get_info<sycl::info::event::command_execution_status>() !=
+                   sycl::info::event_command_status::complete) {
+                const auto now = clock::now();
+                if (now >= deadline) {
+                    stuck_ = true;
+                    note_gpu_work_stuck();
+                    throw std::runtime_error(stuck_message());
+                }
+                // Spin briefly (most waits are short), then back off to at most 1 ms per poll.
+                if (now - start < std::chrono::microseconds(200)) {
+                    std::this_thread::yield();
+                } else {
+                    std::this_thread::sleep_for(pause);
+                    pause = std::min(pause * 2, std::chrono::microseconds(1000));
+                }
+            }
+        }
+        if (throw_async) {
+            event.wait_and_throw();
+        } else {
+            event.wait();
+        }
+    }
+
+    /// TD-574: waits for everything queued so far, with wait_for()'s timeout.
+    static void wait_for_queue(bool throw_async = true) {
+        if (stuck_) {
+            throw std::runtime_error(stuck_message());
+        }
+        wait_for(queue_->ext_oneapi_submit_barrier(), throw_async);
+    }
+
+    /// TD-574: whether a wait timed out on the current queue.
+    static bool queue_stuck() {
+        return stuck_;
+    }
+
+    /// Clears the stuck mark (tests only, after the stuck work was let finish).
+    static void clear_stuck_for_testing() {
+        stuck_ = false;
+        clear_gpu_work_stuck_for_testing();
+    }
+
+    static std::string stuck_message() {
+        return "GPU work did not finish within " + std::to_string(gpu_wait_timeout()) +
+               " s (GPU_WAIT_TIMEOUT_SECONDS, TD-574): the device is treated as lost";
     }
 
     /// TD-566: whether the device still runs work: one small allocation, a fill, a copy back and a
     /// wait. After a device loss (a driver engine reset) every call fails, so the trainer uses this
     /// after a failed sample to tell a lost device from a bad sample. It allocates outside the pool
-    /// and waits for the queue, so call it only after an error.
+    /// and waits for the queue, so call it only after an error. TD-574: false at once when a wait
+    /// timed out, and its own waits time out the same way.
     static bool device_usable() noexcept {
-        if (!is_available() || !queue_) {
+        if (!is_available() || !queue_ || stuck_) {
             return false;
         }
         int* probe = nullptr;
@@ -473,14 +561,14 @@ class GPUManager {
             probe = sycl::malloc_device<int>(1, *queue_);
             if (probe) {
                 int host = 1;
-                queue_->memset(probe, 0, sizeof(int)).wait_and_throw();
-                queue_->memcpy(&host, probe, sizeof(int)).wait_and_throw();
+                wait_for(queue_->memset(probe, 0, sizeof(int)));
+                wait_for(queue_->memcpy(&host, probe, sizeof(int)));
                 ok = host == 0;
             }
         } catch (...) {
             ok = false;
         }
-        if (probe) {
+        if (probe && !stuck_) {
             try {
                 sycl::free(probe, *queue_);
             } catch (...) {
@@ -558,7 +646,8 @@ class GPUMemory {
             throw std::out_of_range("Copy count exceeds allocated size");
         }
         GPUManager::trace_kernel("upload");  // TD-574
-        GPUManager::get_queue().memcpy(device_ptr_, host_ptr, count * sizeof(T)).wait();
+        GPUManager::wait_for(
+            GPUManager::get_queue().memcpy(device_ptr_, host_ptr, count * sizeof(T)), false);
     }
 
     void copy_to_host(T* host_ptr, size_t count) const {
@@ -566,7 +655,8 @@ class GPUMemory {
             throw std::out_of_range("Copy count exceeds allocated size");
         }
         GPUManager::trace_kernel("download");  // TD-574
-        GPUManager::get_queue().memcpy(host_ptr, device_ptr_, count * sizeof(T)).wait();
+        GPUManager::wait_for(
+            GPUManager::get_queue().memcpy(host_ptr, device_ptr_, count * sizeof(T)), false);
     }
 };
 

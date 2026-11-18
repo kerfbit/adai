@@ -1,12 +1,12 @@
 # `gpu/sycl/MatrixGPU_SYCL.cpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,302 lines, SYCL/oneMKL)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,303 lines, SYCL/oneMKL)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-394, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-13` (TD-574 diagnostics)
-- **Last traced against the code:** 2026-11-13 (the TD-574 addendum; §2–§5 describe the October 17–19 state, since amended by the addenda below)
+- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-394, TD-395), `@adai-version: 0.18.0`, `@adai-reviewed: 2026-11-14` (TD-574 wait timeout)
+- **Last traced against the code:** 2026-11-14 (the TD-574 addenda; §2–§5 describe the October 17–19 state, since amended by the addenda below)
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
 > `.cpp`, linked against a copy of `GPUUtils_SYCL.hpp` patched to also accept the oneAPI **CPU**
@@ -194,3 +194,10 @@ and out-of-range targets), run on the oneAPI CPU device; the CUDA version is com
 - `optimizer_update_gpu()`'s kernel now calls `optimizer_update_element()` ([GPUOptimizerKernels.hpp](../../../../src/gpu/GPUOptimizerKernels.hpp)),
   the per-parameter update its host version shares, instead of its own copy of the four rules. The formulas and their order are
   unchanged; a null `m`/`v` is read as 0 and not written.
+
+## Addendum (November 14, 2026): the wait timeout (TD-574)
+
+`matrix_download_gpu()` and the diagnostics' host copies (`host_copy_of()`, `device_copy_of()`) wait through
+`GPUManager::wait_for()`, which gives up after `GPU_WAIT_TIMEOUT_SECONDS` (60 s by default) on a GPU that stopped running work
+and throws, so the trainer fails the pass as on a lost device instead of hanging ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)). Kernels
+still don't wait.

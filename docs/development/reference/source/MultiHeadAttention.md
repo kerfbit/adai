@@ -122,7 +122,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Member-cached state (not concurrency-safe per instance); uniform fully masked rows (§4) | Callers serialize with `model_mutex_`; no caller produces a fully masked row | By inspection | Not tracked |
 | GPU path ran without LoRA silently, checked no shapes, dereferenced null in `gpu_backward()` without a forward, kept stale weights after host changes (§4) | **Fixed in code** November 13, 2026 | **Verified** on the oneAPI CPU device and on ai-machine's Arc (November 14, 2026) | [TD-301](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) |
 | An optimizer step taken outside `update_weights()` doesn't reach the mirror (§4) | Callers call `gpu_sync_weights()`; GPU training steps on the device | By inspection | Documented contract (TD-301) |
-| LoRA persistence/grad norm; accessor cost elsewhere; GPU incremental cache | Open | — | TD-302, TD-435, TD-050 |
+| LoRA persistence/grad norm; accessor cost elsewhere | Open | — | TD-302, TD-435 |
+| GPU incremental cache | Resolved November 17, 2026 | **Verified** on ai-machine's Arc (`gpu_decode_bench` at both shapes) | [TD-050](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-050-gpu-resident-kv-cache-for-autoregressive-generation) |
 | Shared-optimizer stepping; unseeded init; GPU softmax race; KV-cache copying | Fixed in code | — | TD-297, TD-368, TD-384, TD-422 |
 
 ---

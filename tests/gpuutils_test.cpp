@@ -278,6 +278,45 @@ TEST_F(GPUManagerTest, ConcurrentReserveReleaseKeepsCounterExact) {
 }
 
 #if defined(ADAI_GPU_BACKEND_SYCL)
+// TD-574: GPU_STRATEGY's three priorities, as the queue's properties: priority_low (background),
+// none (normal) and priority_high (full); set_device() keeps the one initialize() chose.
+TEST_F(GPUManagerTest, QueueCarriesTheStrategysPriority) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    using adai::gpu::QueuePriority;
+    namespace prop = sycl::ext::oneapi::property::queue;
+    struct Case {
+        QueuePriority priority;
+        bool low, high;
+    };
+    for (const Case c :
+         {Case{QueuePriority::LOW, true, false}, Case{QueuePriority::NORMAL, false, false},
+          Case{QueuePriority::HIGH, false, true}}) {
+        SCOPED_TRACE(static_cast<int>(c.priority));
+        ASSERT_TRUE(GPUManager::initialize(0, 0.5f, c.priority));
+        EXPECT_EQ(GPUManager::get_queue().has_property<prop::priority_low>(), c.low);
+        EXPECT_EQ(GPUManager::get_queue().has_property<prop::priority_high>(), c.high);
+        EXPECT_TRUE(GPUManager::get_queue().is_in_order());
+        GPUManager::set_device(0);
+        EXPECT_EQ(GPUManager::get_queue().has_property<prop::priority_low>(), c.low);
+        EXPECT_EQ(GPUManager::get_queue().has_property<prop::priority_high>(), c.high);
+        GPUManager::cleanup();
+    }
+}
+
+// TD-574: with no priority given, the queue has no hint (GPU_STRATEGY=normal, the default).
+TEST_F(GPUManagerTest, DefaultPriorityIsNormal) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const sycl::queue& q = GPUManager::get_queue();
+    EXPECT_FALSE(q.has_property<sycl::ext::oneapi::property::queue::priority_low>());
+    EXPECT_FALSE(q.has_property<sycl::ext::oneapi::property::queue::priority_high>());
+    EXPECT_TRUE(q.is_in_order());
+}
+
 // TD-390: GPUMemory takes its blocks from and returns them to GPUManager's pool instead of
 // freeing through a host_task per release. These run on the oneAPI CPU device with
 // ADAI_SYCL_ALLOW_CPU_DEVICE=1 (TD-394).

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-386, TD-394, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-11-14
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -1009,7 +1009,8 @@ void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
     GPUManager::trace_kernel("matrix_download_gpu");  // TD-574
     auto& q = GPUManager::get_queue();
-    q.memcpy(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float)).wait();
+    GPUManager::wait_for(q.memcpy(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float)),
+                         false);
 }
 
 // ============================================================================
@@ -1029,7 +1030,8 @@ template <typename T>
 std::vector<T> host_copy_of(const T* device, size_t count) {
     std::vector<T> host(count);
     if (count > 0) {
-        GPUManager::get_queue().memcpy(host.data(), device, count * sizeof(T)).wait_and_throw();
+        GPUManager::wait_for(
+            GPUManager::get_queue().memcpy(host.data(), device, count * sizeof(T)));
     }
     return host;
 }
@@ -1037,9 +1039,8 @@ std::vector<T> host_copy_of(const T* device, size_t count) {
 template <typename T>
 void device_copy_of(T* device, const std::vector<T>& host) {
     if (!host.empty()) {
-        GPUManager::get_queue()
-            .memcpy(device, host.data(), host.size() * sizeof(T))
-            .wait_and_throw();
+        GPUManager::wait_for(
+            GPUManager::get_queue().memcpy(device, host.data(), host.size() * sizeof(T)));
     }
 }
 

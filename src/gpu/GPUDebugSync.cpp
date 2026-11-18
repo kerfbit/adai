@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-11-14
 
 // TD-574: see GPUDebugSync.hpp.
@@ -33,6 +33,7 @@ std::string lower_trimmed(const std::string& s) {
 }
 
 unsigned initial_queue_depth();
+unsigned initial_wait_timeout();
 
 struct State {
     std::mutex mutex;  // guards settings replacement and the trace file
@@ -42,7 +43,9 @@ struct State {
     std::atomic<const char*> phase{"none"};
     std::atomic<unsigned long long> seq{0};
     std::atomic<unsigned long long> host_runs{0};
-    std::atomic<unsigned> queue_depth{initial_queue_depth()};  // TD-574
+    std::atomic<unsigned> queue_depth{initial_queue_depth()};    // TD-574
+    std::atomic<unsigned> wait_timeout{initial_wait_timeout()};  // TD-574
+    std::atomic<bool> work_stuck{false};                         // TD-574
 };
 
 State& state() {
@@ -52,6 +55,24 @@ State& state() {
 
 unsigned initial_queue_depth() {
     return parse_gpu_queue_depth(std::getenv("GPU_QUEUE_DEPTH"));
+}
+
+unsigned initial_wait_timeout() {
+    return parse_gpu_wait_timeout(std::getenv("GPU_WAIT_TIMEOUT_SECONDS"));
+}
+
+// A whole number from 0 to @p max, else @p fallback.
+unsigned parse_bounded(const char* value, unsigned long max, unsigned fallback) {
+    if (!value) {
+        return fallback;
+    }
+    const std::string v = lower_trimmed(value);
+    char* end = nullptr;
+    const unsigned long n = std::strtoul(v.c_str(), &end, 10);
+    if (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0])) || *end != '\0' || n > max) {
+        return fallback;
+    }
+    return static_cast<unsigned>(n);
 }
 
 // Rewrites the trace file's single record in place; a fixed width keeps an older, longer record
@@ -166,17 +187,41 @@ void set_gpu_debug_settings_for_testing(const GPUDebugSettings& settings) {
 }
 
 unsigned parse_gpu_queue_depth(const char* value) {
-    if (!value) {
-        return kDefaultGpuQueueDepth;
-    }
-    const std::string v = lower_trimmed(value);
-    char* end = nullptr;
-    const unsigned long depth = std::strtoul(v.c_str(), &end, 10);
-    if (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0])) || *end != '\0' ||
-        depth > 1000000) {
-        return kDefaultGpuQueueDepth;
-    }
-    return static_cast<unsigned>(depth);
+    return parse_bounded(value, 1000000, kDefaultGpuQueueDepth);
+}
+
+unsigned parse_gpu_wait_timeout(const char* value) {
+    return parse_bounded(value, 86400, kDefaultGpuWaitTimeoutSeconds);
+}
+
+void set_gpu_wait_timeout(unsigned seconds) {
+    state().wait_timeout.store(seconds, std::memory_order_relaxed);
+}
+
+unsigned gpu_wait_timeout() {
+    return state().wait_timeout.load(std::memory_order_relaxed);
+}
+
+void note_gpu_work_stuck() {
+    state().work_stuck.store(true, std::memory_order_relaxed);
+}
+
+bool gpu_work_stuck() {
+    return state().work_stuck.load(std::memory_order_relaxed);
+}
+
+void clear_gpu_work_stuck_for_testing() {
+    state().work_stuck.store(false, std::memory_order_relaxed);
+}
+
+void exit_without_gpu_teardown(int code) {
+    std::fflush(nullptr);
+    std::_Exit(code);
+}
+
+bool keep_gpu_teardown_requested() {
+    const char* value = std::getenv("ADAI_GPU_KEEP_TEARDOWN");
+    return value != nullptr && std::string(value) == "1";
 }
 
 void set_gpu_queue_depth(unsigned depth) {
@@ -194,7 +239,7 @@ bool wait_before_gpu_operation() {
     if (g.sync == DebugSyncMode::Kernel) {
         return g.sync_every <= 1 || seq % g.sync_every == 0;
     }
-    const unsigned depth = gpu_queue_depth();  // TD-574: the production bound
+    const unsigned depth = gpu_queue_depth();  // TD-574: the GPU_QUEUE_DEPTH bound
     return depth != 0 && seq % depth == 0;
 }
 

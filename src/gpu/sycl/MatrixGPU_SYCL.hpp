@@ -2,8 +2,8 @@
 #define MATRIX_GPU_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-14
 
 #include "../GPUOptimizerKernels.hpp"
 #include "GPUUtils_SYCL.hpp"
@@ -132,8 +132,9 @@ class GPUMatrix {
         GPUMatrix result(rows, cols);
         GPUManager::trace_kernel("gpu_matrix_copy");  // TD-574
         auto& q = GPUManager::get_queue();
-        q.memcpy(result.data_.get(), data_.get(), static_cast<size_t>(rows * cols) * sizeof(float))
-            .wait();
+        GPUManager::wait_for(q.memcpy(result.data_.get(), data_.get(),
+                                      static_cast<size_t>(rows * cols) * sizeof(float)),
+                             false);
         return result;
     }
 

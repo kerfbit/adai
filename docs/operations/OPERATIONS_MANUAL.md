@@ -317,7 +317,7 @@ Use `dataset_manager` to queue data files (see [Section 5.2](#52-dataset-managem
 `incremental_trainer` exposes the following subcommands:
 
 ```bash
-./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|full] <command>
+./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|normal|full] <command>
 ```
 
 | Command | What it does |
@@ -565,8 +565,9 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | `SEED` | `0` | Replays initialization, shuffles and dropout; 0 = a random seed, logged at startup (TD-368) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
-| `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
-| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
+| `GPU_STRATEGY` | `background` | `background` (low-priority), `normal` (no priority hint; TD-574) or `full` (max throughput) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. 8 cuts the Intel Arc engine resets without stopping them (TD-574); SYCL builds only |
+| `GPU_WAIT_TIMEOUT_SECONDS` | `60` | How long a wait for GPU work may take before the device counts as lost (the pass fails; `chatbot_api_server` fails GPU requests until restarted); 0 = no limit. The Arc's runtime sometimes never reports an engine reset, which would hang the wait (TD-574); SYCL builds only |
 
 #### Recommended Settings by Dataset Size
 
@@ -838,8 +839,9 @@ All settings can be provided via:
 | `SEED` | `0` | Replays initialization, shuffles and dropout; 0 = a random seed, logged at startup (TD-368) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
-| `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
-| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
+| `GPU_STRATEGY` | `background` | `background` (low-priority), `normal` (no priority hint; TD-574) or `full` (max throughput) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. 8 cuts the Intel Arc engine resets without stopping them (TD-574); SYCL builds only |
+| `GPU_WAIT_TIMEOUT_SECONDS` | `60` | How long a wait for GPU work may take before the device counts as lost (the pass fails; `chatbot_api_server` fails GPU requests until restarted); 0 = no limit. The Arc's runtime sometimes never reports an engine reset, which would hang the wait (TD-574); SYCL builds only |
 | `ENABLE_GENERATION_QUALITY_METRICS` | `false` | Compute BLEU/ROUGE during validation |
 | `GENERATION_QUALITY_SAMPLE_SIZE` | `10` | Validation pairs sampled for scoring per epoch |
 | `GENERATION_QUALITY_MAX_TOKENS` | `50` | Max tokens per scoring call |
@@ -863,8 +865,9 @@ All settings can be provided via:
 | `GPU_ENABLED` | `false` | Enable GPU acceleration (requires `-DENABLE_GPU=ON` build) |
 | `GPU_DEVICE_ID` | `0` | Device index. On SYCL, each card counts once and Level Zero is numbered first (TD-391); the startup log shows the `Backend:` in use |
 | `GPU_MEMORY_FRACTION` | `0.5` | Fraction of GPU memory ADAI may allocate (0.0–1.0) |
-| `GPU_STRATEGY` | `background` | `background` (yields to other GPU work) or `full` (high-priority stream) |
-| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. Stops the Intel Arc engine resets (TD-574); SYCL builds only |
+| `GPU_STRATEGY` | `background` | `background` (yields to other GPU work), `normal` (no priority hint; on an Intel Arc B60 the GuC resets low-priority compute contexts, TD-574) or `full` (high-priority stream) |
+| `GPU_QUEUE_DEPTH` | `8` | Wait for the GPU queue before every Nth operation; 0 = unbounded. 8 cuts the Intel Arc engine resets without stopping them (TD-574); SYCL builds only |
+| `GPU_WAIT_TIMEOUT_SECONDS` | `60` | How long a wait for GPU work may take before the device counts as lost (the pass fails; `chatbot_api_server` fails GPU requests until restarted); 0 = no limit. The Arc's runtime sometimes never reports an engine reset, which would hang the wait (TD-574); SYCL builds only |
 
 ### Training Metrics
 
@@ -1005,8 +1008,9 @@ METRICS_STALENESS_THRESHOLD_SECONDS=60
 GPU_ENABLED=false
 GPU_DEVICE_ID=0
 GPU_MEMORY_FRACTION=0.5
-# GPU_STRATEGY=background   # background (default) or full
-# GPU_QUEUE_DEPTH=8         # wait for the GPU queue every 8 operations (0 = unbounded, TD-574)
+# GPU_STRATEGY=normal       # normal (default), background or full
+# GPU_QUEUE_DEPTH=8         # wait for the GPU queue every N operations (8, the default; 0 = unbounded, TD-574)
+# GPU_WAIT_TIMEOUT_SECONDS=60  # a wait for GPU work longer than this counts as a lost device (0 = no limit, TD-574)
 
 # ============================================================================
 # Logging
