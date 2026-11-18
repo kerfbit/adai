@@ -1,10 +1,87 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (477 on November 18, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (479 on November 18, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-578: `mainline_kernel.sh` Rebuilds Change the Package's Root mtime, Failing Its Test Under Load
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | Scripts / `sycl_gpu_tests/mainline_kernel.sh` | Code fix (LOW, filed November 18, 2026) |
+
+Description:
+`ScriptsTests_package_sycl_gpu_tests_test` failed once in a full parallel `ctest -j$(nproc)` run (November 18, 2026, checking TD-577) and
+passed alone. Running 8 copies at once, 3 rounds, reproduced it in 2 of 24 runs, always in one case: "mainline_kernel.sh rebuilds a package
+whose scripts pass run-parts /usr/share/kernel/X.d …, contents unchanged". Every other assertion in the case passed; `cmp` of the original and
+rebuilt packages' data tarballs reported `differ: byte 147, line 1`, so "same contents" was missing.
+
+Byte 147 is in the first tar header's mtime field, the `./` entry. `fit_debs()` rebuilds with `dpkg-deb -R`, which unpacks the control files
+into `DEBIAN/` inside the extracted root. That write stamps the root directory with the current time, and `dpkg-deb -b` then archives `./`
+with it. The test builds the original package moments before, so the two match only when both fall in the same second; under load they often
+don't. Verified with `dpkg-deb` 1.22.6: built, waited 2 s, `-R` and `-b` again: only `./` changed (14:21:34 to 14:21:36); `./boot/` and the
+files kept theirs.
+
+The script's effect is cosmetic: a rebuilt mainline kernel package's `./` (installed as `/`) carries the rebuild time, and dpkg doesn't apply a
+directory's mtime from the archive to an existing `/`. But the rebuild is meant to change only the maintainer scripts, and the test asserting
+that is flaky in parallel `ctest` runs.
+
+Action items:
+- [x] In `fit_debs()`, extract with `dpkg-deb -x`, record the root's mtime (`stat -c %y`), unpack the control files with `dpkg-deb -e … DEBIAN`,
+  rewrite the scripts, and `touch -d` the recorded time back onto the root before `dpkg-deb -b`. Checked in scratch: the data tarball is then
+  byte-identical to the original's.
+- [x] Make the test fail without the fix, every time: give the test package's source tree an old mtime (e.g. `touch -d 2020-01-01`) before
+  building it, so a rebuild that restamps `./` always differs.
+
+**Fix (November 18, 2026):** `fit_debs()` now extracts with `dpkg-deb -x`, records the root's mtime, unpacks the control files with
+`dpkg-deb -e` into `DEBIAN/`, and puts the mtime back with `touch -d` before `dpkg-deb -b`. The test gives the source tree a 2020 mtime before
+building, so without the fix it failed on every run (250 passed, 1 failed), not only under load. With it, 251 pass, and 24 of 24 runs with 8
+at once passed (2 of 24 had failed before). `mainline_kernel.sh` 0.4.1.
+
+Location in code: `scripts/sycl_gpu_tests/mainline_kernel.sh` (`fit_debs()`); `tests/scripts/package_sycl_gpu_tests_test.sh`.
+
+Related: TD-574, whose seventh round added `mainline_kernel.sh`.
+
+### TD-577: BPE Merge Learning Recounts the Whole Corpus Every Round
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | NLP / BPETokenizer | Code fix (MEDIUM, filed and fixed November 18, 2026) |
+
+Description:
+Found building `bodacious-badger`'s vocabulary (TD-575) on the server host. `vocab_builder` loaded the three chatbot datasets (116,173 pairs,
+36 million characters) in seconds, logged "Learning up to 14704 merges", then printed nothing for hours. `build_bpe_merges()` kept every word
+occurrence (about 6 million words) as its own token vector. Each round, `get_most_frequent_pair()` recounted every adjacent pair in all of them
+into a hash map keyed by string pairs, and `merge_tokens()` rebuilt every vector. The progress lines, every tenth of the merges, were at `debug`,
+which `vocab_builder` doesn't show. Measured with the old binary: 474 s for 6.8 MB of text at 3,000 tokens. At that rate, the server's build
+would have taken days. A first training pass that builds its own vocabulary (`VOCAB_BUILD_SIZE`) runs the same code.
+
+Action Items:
+
+- [x] Learn from distinct words with their frequencies, keep pair counts current across merges, and take the best pair from a queue.
+- [x] Show progress at `info`.
+- [x] Prove the merges are unchanged: a randomized test against the recounting loop, and a byte comparison of real vocabulary files.
+
+**Fix (November 18, 2026):**
+- **Distinct words.** `build_bpe_merges()` counts each distinct word once, with its frequency.
+- **Current pair counts.** It records which words each pair occurs in. A merge rewrites only those words, subtracting their old pairs and adding
+  their new ones.
+- **A queue for the best pair.** The most frequent pair comes from a priority queue: a pair is queued again whenever its count changes, and an
+  entry whose count no longer matches is skipped. Ties still go to the lexicographically smallest pair.
+- **Unchanged helpers.** `get_most_frequent_pair()` and `merge_tokens()` are kept as public static helpers; `merge_tokens()` now shares
+  `merge_word()`.
+- **Progress.** The distinct-word count and every tenth of the merges log at `info`.
+
+Test: `IncrementalMergeLearningMatchesRecountingEveryRound` (30 random corpora with ties, multi-byte units, `|` and overlapping `aaaa`, against
+the recounting loop). Verified by running both binaries: on 6.8 MB of minipile and TinyStories at 3,000 tokens, the old `vocab_builder` took
+474 s and the new one 1.5 s, and their vocabulary files are byte-identical. 37 million characters at 16,000 tokens took 17.6 s and 260 MB.
+`BPETokenizer.cpp` 2.1.0.
+
+**Effect on existing models:** none. A corpus learns the same vocabulary as before, only faster.
+
+Location in code: `src/BPETokenizer.cpp` (`build_bpe_merges()`).
 
 ### TD-574: Arc Engine Resets During Device-Resident Training: Find the GPU Work They Interrupt
 

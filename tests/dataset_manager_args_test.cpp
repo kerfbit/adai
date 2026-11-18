@@ -97,6 +97,19 @@ TEST(ParseGutenbergBatchArgs, ParsesNumPairsEachAndModel) {
     EXPECT_EQ(r.model, "my-model");
 }
 
+// TD-575: "all" asks for every pair from the cursor to the end, never wrapping; 0 itself is still invalid.
+TEST(ParseFetchArgs, AllIsEveryPairAndZeroIsStillAnError) {
+    EXPECT_EQ(parse_gutenberg_args({"1342", "all"}).num_pairs, kAllPairs);
+    EXPECT_FALSE(parse_gutenberg_args({"1342", "all"}).error);
+    EXPECT_EQ(parse_gutenberg_batch_args({"11,84", "all", "m"}).num_pairs_each, kAllPairs);
+    const auto hf = parse_huggingface_args({"tatsu-lab/alpaca", "all", "--model", "m"});
+    EXPECT_FALSE(hf.error);
+    EXPECT_EQ(hf.num_pairs, kAllPairs);
+    EXPECT_EQ(hf.model, "m");
+    EXPECT_TRUE(parse_gutenberg_args({"1342", "0"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "ALL"}).error);
+}
+
 TEST(ParseHuggingfaceArgs, RequiresDatasetId) {
     EXPECT_TRUE(parse_huggingface_args({}).error);
 }

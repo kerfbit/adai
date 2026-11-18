@@ -8,7 +8,7 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 **Last Updated:** November 18, 2026
 **Active Items:** 99 (7 high, 20 medium, 72 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 477 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 479 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -31,6 +31,11 @@ that are still open; the earlier ones are in the archive's
 
 **November 18, 2026:** Filed [TD-575](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) (MEDIUM, the deployed trainer's startup abort in `load_vocab`) and
 [TD-576](#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) (LOW, a test tolerance), both split from TD-574 when it closed.
+Filed and fixed [TD-577](../archive/TECHNICAL_DEBT_RESOLVED.md#td-577-bpe-merge-learning-recounts-the-whole-corpus-every-round)
+(MEDIUM): BPE merge learning recounted the whole corpus every round, so `bodacious-badger`'s vocabulary build would have taken days; it now
+takes seconds and learns the same merges. Filed and fixed [TD-578](../archive/TECHNICAL_DEBT_RESOLVED.md#td-578-mainline_kernelsh-rebuilds-change-the-packages-root-mtime-failing-its-test-under-load)
+(LOW): `package_sycl_gpu_tests_test` failed once in the full parallel `ctest` run that checked TD-577, because `mainline_kernel.sh`'s package
+rebuild restamped the package's root directory.
 
 **November 12, 2026:** Filed [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): no Android file is `stable`, and
 TD-047/TD-048 cap them without saying what `stable` would take. It sets that bar for `app` and `opsdashboard` (a first release, the
@@ -142,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (99 since TD-411, TD-341, TD-301, TD-050, TD-033 and TD-574 moved and TD-575 and TD-576 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (99 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-577 and TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -5154,8 +5159,33 @@ Action items:
   `adai-metrics-api` with `--config /opt/adai/etc/config.conf`; the old, stopped `adai-metrics` left alone), configs and data.
   All three answer `/health`; MNS still lists its three models and the metrics server its sessions. Backup and rollback:
   `/var/backups/adai-server-bundle/20261118T064630Z`. The binaries it replaced were from September 20 and October 1.
-- [ ] Register the new model in MNS (owner decision November 18: a new model rather than retraining `ambitious-aardvark`), and
-  settle `ambitious-aardvark`'s stale `training` lock (`run-01`, since August) and `chatbot-v1`.
+- [x] Register the new model in MNS (owner decision November 18: a new model rather than retraining `ambitious-aardvark`), and
+  settle `ambitious-aardvark`'s stale `training` lock (`run-01`, since August) and `chatbot-v1`. (November 18, 2026:
+  `ambitious-aardvark` and `chatbot-v1` retired; `bodacious-badger` registered, kind `chatbot`, d_model 768, 12 heads, d_ff
+  3072, 8 encoder + 24 decoder layers, max sequence 1024, run group `bb01`, display name "Bodacious Badger"; the never-trained
+  `world-model-v1` (768, 16 layers, max sequence 512) moved to `bb01` and linked with injection every 8 decoder layers. The
+  world model reads only a prompt's first 512 tokens; the decoder's world-model cross-attention takes its output at any length.)
+- [ ] Queue `bb01`'s data (owner choice November 18: Alpaca, Dolly and Daily Dialog for the chatbot; the 14 Gutenberg books
+  and TinyStories for the world model; fetched again with today's code). Done from the development machine with
+  `dataset_manager` pointed at 192.168.1.16, after two `DataFetcher` fixes deployed to the registry server the same day:
+  Dolly's `context` (an instruction's material was only read from `input`) and one-utterance-per-row dialogs (Daily Dialog
+  produced no pairs), plus `all` as a fetch's pair count (a larger count wraps to the start and repeats it silently: the
+  first Alpaca fetch, 52,002 requested, repeated 28 rows, since 28 rows have no answer; deleted and fetched again with
+  `all`). Chatbot pool: Alpaca 51,974 pairs, Dolly 15,011, Daily Dialog 49,188. World-model pool: TinyStories 2,141,468 pairs (HuggingFace's copy has 2,141,709 rows, not the 2,119,719 September's
+  fetch counted; 241 rows too short to split; no duplicates);
+  the books wait on Project Gutenberg, down for maintenance on November 18 until after 21:00 UTC (every download
+  answered 503); then `dataset_manager --kind world_model gutenberg-batch <the 14 ids> all bodacious-badger` against the
+  registry server. On the server host before: the instruction sets `chatbot-v1` fetched in September (Alpaca, Dolly 15k, and
+  Daily Dialog, fetched but never queued), 14 Gutenberg books for the world model, and TinyStories twice (2 GB of JSONL, 2.1
+  million pairs, queued in `my-training-group/decoder` for `ambitious-aardvark` and never trained); all fetched by
+  September's `DataFetcher`.
+- [ ] Deploy on ai-machine: `package-sycl.sh --system-oneapi` (November 18, 2026) packs the SYCL `incremental_trainer`,
+  `trainer_service`, `chatbot_api_server`, `vocab_builder` and `dataset_manager` (oneAPI 2026.2.0) with
+  `scripts/ai_machine/deploy.sh`, the `adai-trainer@.service` template (owner decision: the world model first, so
+  `adai-trainer@lejepa` before `@chatbot`), a GPU-capable `adai.service`, and configs for `bodacious-badger` with every path
+  under `/opt/adai`. The oneAPI runtime is Intel's apt package (owner decision, as in August), so `deploy.sh install` takes
+  the bundled 2026.0 `/opt/adai/lib` off the library path. Then the vocabulary (from `bb01`'s data), then
+  `systemctl enable --now adai-trainer@lejepa`.
 - [ ] Fix the cause: deploy current binaries and `trainer_service` (TD-172's cutover) with per-service configs under
   `/etc/adai/` whose `VOCAB_PATH` names the deployed vocabulary, together with the vocabulary (TD-563's order).
 - [x] Catch the exception in `incremental_trainer`'s startup (log it, exit with a failed-pass code), and test that a bad vocabulary
@@ -5195,9 +5225,11 @@ Related: TD-574 (archived).
 
 ---
 
+---
+
 ## Resolved Items
 
-476 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+478 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---

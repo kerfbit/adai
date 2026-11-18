@@ -967,6 +967,69 @@ TEST_F(BPETokenizerTest, PipeHeavyCorpusStillLearnsMerges) {
               merges.end());
 }
 
+// TD-577: build_bpe_merges() keeps its pair counts up to date instead of recounting every word
+// occurrence each round. It must learn exactly the merges the recounting loop learned, ties and
+// overlapping pairs ("aaaa") included.
+namespace {
+std::vector<std::string> split_utf8(const std::string& s) {
+    std::vector<std::string> units;
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        const size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
+        units.push_back(s.substr(i, len));
+        i += len;
+    }
+    return units;
+}
+
+std::vector<std::pair<std::string, std::string>> recounted_merges(
+    const BPETokenizer& tok, const std::vector<std::string>& texts, size_t max_merges) {
+    std::vector<std::vector<std::string>> word_tokens;
+    for (const auto& text : texts)
+        for (const auto& word : tok.pre_tokenize(text))
+            word_tokens.push_back(split_utf8(word));
+    std::vector<std::pair<std::string, std::string>> merges;
+    while (merges.size() < max_merges) {
+        const auto best = BPETokenizer::get_most_frequent_pair(word_tokens);
+        if (best.first.empty())
+            break;
+        merges.push_back(best);
+        BPETokenizer::merge_tokens(word_tokens, best.first, best.second);
+    }
+    return merges;
+}
+}  // namespace
+
+TEST_F(BPETokenizerTest, IncrementalMergeLearningMatchesRecountingEveryRound) {
+    const std::vector<std::string> alphabet = {"a", "b", "c", "e", "A", " ", "\xC3\xA9", "|", "1"};
+    std::mt19937 rng(577);
+    std::uniform_int_distribution<int> pick(0, static_cast<int>(alphabet.size()) - 1),
+        word_len(1, 7), words(5, 40);
+    for (int trial = 0; trial < 30; ++trial) {
+        std::vector<std::string> texts;
+        for (int t = 0; t < 25; ++t) {
+            std::string text;
+            for (int w = words(rng); w > 0; --w) {
+                for (int c = word_len(rng); c > 0; --c)
+                    text += alphabet[pick(rng)];
+                text += ' ';
+            }
+            texts.push_back(text);
+        }
+        texts.push_back("aaaa aaaaa aaa aa aaaa");
+        BPETokenizer tok;
+        tok.build_vocab(texts, 400, 1);
+        auto learned = saved_merges(tok, "test_td577_incremental.vocab");
+        // The file writes a space as \s (the alphabet has no backslash).
+        for (auto& merge : learned)
+            for (auto* side : {&merge.first, &merge.second})
+                for (size_t at; (at = side->find("\\s")) != std::string::npos;)
+                    side->replace(at, 2, " ");
+        ASSERT_FALSE(learned.empty());
+        EXPECT_EQ(learned, recounted_merges(tok, texts, learned.size())) << "trial " << trial;
+    }
+}
+
 TEST_F(BPETokenizerTest, RandomPipeCorporaNeverRepeatAMergeRule) {
     // Fuzzing corpora over {|, !} used to record the same wrong pair as a rule repeatedly.
     std::mt19937 rng(220);

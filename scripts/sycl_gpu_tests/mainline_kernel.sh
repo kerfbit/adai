@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.4.0
-# @adai-reviewed: 2026-11-17
+# @adai-version: 0.4.1
+# @adai-reviewed: 2026-11-18
 
 # Installs a current upstream kernel on the GPU host (ai-machine) from Ubuntu's mainline kernel
 # builds (kernel.ubuntu.com/mainline), boots it once for a test run, and removes it again: the xe
@@ -299,7 +299,7 @@ names_share_hook_dirs() {
 # run-parts two directories, on a host whose run-parts takes one, is rebuilt into DIR/fitted/ with
 # only /etc/kernel/X.d in those calls; the kernel and modules themselves are unchanged.
 fit_debs() {
-    local dir=$1 f ctl work out s
+    local dir=$1 f ctl work out s stamp
     shift
     for f in "$@"; do
         ctl=$(mktemp -d) || return 1
@@ -318,7 +318,10 @@ fit_debs() {
                 return 1
             fi
             mkdir -p "$dir/fitted" && work=$(mktemp -d -p "$dir/fitted") || return 1
-            dpkg-deb -R "$dir/$f" "$work/pkg" || return 1
+            # TD-578: not dpkg-deb -R, which unpacks DEBIAN/ into the extracted root and so stamps it
+            # with the current time; the root keeps the original's mtime, so only the scripts change.
+            dpkg-deb -x "$dir/$f" "$work/pkg" && stamp=$(stat -c %y "$work/pkg") &&
+                dpkg-deb -e "$dir/$f" "$work/pkg/DEBIAN" || return 1
             for s in preinst postinst prerm postrm; do
                 [[ -f "$work/pkg/DEBIAN/$s" ]] && drop_share_hook_dirs "$work/pkg/DEBIAN/$s"
             done
@@ -326,6 +329,7 @@ fit_debs() {
                 echo "FATAL: $f still names /usr/share/kernel hook directories after the rewrite." >&2
                 return 1
             fi
+            touch -d "$stamp" "$work/pkg" || return 1
             dpkg-deb --root-owner-group -b "$work/pkg" "$out.part" >/dev/null && mv -- "$out.part" "$out" || return 1
             rm -rf -- "$work"
         fi

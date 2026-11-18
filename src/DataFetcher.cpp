@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-17
 
 #include "DataFetcher.hpp"
 #include <algorithm>
@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,6 +42,8 @@ DataFetcher::DataFetcher(FetcherConfig cfg) : config_(std::move(cfg)) {}
 
 // TODO: See TD-314 in TECHNICAL_DEBT.md - re-downloads the book on every call (no cache)
 std::string DataFetcher::fetch_gutenberg(int book_id, int num_pairs) {
+    if (num_pairs <= kAllPairs)  // TD-575: the whole book
+        num_pairs = std::numeric_limits<int>::max();
     if (!fs::exists(config_.gutenberg_output_dir)) {
         fs::create_directories(config_.gutenberg_output_dir);
     }
@@ -202,6 +205,10 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
         return 0;
     }
 
+    // TD-575: kAllPairs (or less) is the rest of the book, never wrapping.
+    const bool all = num_pairs <= kAllPairs;
+    if (all)
+        num_pairs = std::numeric_limits<int>::max();
     size_t next_index = start;
     auto pairs = create_continuation_pairs(sentences, num_pairs, start, &next_index);
     for (const auto& p : pairs) {
@@ -212,7 +219,7 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
 
     // Book exhausted before num_pairs was satisfied — wrap around to
     // sentence 0 once and top up the remainder, appending to the same file.
-    if (pairs_written < num_pairs) {
+    if (!all && pairs_written < num_pairs) {
         size_t next_index2 = 0;
         auto pairs2 =
             create_continuation_pairs(sentences, num_pairs - pairs_written, 0, &next_index2);
@@ -252,6 +259,8 @@ std::string hf_dataset_dir_name(const std::string& dataset_id, const std::string
 std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                            const std::string& split, const std::string& input_field,
                                            const std::string& output_field) {
+    if (num_pairs <= kAllPairs)  // TD-575: the whole dataset
+        num_pairs = std::numeric_limits<int>::max();
     const std::string dir_name = hf_dataset_dir_name(dataset_id, split);  // TD-310
     const std::string dataset_dir = config_.huggingface_output_dir + "/" + dir_name;
     const std::string train_file =
@@ -265,7 +274,10 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
     }
 
     std::cout << "🤖 Fetching HuggingFace dataset '" << dataset_id << "' (split=" << split
-              << ", target=" << num_pairs << " pairs)\n";
+              << ", target="
+              << (num_pairs == std::numeric_limits<int>::max() ? std::string("all")
+                                                                : std::to_string(num_pairs))
+              << " pairs)\n";
 
     const std::string jsonl_path = download_hf_full_dataset(dataset_id, split, dataset_dir);
     if (jsonl_path.empty()) {
@@ -343,6 +355,10 @@ int DataFetcher::convert_huggingface_slice(const std::string& cached_jsonl,
                                            const std::string& input_field,
                                            const std::string& output_field, int offset_rows,
                                            int num_pairs, int& next_offset_rows) {
+    // TD-575: kAllPairs (or less) is the rest of the dataset, never wrapping.
+    const bool all = num_pairs <= kAllPairs;
+    if (all)
+        num_pairs = std::numeric_limits<int>::max();
     int rows_consumed = 0;
     int pairs_written = 0;
     convert_hf_to_training_data(cached_jsonl, output_file, input_field, output_field, num_pairs,
@@ -351,7 +367,7 @@ int DataFetcher::convert_huggingface_slice(const std::string& cached_jsonl,
 
     // Dataset exhausted before num_pairs was satisfied — wrap around to row 0
     // once and top up the remainder, appending to the same output file.
-    if (pairs_written < num_pairs) {
+    if (!all && pairs_written < num_pairs) {
         int rows_consumed2 = 0;
         int pairs_written2 = 0;
         convert_hf_to_training_data(cached_jsonl, output_file, input_field, output_field,
@@ -1368,6 +1384,43 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
         return !left.empty() && !right.empty();
     };
 
+    // TD-575: datasets with one utterance per row, grouped by a dialog id
+    // (pixelsandpointers/better_daily_dialog: dialog_id, utterance, turn_type, emotion). A dialog's
+    // turns are collected until the id changes, then paired like a dialog array: (t0,t1), (t2,t3), …
+    bool utterance_rows_checked = false;
+    bool utterance_rows = false;
+    std::string dialog_id;
+    std::vector<std::string> dialog_turns;
+    // The value of a key, quoted or not ("dialog_id": 7 or "dialog_id": "7"); empty when absent.
+    auto scalar_value = [](const std::string& json, const std::string& key) -> std::string {
+        const std::string needle = "\"" + key + "\"";
+        const size_t kpos = json.find(needle);
+        if (kpos == std::string::npos)
+            return "";
+        size_t v = json.find(':', kpos + needle.size());
+        if (v == std::string::npos)
+            return "";
+        ++v;
+        while (v < json.size() && std::isspace(static_cast<unsigned char>(json[v])))
+            ++v;
+        if (v < json.size() && json[v] == '"')
+            return hf_extract_string(json, key);
+        size_t end = v;
+        while (end < json.size() && json[end] != ',' && json[end] != '}' &&
+               !std::isspace(static_cast<unsigned char>(json[end])))
+            ++end;
+        return json.substr(v, end - v);
+    };
+    auto flush_dialog = [&]() {
+        SampleMeta chat_meta;
+        chat_meta.task_type = "chat";
+        for (size_t i = 0; i + 1 < dialog_turns.size() && pair_count < max_pairs; i += 2) {
+            out << sample_to_jsonl(dialog_turns[i], dialog_turns[i + 1], chat_meta) << "\n";
+            ++pair_count;
+        }
+        dialog_turns.clear();
+    };
+
     while (std::getline(f, line) && pair_count < max_pairs) {
         if (line.empty() || line.front() != '{')
             continue;
@@ -1382,6 +1435,28 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
         ++row_index;
         ++rows_consumed;
         const std::string& row_json = line;
+
+        if (!utterance_rows_checked) {
+            utterance_rows_checked = true;
+            utterance_rows = det_in.empty() && det_out.empty() &&
+                             !hf_extract_string(row_json, "utterance").empty() &&
+                             !scalar_value(row_json, "dialog_id").empty();
+            if (utterance_rows)
+                Logger::info("Detected one utterance per row, grouped by dialog_id");
+        }
+        if (utterance_rows) {
+            const std::string id = scalar_value(row_json, "dialog_id");
+            if (id != dialog_id) {
+                flush_dialog();
+                dialog_id = id;
+            }
+            std::string utterance = hf_extract_string(row_json, "utterance");
+            const size_t first = utterance.find_first_not_of(" \t\r\n");
+            const size_t last = utterance.find_last_not_of(" \t\r\n");
+            if (first != std::string::npos)
+                dialog_turns.push_back(utterance.substr(first, last - first + 1));
+            continue;
+        }
 
         if (det_in.empty()) {
             auto [df_in, df_out] = hf_detect_fields(row_json);
@@ -1410,7 +1485,11 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
             // Key-value datasets (alpaca, dolly, OpenHermes, …)
             std::string input_text = hf_extract_string(row_json, det_in);
             if (det_in == "instruction") {
+                // The instruction's material: Alpaca calls it "input", Dolly "context" (TD-575: Dolly's
+                // closed QA, information extraction and summarization rows lost their passage).
                 std::string sub = hf_extract_string(row_json, "input");
+                if (sub.empty())
+                    sub = hf_extract_string(row_json, "context");
                 if (!sub.empty())
                     input_text += "\n" + sub;
             }
@@ -1471,6 +1550,7 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
         }
     }
 
+    flush_dialog();  // the last dialog (utterance-per-row datasets); nothing otherwise
     out.close();
     Logger::info("Wrote {} training pairs from HuggingFace dataset to: {} (rows {}..{})",
                  pair_count, output_file, offset_rows, offset_rows + rows_consumed);

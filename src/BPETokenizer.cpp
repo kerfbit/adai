@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.2
-// @adai-reviewed: 2026-11-11
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-18
 
 // TD-225: progress, warnings and save/load summaries go through adai::Logger; this file writes
 // nothing to std::cout or std::cerr.
@@ -14,7 +14,9 @@
 #include <filesystem>
 #include <functional>
 #include <iterator>
+#include <queue>
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 #include "Logger.hpp"
 #include "PassHeartbeat.hpp"
@@ -297,35 +299,170 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
 // BPE merge learning
 // ============================================================================
 
-void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int num_merges) {
-    std::vector<std::vector<std::string>> word_tokens;
-    for (const auto& text : texts) {
-        auto tokens = pre_tokenize(text);
-        for (const auto& token : tokens) {
-            std::vector<std::string> units;
-            if (mode == TokenizerMode::UNICODE) {
-                units = utf8_split_codepoints(token);
-            } else {
-                for (char c : token) {
-                    units.emplace_back(1, c);
-                }
-            }
-            if (!units.empty()) {
-                word_tokens.push_back(units);
-            }
+namespace {
+// TD-220: pair counts are keyed by the pair itself. They used to be keyed by
+// first + "|||" + second and split back at the first "|||", which mis-split any pair
+// containing '|' (an empty first token stopped merge learning; a wrong non-empty pair was
+// re-recorded as a merge rule every round).
+struct StringPairHash {
+    size_t operator()(const std::pair<std::string, std::string>& p) const {
+        const size_t h1 = std::hash<std::string>{}(p.first);
+        const size_t h2 = std::hash<std::string>{}(p.second);
+        return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+    }
+};
+
+using StringPair = std::pair<std::string, std::string>;
+
+// Merges every non-overlapping occurrence of (first, second) in one word, left to right.
+void merge_word(std::vector<std::string>& tokens, const std::string& first,
+                const std::string& second) {
+    std::vector<std::string> new_tokens;
+    new_tokens.reserve(tokens.size());
+    for (size_t i = 0; i < tokens.size(); i++) {
+        if (i + 1 < tokens.size() && tokens[i] == first && tokens[i + 1] == second) {
+            new_tokens.push_back(first + second);
+            i++;
+        } else {
+            new_tokens.push_back(std::move(tokens[i]));
         }
     }
-    adai::Logger::debug("[BPE Tokenizer] {} words to learn merges from", word_tokens.size());
+    tokens = std::move(new_tokens);
+}
 
-    // TD-225: progress at every tenth of the target, at debug, instead of a console line per merge.
+bool has_adjacent(const std::vector<std::string>& tokens, const StringPair& pair) {
+    for (size_t i = 0; i + 1 < tokens.size(); i++) {
+        if (tokens[i] == pair.first && tokens[i + 1] == pair.second)
+            return true;
+    }
+    return false;
+}
+
+// A pair's count when it was queued. The queue's top is the highest count, ties going to the
+// lexicographically smallest pair, as get_most_frequent_pair() chooses.
+struct QueuedPair {
+    int64_t count;
+    StringPair pair;
+};
+struct QueuedPairOrder {
+    bool operator()(const QueuedPair& a, const QueuedPair& b) const {
+        return a.count < b.count || (a.count == b.count && a.pair > b.pair);
+    }
+};
+}  // namespace
+
+// TD-577: learns the same merges as recounting every word occurrence each round
+// (get_most_frequent_pair() then merge_tokens()), which took days for 36 MB of text. Each distinct
+// word is kept once with its frequency, pair counts are updated only for the words a merge
+// changes, and the best pair comes from a queue: a pair is queued again whenever its count
+// changes, and a queued count that no longer matches is skipped.
+void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int num_merges) {
+    std::unordered_map<std::string, int64_t> word_counts;
+    int64_t total_words = 0;
+    for (const auto& text : texts) {
+        for (auto& token : pre_tokenize(text)) {
+            ++word_counts[std::move(token)];
+            ++total_words;
+        }
+    }
+
+    // A word of one unit has no pair to merge.
+    std::vector<std::vector<std::string>> words;
+    std::vector<int64_t> freqs;
+    for (const auto& [word, count] : word_counts) {
+        std::vector<std::string> units;
+        if (mode == TokenizerMode::UNICODE) {
+            units = utf8_split_codepoints(word);
+        } else {
+            for (char c : word) {
+                units.emplace_back(1, c);
+            }
+        }
+        if (units.size() >= 2) {
+            words.push_back(std::move(units));
+            freqs.push_back(count);
+        }
+    }
+    word_counts.clear();
+    adai::Logger::info("[BPE Tokenizer] {} distinct words ({} in all) to learn merges from",
+                       words.size(), total_words);
+
+    std::unordered_map<StringPair, int64_t, StringPairHash> pair_counts;
+    // The words each pair occurs in. A word can stay listed after a merge removes the pair from
+    // it; has_adjacent() skips it.
+    std::unordered_map<StringPair, std::vector<uint32_t>, StringPairHash> pair_words;
+    for (size_t w = 0; w < words.size(); w++) {
+        const auto& tokens = words[w];
+        for (size_t i = 0; i + 1 < tokens.size(); i++) {
+            StringPair pair{tokens[i], tokens[i + 1]};
+            pair_counts[pair] += freqs[w];
+            auto& listed = pair_words[std::move(pair)];
+            if (listed.empty() || listed.back() != w)
+                listed.push_back(static_cast<uint32_t>(w));
+        }
+    }
+    std::priority_queue<QueuedPair, std::vector<QueuedPair>, QueuedPairOrder> queue;
+    for (const auto& [pair, count] : pair_counts) {
+        queue.push({count, pair});
+    }
+
+    // TD-225: progress at every tenth of the target instead of a console line per merge.
     const int progress_step = std::max(1, num_merges / 10);
     for (int i = 0; i < num_merges; i++) {
         adai::note_pass_progress();  // TD-569: a first pass builds the vocabulary
-        auto best_pair = get_most_frequent_pair(word_tokens);
+        StringPair best_pair;
+        while (!queue.empty()) {
+            QueuedPair top = queue.top();
+            queue.pop();
+            auto it = pair_counts.find(top.pair);
+            if (it != pair_counts.end() && it->second == top.count) {
+                best_pair = std::move(top.pair);
+                break;
+            }
+        }
         if (best_pair.first.empty()) {
             adai::Logger::info("[BPE Tokenizer] No more pairs to merge after {} of {} merges", i,
                                num_merges);
             break;
+        }
+
+        std::vector<uint32_t> affected = std::move(pair_words[best_pair]);
+        pair_words.erase(best_pair);
+        std::sort(affected.begin(), affected.end());
+        affected.erase(std::unique(affected.begin(), affected.end()), affected.end());
+        std::unordered_set<StringPair, StringPairHash> changed;
+        std::vector<StringPair> before;
+        for (uint32_t w : affected) {
+            auto& tokens = words[w];
+            if (!has_adjacent(tokens, best_pair))
+                continue;
+            before.clear();
+            for (size_t j = 0; j + 1 < tokens.size(); j++) {
+                before.emplace_back(tokens[j], tokens[j + 1]);
+                pair_counts[before.back()] -= freqs[w];
+                changed.insert(before.back());
+            }
+            merge_word(tokens, best_pair.first, best_pair.second);
+            for (size_t j = 0; j + 1 < tokens.size(); j++) {
+                StringPair pair{tokens[j], tokens[j + 1]};
+                pair_counts[pair] += freqs[w];
+                // Listed already if the word had the pair before this merge.
+                if (std::find(before.begin(), before.end(), pair) == before.end()) {
+                    auto& listed = pair_words[pair];
+                    if (listed.empty() || listed.back() != w)
+                        listed.push_back(w);
+                }
+                changed.insert(std::move(pair));
+            }
+        }
+        for (const auto& pair : changed) {
+            auto it = pair_counts.find(pair);
+            if (it->second == 0) {
+                pair_counts.erase(it);
+                pair_words.erase(pair);
+            } else {
+                queue.push({it->second, pair});
+            }
         }
 
         bpe_merges.push_back(best_pair);
@@ -336,10 +473,8 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
         vocab[merged] = new_id;
         inverse_vocab[new_id] = merged;
 
-        merge_tokens(word_tokens, best_pair.first, best_pair.second);
-
         if ((i + 1) % progress_step == 0 || i == num_merges - 1) {
-            adai::Logger::debug("[BPE Tokenizer] Merge {}/{}", i + 1, num_merges);
+            adai::Logger::info("[BPE Tokenizer] Merge {}/{}", i + 1, num_merges);
         }
     }
 }
@@ -399,22 +534,10 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) con
 // BPE application
 // ============================================================================
 
-namespace {
-// TD-220: pair counts are keyed by the pair itself. They used to be keyed by
-// first + "|||" + second and split back at the first "|||", which mis-split any pair
-// containing '|' (an empty first token stopped merge learning; a wrong non-empty pair was
-// re-recorded as a merge rule every round).
-struct StringPairHash {
-    size_t operator()(const std::pair<std::string, std::string>& p) const {
-        const size_t h1 = std::hash<std::string>{}(p.first);
-        const size_t h2 = std::hash<std::string>{}(p.second);
-        return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
-    }
-};
-}  // namespace
-
 std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
     const std::vector<std::vector<std::string>>& word_tokens) {
+    // TD-577: build_bpe_merges() no longer calls this; it keeps its counts up to date instead of
+    // recounting. This stays the one-shot form of the same choice.
     std::unordered_map<std::pair<std::string, std::string>, int, StringPairHash> pair_counts;
 
     for (const auto& tokens : word_tokens) {
@@ -445,16 +568,7 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
 void BPETokenizer::merge_tokens(std::vector<std::vector<std::string>>& word_tokens,
                                 const std::string& first, const std::string& second) {
     for (auto& tokens : word_tokens) {
-        std::vector<std::string> new_tokens;
-        for (size_t i = 0; i < tokens.size(); i++) {
-            if (i < tokens.size() - 1 && tokens[i] == first && tokens[i + 1] == second) {
-                new_tokens.push_back(first + second);
-                i++;
-            } else {
-                new_tokens.push_back(tokens[i]);
-            }
-        }
-        tokens = new_tokens;
+        merge_word(tokens, first, second);
     }
 }
 

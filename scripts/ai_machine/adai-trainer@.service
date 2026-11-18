@@ -1,0 +1,66 @@
+# ADAI trainer_service, one instance per training objective (TD-575), on ai-machine:
+#
+#   adai-trainer@lejepa.service   the world model (LeJEPA), its pool <RUN_GROUP>/world_model
+#   adai-trainer@chatbot.service  the chatbot, its pool <RUN_GROUP>/chatbot
+#
+# Both read /etc/adai/config.trainer.conf (MODEL_NAME, the services on the server host, SESSION_DIR, the
+# vocabulary) and share SESSION_DIR, so the chatbot finds the world model's checkpoint in
+# SESSION_DIR/world_model_checkpoint. /etc/adai/trainer-<objective>.env gives each its own admin ports and
+# admin directory, so both can run at once. See scripts/adai-trainer.service for why trainer_service
+# supervises single-pass children (TD-172) and how a hung pass is stopped (TD-569).
+#
+# Installed by scripts/ai_machine/deploy.sh (packed by package-sycl.sh), disabled; enable one with
+#   sudo systemctl enable --now adai-trainer@lejepa
+
+[Unit]
+Description=ADAI trainer_service (%i)
+Documentation=https://github.com/kerfbit/adai
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=1800
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=adai
+Group=adai
+# The GPU (/dev/dri/renderD128) belongs to render; the passes trainer_service launches inherit it.
+SupplementaryGroups=render
+WorkingDirectory=/opt/adai
+EnvironmentFile=-/etc/adai/trainer-%i.env
+ExecStart=/opt/adai/bin/trainer_service --config /etc/adai/config.trainer.conf --objective=%i
+# TD-280: SIGTERM to trainer_service, which stops its pass gracefully; the cgroup is killed after the timeout.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=40
+Restart=always
+RestartSec=45
+SyslogIdentifier=adai-trainer-%i
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=yes
+# SESSION_DIR (and its heartbeat files, TD-569), the vocabulary a first pass may build, logs, caches.
+ReadWritePaths=/var/log/adai /opt/adai/models /opt/adai/training_sessions /opt/adai/vocab -/opt/adai/tokenized_cache -/opt/adai/trainer_admin -/opt/adai/downloads
+NoNewPrivileges=true
+PrivateTmp=yes
+# No: a private /dev hides the GPU and the passes silently train on the CPU.
+PrivateDevices=no
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+LimitNOFILE=65536
+LimitNPROC=512
+OOMScoreAdjust=100
+
+[Install]
+WantedBy=multi-user.target

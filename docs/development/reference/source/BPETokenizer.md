@@ -1,10 +1,10 @@
 # `BPETokenizer` — Source File Reference
 
-- **Files:** [`src/BPETokenizer.hpp`](../../../../src/BPETokenizer.hpp) (338 lines), [`src/BPETokenizer.cpp`](../../../../src/BPETokenizer.cpp) (1,282 lines)
+- **Files:** [`src/BPETokenizer.hpp`](../../../../src/BPETokenizer.hpp) (338 lines), [`src/BPETokenizer.cpp`](../../../../src/BPETokenizer.cpp) (1,396 lines)
 - **Library:** `adai_nlp`
-- **Status tags:** `@adai-status: stable`; `BPETokenizer.cpp` `@adai-version: 2.0.2`, `BPETokenizer.hpp` `2.0.1`; `@adai-reviewed: 2026-11-11`
-- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (99, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36); indirect coverage in `vocabbuilderTests`, `specialtokensTests` and most model and trainer suites
-- **Last traced against the code:** 2026-11-11
+- **Status tags:** `@adai-status: stable`; `BPETokenizer.cpp` `@adai-version: 2.1.0` (`@adai-reviewed: 2026-11-18`), `BPETokenizer.hpp` `2.0.1` (`2026-11-11`)
+- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (100, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36); indirect coverage in `vocabbuilderTests`, `specialtokensTests` and most model and trainer suites
+- **Last traced against the code:** 2026-11-18 (§5's merge learning; the rest 2026-11-11)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real code (a scratch program linked against the debug
 > `adai_nlp`). This document absorbed the old `docs/development/api/nlp/tokenizer.md` in October 2026; what that document got wrong is not
@@ -96,13 +96,27 @@ without. `encode("<user>")` gives ordinary characters, since the pre-tokenizer s
 4. Under `PRESERVE`, give space, newline and tab ids first: a corpus read line by line never contains a newline (TD-224).
 5. **Base units** take ids by frequency, most frequent first, ties by their bytes (TD-225), while they meet `frequency_threshold` and fit
    under `vocab_size`. A unit left out encodes as `<unk>`.
-6. **Merges:** `build_bpe_merges(texts, vocab_size − next id)`. It pre-tokenizes the corpus into words and, each round, takes the most
-   frequent adjacent pair (`get_most_frequent_pair()`; pairs keyed by the pair itself, ties to the lexicographically smallest, TD-220), appends
-   it to `bpe_merges`, gives the merged string the next id, renews the cache key and rewrites every word (`merge_tokens()`, left to right, no
-   overlaps). It stops early when no pair is left, which small corpora reach quickly. Each round notes progress for `trainer_service`'s stall
-   check (TD-569). Cost: O(merges × corpus tokens), since counts are rebuilt every round.
+6. **Merges:** `build_bpe_merges(texts, vocab_size − next id)`. It pre-tokenizes the corpus and keeps each distinct word once, split into
+   units, with how often it occurs (words of one unit are dropped: they have no pair). Each round takes the most frequent adjacent pair,
+   counting a word's pairs once per occurrence of the word, ties to the lexicographically smallest pair (pairs keyed by the pair itself,
+   TD-220). It appends the pair to `bpe_merges`, gives the merged string the next id and renews the cache key. It stops early when no pair is
+   left, which small corpora reach quickly. Each round notes progress for `trainer_service`'s stall check (TD-569).
 
-One corpus gives a byte-identical vocabulary file on any platform (TD-225). Logging is `info` per stage and `debug` per tenth of the merges.
+   **How it stays fast (TD-577).** It counts all pairs once, then keeps the counts current rather than recounting:
+   - It records which words each pair occurs in.
+   - A merge rewrites only the words containing the chosen pair (left to right, no overlaps, as `merge_tokens()` does). It subtracts each such
+     word's old pairs and adds its new ones.
+   - The best pair comes from a priority queue. A pair is queued again whenever its count changes; a queued entry whose count no longer matches
+     is skipped.
+
+   The choice of pair each round is the same as recounting every word with `get_most_frequent_pair()` and rewriting it with `merge_tokens()`.
+   Those two public static helpers are kept, and `IncrementalMergeLearningMatchesRecountingEveryRound` checks the merges against them. On a 6.8 MB
+   corpus (3,000 tokens) the vocabulary file came out byte-identical to the previous code's, in 1.5 s instead of 474 s (**verified** November
+   18, 2026). 37 million characters at 16,000 tokens took 17.6 s and 260 MB. Before TD-577, every round recounted every word occurrence, so 36
+   MB at 16,000 tokens would have taken days.
+
+One corpus gives a byte-identical vocabulary file on any platform (TD-225). Logging is `info` per stage, for the distinct-word count, and per
+tenth of the merges (TD-577; the tenths were `debug` before, so a long build printed nothing between "Learning up to N merges" and the end).
 
 ---
 
@@ -205,6 +219,7 @@ whole. Tests: `TokensStartingWithAHashSurviveSaveAndLoad`, `TokensStartingWithAH
 | Lossy normalization (case, whitespace) | — | **Fixed** for new vocabularies (TD-560 November 4, TD-224 November 8) | TD-224, TD-560–TD-563 |
 | Logging, `const`, misnamed helpers, unordered ids, lenient UTF-8 | — | **Fixed November 10, 2026** | TD-225 |
 | Non-standard special ids | — | **Fixed November 9, 2026** | TD-505 |
+| Merge learning recounted every word occurrence each round: days for 36 MB at 16,000 tokens, with no progress shown | — | **Fixed November 18, 2026** (verified byte-identical) | [TD-577](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-577-bpe-merge-learning-recounts-the-whole-corpus-every-round) |
 
 `stable` holds again with TD-570 fixed.
 
@@ -217,3 +232,5 @@ whole. Tests: `TokensStartingWithAHashSurviveSaveAndLoad`, `TokensStartingWithAH
 - **November 10, 2026:** logging and API hygiene (TD-225).
 - **November 11, 2026:** progress per merge (TD-569). This document was re-traced against the code, replacing its October sections and folding
   in its addenda; the trace found the §8 reader bug, fixed the same day (TD-570).
+- **November 18, 2026:** merge learning counts each distinct word once and keeps pair counts current (TD-577), with progress at `info`. Found
+  when the `bodacious-badger` vocabulary build (TD-575) showed nothing for hours.

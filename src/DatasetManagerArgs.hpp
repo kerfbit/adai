@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-17
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -15,6 +15,10 @@
 #include <vector>
 
 namespace adai {
+
+// TD-575: the pair count "all" parses to this (DataFetcher::kAllPairs): every pair from the fetch
+// cursor to the end of the book or dataset, with no wraparound.
+inline constexpr int kAllPairs = 0;
 
 struct AddArgs {
     std::string data_file;

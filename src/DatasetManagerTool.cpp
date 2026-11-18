@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.10.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.11.0
+// @adai-reviewed: 2026-11-17
 
 #include <algorithm>
 #include <filesystem>
@@ -269,6 +269,10 @@ int main(int argc, char* argv[]) {
                      "different slice\n";
         std::cout << "                               of the dataset per model name instead of "
                      "always the same rows.\n";
+        std::cout << "                               [pairs] = all: every pair from the slice cursor to "
+                     "the end,\n";
+        std::cout << "                               never wrapping (a larger count wraps to the start "
+                     "and repeats it).\n";
         std::cout << "\nNote: when REGISTRY_SERVER_URL is configured, add/gutenberg*/huggingface "
                      "run\n";
         std::cout << "      on the registry server itself (bytes land in its data_dir and are\n";

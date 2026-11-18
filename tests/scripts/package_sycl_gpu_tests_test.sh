@@ -606,6 +606,8 @@ printf '#!/bin/sh -e\nrun-parts --report /etc/kernel/postinst.d\n' >"$FITDIR/pla
 chmod 0755 "$FITDIR"/src/DEBIAN/preinst "$FITDIR"/src/DEBIAN/postrm "$FITDIR"/plain/DEBIAN/postinst
 head -c 4096 /dev/urandom >"$FITDIR/src/boot/vmlinuz-9.9.9"
 cp "$FITDIR/src/boot/vmlinuz-9.9.9" "$FITDIR/plain/boot/System.map-9.9.9"
+# TD-578: an old root mtime, so a rebuild that restamps ./ always differs, not only when it crosses a second.
+touch -d 2020-01-01 "$FITDIR/src"
 dpkg-deb --root-owner-group -b "$FITDIR/src" "$FITDIR/image.deb" >/dev/null
 dpkg-deb --root-owner-group -b "$FITDIR/plain" "$FITDIR/modules.deb" >/dev/null
 run bash -c '

@@ -121,6 +121,72 @@ TEST_F(HuggingfaceSliceTest, FirstCallStartsAtRowZero) {
     EXPECT_EQ(read_output_inputs(), (std::vector<std::string>{"q0", "q1", "q2"}));
 }
 
+// TD-575: Dolly names an instruction's material "context" where Alpaca says "input"; only "input" was
+// appended, so Dolly's closed QA, information extraction and summarization rows lost their passage.
+TEST_F(HuggingfaceSliceTest, AnInstructionsInputOrContextIsAppended) {
+    {
+        std::ofstream f(cached_jsonl_);
+        f << "{\"instruction\":\"Summarize\",\"context\":\"the passage\",\"response\":\"r0\",\"category\":\"summarization\"}\n";
+        f << "{\"instruction\":\"Name a color\",\"context\":\"\",\"response\":\"blue\",\"category\":\"open_qa\"}\n";
+    }
+    int next_offset = -1;
+    ASSERT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 0, 2, next_offset), 2);
+    std::ifstream in(output_file_);
+    std::string first, second;
+    std::getline(in, first);
+    std::getline(in, second);
+    EXPECT_NE(first.find("\"input\":\"Summarize\\nthe passage\""), std::string::npos) << first;
+    EXPECT_NE(second.find("\"input\":\"Name a color\""), std::string::npos) << second;
+
+    {
+        std::ofstream f(cached_jsonl_);
+        f << "{\"instruction\":\"Add\",\"input\":\"2 and 3\",\"output\":\"5\"}\n";
+    }
+    ASSERT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 0, 1, next_offset), 1);
+    std::ifstream in2(output_file_);
+    std::getline(in2, first);
+    EXPECT_NE(first.find("\"input\":\"Add\\n2 and 3\""), std::string::npos) << first;
+}
+
+// TD-575: kAllPairs serves the rest of the dataset and never wraps (a larger count would queue rows
+// 0.. again without the caller knowing).
+TEST_F(HuggingfaceSliceTest, AllPairsServesTheRestWithoutWrapping) {
+    write_fixture(10);
+    int next_offset = -1;
+    EXPECT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 4,
+                                                     DataFetcher::kAllPairs, next_offset),
+              6);
+    EXPECT_EQ(next_offset, 10);
+    EXPECT_EQ(read_output_inputs(), (std::vector<std::string>{"q4", "q5", "q6", "q7", "q8", "q9"}));
+    EXPECT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 10,
+                                                     DataFetcher::kAllPairs, next_offset),
+              0);
+}
+
+// TD-575: one utterance per row (pixelsandpointers/better_daily_dialog) is grouped by dialog_id and
+// paired turn by turn; nothing was produced before (no field pair, no dialog array, no long text).
+TEST_F(HuggingfaceSliceTest, UtterancePerRowDialogsArePairedByDialogId) {
+    {
+        std::ofstream f(cached_jsonl_);
+        f << "{\"dialog_id\":0,\"utterance\":\" Say , Jim . \",\"turn_type\":3,\"emotion\":0}\n"
+          << "{\"dialog_id\":0,\"utterance\":\" Tempting . \",\"turn_type\":4,\"emotion\":0}\n"
+          << "{\"dialog_id\":0,\"utterance\":\" Why ? \",\"turn_type\":2,\"emotion\":0}\n"
+          << "{\"dialog_id\":1,\"utterance\":\"Hello .\",\"turn_type\":1,\"emotion\":0}\n"
+          << "{\"dialog_id\":1,\"utterance\":\"Hi .\",\"turn_type\":1,\"emotion\":0}\n";
+    }
+    int next_offset = -1;
+    EXPECT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 0,
+                                                     DataFetcher::kAllPairs, next_offset),
+              2);
+    EXPECT_EQ(next_offset, 5);
+    EXPECT_EQ(read_output_inputs(), (std::vector<std::string>{"Say , Jim .", "Hello ."}));
+    std::ifstream in(output_file_);
+    std::string first;
+    std::getline(in, first);
+    EXPECT_NE(first.find("\"response\":\"Tempting .\""), std::string::npos) << first;
+    EXPECT_NE(first.find("chat"), std::string::npos) << first;
+}
+
 TEST_F(HuggingfaceSliceTest, SecondCallContinuesFromCursor) {
     write_fixture(10);
     int next_offset = -1;
@@ -539,6 +605,18 @@ TEST_F(GutenbergSliceTest, WrapsAroundWhenBookExhaustedMidRequest) {
     EXPECT_EQ(next_offset, 4);
     EXPECT_EQ(read_output_responses(),
               (std::vector<std::string>{"Sentence 9.", "Sentence 2. Sentence 3."}));
+}
+
+// TD-575: kAllPairs is the rest of the book, never wrapping.
+TEST_F(GutenbergSliceTest, AllPairsServesTheRestOfTheBookWithoutWrapping) {
+    write_fixture(10);
+    int next_offset = -1;
+    EXPECT_EQ(DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_, 3,
+                                                   DataFetcher::kAllPairs, next_offset),
+              2);
+    EXPECT_EQ(next_offset, 10);
+    EXPECT_EQ(read_output_responses(),
+              (std::vector<std::string>{"Sentence 5. Sentence 6.", "Sentence 9."}));
 }
 
 TEST_F(GutenbergSliceTest, OffsetAtEndOfBookWrapsImmediately) {

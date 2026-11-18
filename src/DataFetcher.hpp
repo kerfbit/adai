@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-17
 
 #include <string>
 #include <utility>
@@ -107,10 +107,16 @@ class DataFetcher {
      *
      * Wraps around to sentence 0 exactly once if the book is exhausted
      * before @p num_pairs is satisfied — mirrors convert_huggingface_slice().
+     * @p num_pairs <= kAllPairs: every pair to the end of the book, no wraparound.
      *
      * @param[out] next_offset_index Sentence index to resume from next call.
      * @return Number of pairs actually written (0 = failure / empty book).
      */
+    /// A num_pairs at or below this asks a slice for every pair from the cursor to the end of the book
+    /// or dataset, with no wraparound (TD-575): a count larger than what is left wraps and queues
+    /// the start again, and the caller can't tell. The local fetch_*() calls read it as "all".
+    static constexpr int kAllPairs = 0;
+
     static int convert_gutenberg_slice(const std::string& cached_sentences,
                                        const std::string& output_file, int offset_index,
                                        int num_pairs, int& next_offset_index);
@@ -172,6 +178,7 @@ class DataFetcher {
      * Wraps around to row 0 exactly once if the dataset is exhausted before
      * @p num_pairs is satisfied, so repeated calls with an advancing
      * @p offset_rows eventually cycle back to the start rather than starving.
+     * @p num_pairs <= kAllPairs: every pair to the end of the dataset, no wraparound.
      *
      * @param[out] next_offset_rows Row index to resume from on the next call.
      * @return Number of pairs actually written (0 = failure / empty dataset).

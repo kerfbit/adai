@@ -1,0 +1,56 @@
+# ADAI chatbot_api_server on ai-machine, on the GPU (TD-575). Unlike scripts/adai.service (a general
+# template: PrivateDevices=yes, no GPU), this one can reach the Arc: PrivateDevices=no and the render
+# group. Its settings come from /etc/adai/config.chatbot.conf; the model (architecture, checkpoint, the
+# linked world model) from MNS by MODEL_NAME.
+#
+# Installed by scripts/ai_machine/deploy.sh (packed by package-sycl.sh), disabled until the model has a
+# checkpoint: sudo systemctl enable --now adai
+
+[Unit]
+Description=ADAI chatbot_api_server
+Documentation=https://github.com/kerfbit/adai
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=adai
+Group=adai
+SupplementaryGroups=render
+WorkingDirectory=/opt/adai
+ExecStart=/opt/adai/bin/chatbot_api_server --config /etc/adai/config.chatbot.conf
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=adai-chatbot
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=yes
+# Hippocampal memory state (HIPPOCAMPAL_STATE_PATH), conversation sessions, logs.
+ReadWritePaths=/var/log/adai /opt/adai/models /opt/adai/chat_sessions
+NoNewPrivileges=true
+PrivateTmp=yes
+PrivateDevices=no
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+LimitNOFILE=65536
+LimitNPROC=512
+OOMScoreAdjust=100
+
+[Install]
+WantedBy=multi-user.target

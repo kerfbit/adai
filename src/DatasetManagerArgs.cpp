@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-17
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -49,6 +49,17 @@ bool parse_positive(const std::string& value, int& out) {
         return false;
     out = *n;
     return true;
+}
+
+// TD-575: a pair count is a whole number of at least 1, or "all" (kAllPairs, 0): every pair from the
+// fetch cursor to the end, with no wraparound. A count larger than what's left wraps to the start and
+// queues it again.
+bool parse_pairs(const std::string& value, int& out) {
+    if (value == "all") {
+        out = kAllPairs;
+        return true;
+    }
+    return parse_positive(value, out);
 }
 
 // TD-322: an argument that looks like an option but isn't one of the command's own is an error;
@@ -102,9 +113,9 @@ GutenbergArgs parse_gutenberg_args(const std::vector<std::string>& args) {
         return make_error<GutenbergArgs>("Invalid book_id '" + args[0] +
                                          "': it must be a whole number of at least 1");
     }
-    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs)) {
+    if (args.size() >= 2 && !parse_pairs(args[1], r.num_pairs)) {
         return make_error<GutenbergArgs>("Invalid num_pairs '" + args[1] +
-                                         "': it must be a whole number of at least 1");
+                                         "': it must be a whole number of at least 1, or all");
     }
     if (args.size() >= 3)
         r.model = args[2];
@@ -127,9 +138,9 @@ GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& ar
         }
         r.book_ids.push_back(id);
     }
-    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs_each)) {
+    if (args.size() >= 2 && !parse_pairs(args[1], r.num_pairs_each)) {
         return make_error<GutenbergBatchArgs>("Invalid num_pairs_each '" + args[1] +
-                                              "': it must be a whole number of at least 1");
+                                              "': it must be a whole number of at least 1, or all");
     }
     if (args.size() >= 3)
         r.model = args[2];
@@ -181,9 +192,9 @@ HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
 
     HuggingfaceArgs r;
     r.dataset_id = positional[0];
-    if (positional.size() >= 2 && !parse_positive(positional[1], r.num_pairs)) {
+    if (positional.size() >= 2 && !parse_pairs(positional[1], r.num_pairs)) {
         return make_error<HuggingfaceArgs>("Invalid num_pairs '" + positional[1] +
-                                           "': it must be a whole number of at least 1");
+                                           "': it must be a whole number of at least 1, or all");
     }
     std::string* fields[] = {&r.split, &r.input_field, &r.output_field, &r.model};
     for (std::size_t k = 0; k < 4; ++k) {

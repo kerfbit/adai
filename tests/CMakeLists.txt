@@ -1455,6 +1455,7 @@ foreach(_script_test IN ITEMS
     package_server_bundle_test.sh
     redeploy_server_bundle_test.sh
     package_sycl_test.sh
+    ai_machine_deploy_test.sh
     package_sycl_gpu_tests_test.sh
     package_windows_test.sh
     run_chatbot_gui_test.sh

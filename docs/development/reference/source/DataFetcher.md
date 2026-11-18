@@ -3,10 +3,10 @@
 - **Files:** [`src/DataFetcher.hpp`](../../../../src/DataFetcher.hpp), [`src/DataFetcher.cpp`](../../../../src/DataFetcher.cpp)
 - **Namespace:** global (no namespace)
 - **Built into:** `registry_server` and `dataset_manager` (with `ParquetReader`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/DataFetcherTests.cpp`](../../../../tests/DataFetcherTests.cpp) (27 tests, offline); the fetch endpoints' input validation in `dataset_registry_live_test.cpp`
+- **Status tag:** `@adai-status: stable`; `DataFetcher.hpp` `@adai-version: 1.3.0`, `DataFetcher.cpp` `@adai-version: 1.6.0`, `@adai-reviewed: 2026-11-17`
+- **Tests:** [`tests/DataFetcherTests.cpp`](../../../../tests/DataFetcherTests.cpp) (43 tests, offline; `HuggingfaceSliceTest.AnInstructionsInputOrContextIsAppended` for the instruction's material); the fetch endpoints' input validation in `dataset_registry_live_test.cpp`
 - **Origin:** split out of `IncrementalTrainer.cpp` by TD-028 (dataset manager separation); Phase 11 (server-side fetch), Phase 12/13 (cached rotating slices, Gutenberg cleaning); native Parquet via `ParquetReader`
-- **Last traced against the code:** 2026-10-11
+- **Last traced against the code:** 2026-10-11; the instruction-material rule, utterance-per-row dialogs (Conversion) and `kAllPairs` re-traced 2026-11-17
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real code
 > offline. Network calls were blocked with a dead HTTPS proxy, so nothing reached Gutenberg or
@@ -60,7 +60,7 @@ relative to the working directory. The class is otherwise stateless; every helpe
 | `fetch_gutenberg(book_id, num_pairs = 500)` | Downloads to `<dir>/gutenberg_<id>.txt` (**re-downloaded every call**), converts the first `num_pairs` pairs to `<dir>/gutenberg_<id>_training.jsonl`. Returns the path or `""` |
 | `fetch_gutenberg_batch(ids, n)` | Loops `fetch_gutenberg()`; `""` at each failed index |
 | `ensure_gutenberg_cached(book_id)` | If `<dir>/gutenberg_<id>/sentences.txt` exists and is non-empty, returns it. Otherwise downloads `book.txt`, cleans it, extracts sentences and writes them one per line |
-| `convert_gutenberg_slice(sentences, out, offset, n, &next)` | Builds up to `n` pairs starting at sentence `offset` (an out-of-range offset is clamped), then wraps to sentence 0 once if short. Returns pairs written and the next offset |
+| `convert_gutenberg_slice(sentences, out, offset, n, &next)` | Builds up to `n` pairs starting at sentence `offset` (an out-of-range offset is clamped), then wraps to sentence 0 once if short. `n <= kAllPairs` (0): every pair to the end of the book, no wrap (TD-575). Returns pairs written and the next offset |
 
 **Download** (`download_file`) runs `curl -L -f -s -o "<path>" "<url>"` through `std::system()`,
 first for `https://www.gutenberg.org/files/<id>/<id>-0.txt`, then the `<id>.txt` fallback. There's
@@ -91,7 +91,7 @@ Metadata is `task_type="qa"`, `domain="literature"`, `language="en"`.
 |---|---|
 | `fetch_huggingface(id, n, split, in, out)` | Downloads into `<dir>/<safe_id>_<split>/`, converts the first `n` pairs to `<dir>/<safe_id>_<split>_training.jsonl`. Prints progress with `std::cout`/`std::cerr` (not `Logger`) |
 | `ensure_huggingface_cached(id, split)` | Returns `<dir>/<safe_id>_<split>/full_dataset.jsonl` if it exists and is non-empty, otherwise downloads it |
-| `convert_huggingface_slice(jsonl, out, in, out_f, offset, n, &next)` | Converts from row `offset`, wrapping to row 0 once if short |
+| `convert_huggingface_slice(jsonl, out, in, out_f, offset, n, &next)` | Converts from row `offset`, wrapping to row 0 once if short; `n <= kAllPairs` (0): the rest of the dataset, no wrap (TD-575) |
 
 `safe_id` replaces `/` with `_` in the dataset ID. **`split` is used as-is** in the path (§6).
 
@@ -113,9 +113,10 @@ tries ten field-name pairs (`instruction/output`, `question/answer`, `prompt/com
 
 | Detected shape | Pair produced |
 |---|---|
-| Two fields | `(in [+ "\n" + "input" for instruction datasets], out)` |
+| Two fields | `(in [+ "\n" + "input", or "context" when there's no "input", for instruction datasets], out)`: Alpaca's material is `input`, Dolly's `context` (TD-575, November 17, 2026; before, Dolly's closed QA, information extraction and summarization rows lost their passage) |
 | Same field twice | Split the text at a sentence end near its middle → `task_type="completion"` |
 | No field pair | Look for a dialog array (`dialog`, `turns`, `utterances`, `conversations`) → pairs `(t0,t1)`, `(t2,t3)`, … with `task_type="chat"` |
+| One utterance per row (first row has `utterance` and `dialog_id`, no fields given) | TD-575: rows are grouped by `dialog_id` (consecutive rows), each utterance trimmed, and a dialog's turns paired the same way when the id changes or the file ends (`pixelsandpointers/better_daily_dialog`) |
 | None of the above | Use the first `text`/`content`/`document` field of ≥ 40 chars as a split single-text field, and lock that in for later rows |
 
 JSON is read with small string scanners (`hf_extract_string` and friends), not a JSON library.
@@ -219,8 +220,8 @@ By inspection:
 | Group | Tests |
 |---|---|
 | `DataFetcherGutenbergCleaningTest` | 10: TOC, chapter and illustration stripping (a `friend` of the class) |
-| `GutenbergSliceTest` | 5: offsets, wraparound |
-| `HuggingfaceSliceTest` | 8: field detection, offsets, wraparound |
+| `GutenbergSliceTest` | 6: offsets, wraparound, `kAllPairs` |
+| `HuggingfaceSliceTest` | 11: field detection, offsets, wraparound, `kAllPairs`, an instruction's `input` or `context`, utterance-per-row dialogs |
 | `DataFetcherTest`, `FetcherConfigTest` | 4 |
 
 **Not covered:**

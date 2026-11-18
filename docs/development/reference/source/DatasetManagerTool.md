@@ -2,10 +2,10 @@
 
 - **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,175 lines; `main()` of the `dataset_manager` binary)
 - **Built into:** `dataset_manager` (with `DatasetManagerArgs.cpp` and `Config.cpp`, linking `DataFetcher`, `DatasetRegistry` and `adai_core`; `ModelNameClient` when `BUILD_MNS_SERVER`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.10.0`, `@adai-reviewed: 2026-11-12`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.11.0`, `@adai-reviewed: 2026-11-17`
 - **Tests:** `registryFtpConfinementTests` runs the real binary against a `registry_server` it starts (11 cases, §5); the parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
 - **Operator guide:** [dataset-manager-guide.md](../../../operations/guides/dataset-manager-guide.md) (§6)
-- **Last traced against the code:** 2026-11-12
+- **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real
 > `dataset_manager` binary against scratch local pools and a local `registry_server`.
@@ -80,6 +80,10 @@ before TD-328). Remote paths are the server's and are used as given.
 | `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry (§4) | same | no legacy entries, none matched, or none moved |
 | `segment <path> --count N` / `--ranges …` | §4 | §4 | no segment created, or a check or the replacement failed |
 | `models` | `ModelNameClient::list_models()`; needs `NAME_SERVICE_URL` (TD-330) | — | unset, query fails, or MNS support not compiled |
+
+**`all`** (TD-575): a fetch command's pair count can be `all`, sent as 0: the registry server (or the local fetch) then
+queues every pair from the slice cursor to the end of the book or dataset and never wraps to its start, which a larger
+count does silently.
 
 **Pair counts** (TD-330): fetch commands report the pairs actually queued (`queued_pairs()`: the queue
 entry's `num_entries`, which `registry_server` sets from a fetch's `pairs_written`, or a local count),

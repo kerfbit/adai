@@ -3,10 +3,10 @@
 - **Files:** [`src/DatasetManagerArgs.hpp`](../../../../src/DatasetManagerArgs.hpp) (134 lines), [`src/DatasetManagerArgs.cpp`](../../../../src/DatasetManagerArgs.cpp) (440)
 - **Namespace:** `adai`
 - **Built into:** `dataset_manager` (with `DatasetManagerTool.cpp` and `Config.cpp`) and `datasetManagerArgsTests`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0` (hpp and cpp), `@adai-reviewed: 2026-11-12` (promoted from `beta` that day)
-- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (60 tests)
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0` (hpp and cpp), `@adai-reviewed: 2026-11-17` (promoted from `beta` on 2026-11-12)
+- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (61 tests; `ParseFetchArgs.AllIsEveryPairAndZeroIsStillAnError` for `all`)
 - **Origin:** TD-035 (parsing pulled out of `DatasetManagerTool.cpp` to make it testable); TD-202 (`migrate`, kinds); TD-205 (`segment`)
-- **Last traced against the code:** 2026-11-12
+- **Last traced against the code:** 2026-11-12; the fetch commands' `all` (`parse_pairs()`) 2026-11-17
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by compiling the parsers
 > into a scratch program (with UBSan) and running them.
@@ -40,7 +40,7 @@ All parsers take the command's own arguments, **without** the command name, e.g.
 | Command | Parser | Syntax | Notes |
 |---|---|---|---|
 | `add` | `parse_add_args` | `[--overwrite] <data_file>` | Exactly one file. `--overwrite` (TD-552) anywhere before `--` |
-| `gutenberg` | `parse_gutenberg_args` | `<book_id> [num_pairs=500] [model]` | At most 3 arguments. `model` matters only with `REGISTRY_SERVER_URL` (per-model rotating slices) |
+| `gutenberg` | `parse_gutenberg_args` | `<book_id> [num_pairs=500] [model]` | `num_pairs` is a whole number of at least 1, or `all` (`kAllPairs`, 0: every pair from the cursor to the end, never wrapping; TD-575), here and in the next two. At most 3 arguments. `model` matters only with `REGISTRY_SERVER_URL` (per-model rotating slices) |
 | `gutenberg-batch` | `parse_gutenberg_batch_args` | `<id1,id2,…> [num_pairs_each=500] [model]` | Comma-separated ids, each checked; at most 3 arguments |
 | `huggingface` | `parse_huggingface_args` | `<dataset_id> [num_pairs=500] [split=train] [input_field] [output_field] [model]`, or the four optional fields named: `--split`, `--input-field`, `--output-field`, `--model` | TD-325: named fields in any order, alongside or instead of the positional form. A field given both ways, given twice, or a flag with no value is an error; so is a seventh positional |
 | `remove` | `parse_remove_args` | `<data_file>` | Exactly one |
