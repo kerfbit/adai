@@ -47,7 +47,7 @@ backend split, built only on the shared API.
 |---|---|
 | `operator-` (via `−1 ×` and add), `copy()` + `zero()` (source left intact) | Correct |
 | A fresh `GPUMatrix(2, 4)` | **Uninitialized**: first value `6.6×10⁻³⁷` (TD-389) |
-| `GPUMatrix(0, 8)` | **Throws** `"sycl::malloc_device failed: allocation returned null"` (TD-392) |
+| `GPUMatrix(0, 8)` | Threw `"sycl::malloc_device failed: allocation returned null"` (TD-392). **Fixed November 18, 2026:** an empty matrix, checked in `EmptyGPUMemoryIsValid` on the CPU device |
 | `big(4×4).add_inplace(small(2×2))` | **Accepted with no error**, reading past `small`'s buffer (TD-389) |
 | `GPUKVCache(8, 4)`: two `append()`s (3 + 2 rows), `get_keys()`/`get_values()`, `clear()` | Correct: rows land at the right offsets, `size()` = 5, then 0, capacity kept. **This is the first time the GPU KV cache has been run anywhere** (TD-389 noted it had no tests) |
 | `GPUDecoderKVCache(2, max_seq_length = 8, 4)`: append a 12-row encoder output to a cross-attention cache | **Throws** `"GPUKVCache::append: exceeds max_seq_length capacity"`, confirming TD-387's failure mode for over-length input |
@@ -74,7 +74,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | `GPUMatrix` is duplicated in full between the CUDA and SYCL headers, though only `copy()`/`zero()` differ (§1) | Every change must be made twice; drift between backends is silent | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 | SYCL `copy()` does a `.wait()` (§1) | An extra full-queue drain wherever a matrix is copied | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
-| Unchecked `add_inplace` and other operations; uninitialized memory; zero-size throws (§2) | As in the CUDA class | **Verified** on the CPU device (TD-389, TD-392) | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (amended), [TD-392](../../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
+| Unchecked `add_inplace` and other operations; uninitialized memory (§2). Zero-size throws, fixed November 18, 2026 (TD-392) | As in the CUDA class | **Verified** on the CPU device (TD-389, TD-392) | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (amended), [TD-392](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | Over-length encoder output throws from the cross-attention cache (§2) | GPU serving fails over-length requests | **Verified** at the cache level (TD-387) | [TD-387](../../guides/TECHNICAL_DEBT.md#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (amended) |
 | Header status note says "capped by TD-050", but TD-050 is resolved (November 17, 2026: the GPU KV cache validated and benchmarked on ai-machine's Arc) | Stale status note | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 

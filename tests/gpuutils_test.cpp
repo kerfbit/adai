@@ -25,6 +25,7 @@
 #include <thread>
 #include <vector>
 #include "../src/gpu/GPUUtils.hpp"
+#include "../src/gpu/MatrixGPU.hpp"
 
 using adai::gpu::GPUManager;
 using adai::gpu::GPUMemory;
@@ -250,6 +251,35 @@ TEST_F(GPUManagerTest, GPUMemoryOutOfRangeCopyThrows) {
     std::vector<float> host(8, 0.0f);
     EXPECT_THROW(mem.copy_from_host(host.data(), host.size()), std::out_of_range);
     EXPECT_THROW(mem.copy_to_host(host.data(), host.size()), std::out_of_range);
+}
+
+// TD-392: an empty GPUMemory is valid on both backends. SYCL's malloc_device(0) returns nullptr,
+// which allocate_block() read as a failed allocation, so this threw only on SYCL.
+TEST_F(GPUManagerTest, EmptyGPUMemoryIsValid) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+
+    const size_t before = GPUManager::get_used_memory_bytes();
+    {
+        std::unique_ptr<GPUMemory<float>> mem;
+        ASSERT_NO_THROW(mem = std::make_unique<GPUMemory<float>>(0));
+        EXPECT_EQ(mem->size(), 0u);
+        EXPECT_EQ(GPUManager::get_used_memory_bytes(), before);
+        float host = 1.0f;
+        EXPECT_NO_THROW(mem->copy_from_host(&host, 0));
+        EXPECT_NO_THROW(mem->copy_to_host(&host, 0));
+        EXPECT_EQ(host, 1.0f);
+        EXPECT_THROW(mem->copy_from_host(&host, 1), std::out_of_range);
+        // A zero-row GPUMatrix, e.g. an empty token sequence on a GPU path.
+        std::unique_ptr<adai::gpu::GPUMatrix> empty;
+        ASSERT_NO_THROW(empty = std::make_unique<adai::gpu::GPUMatrix>(0, 8));
+        EXPECT_EQ(empty->rows, 0);
+        EXPECT_EQ(empty->cols, 8);
+    }
+    GPUManager::synchronize();
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), before);
 }
 
 // TD-382: GPUMemory (and so the budget counter) is used from more than one host thread -- the

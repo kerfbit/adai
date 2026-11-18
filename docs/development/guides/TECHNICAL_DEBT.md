@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 18, 2026
-**Active Items:** 98 (7 high, 20 medium, 71 low)
+**Active Items:** 97 (7 high, 20 medium, 70 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 480 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 481 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 98 open items:
+**Where things stand.** Of the 97 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **77 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **76 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -147,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (98 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (97 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -212,7 +212,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 - [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) (MEDIUM)'s asynchronous uploads and [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) (MEDIUM)'s vectorized update loops, measured on ai-machine (section 1).
 - [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) (MEDIUM): GPU replays match losses but not the last bits of the weights (float atomics); make the device reductions
   deterministic if exact replay is wanted.
-- Smaller: [TD-392](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) (LOW, SYCL `GPUMemory(0)`), [TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions) (LOW, kernel input checks and dead batch functions), [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (LOW,
+- Smaller: [TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions) (LOW, kernel input checks and dead batch functions), [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (LOW,
   `GPUManager` lifecycle), [TD-385](#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call) (LOW, the per-sample loss download, kept by design while the trainer reads each loss).
 
 ### 6. Code work: model layers and memory
@@ -314,7 +314,6 @@ as TD-426 and TD-467 were:
   - [TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length)
   - [TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches)
   - [TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue)
-  - [TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds)
   - [TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
   - [TD-394: GPU Kernel Tests Can't Run Without a GPU](#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
   - [TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers)
@@ -2992,7 +2991,7 @@ Action Items:
 - [ ] Keep the loss on the device until it's actually needed on the host. Not done: the trainer reads each sample's loss (`CLAUDE.md`'s one scalar per sample), so that download stays. Needs a device-side loss accumulator in `ChatbotTrainer` if it's ever worth doing.
 
 Fix (November 9, 2026): `matrix_sum_gpu()` and `matrix_count_below_threshold_gpu()` allocate one buffer for every level (`reduction_buffer_size()`), and `finish_reduction()` launches each further level in place and downloads only the final value, in both backends.
-The SYCL `.wait()`s on each submit are gone (in-order queue), which leaves one wait per reduction. `count_below_threshold` returns 0 for `size <= 0` in both backends (SYCL threw, TD-392's allocation). TD-390 had already removed the allocator's own synchronization.
+The SYCL `.wait()`s on each submit are gone (in-order queue), which leaves one wait per reduction. `count_below_threshold` returns 0 for `size <= 0` in both backends (SYCL threw, TD-392's allocation, fixed November 18, 2026). TD-390 had already removed the allocator's own synchronization.
 A 262,144-element sum on the oneAPI CPU device went from about 210-230 to 130-138 us per call. At 512 elements, the loss's size, there was no clear change (950-1000 vs 915-940 us), so this is mostly tidying for the training path; on-device timing is still unmeasured.
 
 Tests: `matrixgpu_td003_test.cpp`'s `SumAndCountAreExactAcrossReductionLevels` (each size where a level appears, up to three levels; passed before the change too, guarding the rewrite) and `EmptyReductionsAreZero` (threw on old SYCL). SYCL ran on the oneAPI CPU device; CUDA is compile-checked only.
@@ -3210,31 +3209,6 @@ earlier uses complete before it is reused.
 Compile-checked only (no CUDA device here). New CUDA-only tests, which skip without a device:
 - `CudaUsesTheStreamOrderedPoolWhenSupported`;
 - `CudaFreeKeepsStreamOrder`: a copy queued before its source is freed still reads the old data.
-
----
-
-### TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `GPUUtils_SYCL.hpp` and verified: `sycl::malloc_device<float>(0, q)` returns
-`nullptr`, which `GPUMemory`'s constructor treats as an allocation failure and throws
-(`"sycl::malloc_device failed: allocation returned null"`). CUDA's `cudaMalloc(0)` succeeds, so a
-zero-row `GPUMatrix` (for example, an empty token sequence reaching a GPU path) throws only on SYCL,
-with a misleading message.
-
-Action Items:
-
-- [ ] Treat `count == 0` as a valid empty allocation (skip `malloc_device`, keep `device_ptr_` null) in the SYCL `GPUMemory`, matching CUDA.
-
-Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUMemory` constructor); tagged `TODO: See TD-392`.
-
-Files to Modify:
-
-- `src/gpu/sycl/GPUUtils_SYCL.hpp`
 
 ---
 
@@ -5206,7 +5180,7 @@ Related: TD-574 (archived), TD-563, TD-560.
 
 ## Resolved Items
 
-479 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+480 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---

@@ -1,10 +1,41 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (480 on November 18, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (481 on November 18, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | GPU / GPUManager | Code fix (LOW, filed October 12, 2026) |
+
+Description:
+Found while tracing `GPUUtils_SYCL.hpp` and verified: `sycl::malloc_device<float>(0, q)` returns
+`nullptr`, which `GPUMemory`'s constructor treats as an allocation failure and throws
+(`"sycl::malloc_device failed: allocation returned null"`). CUDA's `cudaMalloc(0)` succeeds, so a
+zero-row `GPUMatrix` (for example, an empty token sequence reaching a GPU path) throws only on SYCL,
+with a misleading message.
+
+Action Items:
+
+- [x] Treat `count == 0` as a valid empty allocation (skip `malloc_device`, keep `device_ptr_` null) in the SYCL `GPUMemory`, matching CUDA.
+
+**Fix (November 18, 2026):** since TD-390, `GPUMemory` allocates through `GPUManager::allocate_block()`'s pool, so the fix is there:
+a zero-byte request returns `nullptr` without touching `malloc_device`, the pool or the budget, as `cudaMalloc(0)` does. `release_block()`
+already ignores a null block. `copy_from_host()`/`copy_to_host()` with a zero count return without queueing a `memcpy` on the null pointer.
+Test: `GPUManagerTest.EmptyGPUMemoryIsValid` (an empty `GPUMemory`: no throw, size 0, no budget, zero-count copies, an over-size copy
+still throws; and a `GPUMatrix(0, 8)`), in the shared `gpuutils_test.cpp`. On the oneAPI CPU device (`build/sycl-cpudev`,
+`ADAI_SYCL_ALLOW_CPU_DEVICE=1`) it failed with the old header and passes with the new one; all 28 `gpuutilsTests` pass (one skips with a
+device present), as do the 22 `matrixgpuTd003Tests`. `GPUUtils_SYCL.hpp` 0.12.1; its status note no longer names TD-392.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUManager::allocate_block()`, `GPUMemory`'s copies).
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
 
 ### TD-576: `FeedForwardGradientTest.ClipGradients` Uses an Absolute Tolerance
 

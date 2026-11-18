@@ -1,11 +1,11 @@
 # `gpu/sycl/GPUUtils_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 659 lines)
+- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 676 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta` (capped by TD-383, TD-392), `@adai-version: 0.12.0`, `@adai-reviewed: 2026-11-15`
-- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (21 tests in a SYCL build: the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
-- **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default)
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.12.1`, `@adai-reviewed: 2026-11-18`
+- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (28 tests in a SYCL build, all run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (one skips with a device present), including TD-392's `EmptyGPUMemoryIsValid`; the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
+- **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); §3's zero-size case 2026-11-18 (TD-392)
 
 > Code-traced reference. There's no Intel GPU here, and `GPUManager` deliberately ignores the oneAPI
 > CPU device this machine does have. The SYCL behaviours marked **verified** were measured with a
@@ -64,9 +64,9 @@ ordering") is about this queue.
 
 | Member | Behaviour |
 |---|---|
-| `GPUMemory(count)` | Reserves the budget, then `sycl::malloc_device<T>(count, queue)`, releasing the reservation on failure. **`count == 0` throws**: `malloc_device(0)` returns `nullptr` (verified), which this treats as an allocation failure. CUDA's version succeeds for zero, so a zero-row `GPUMatrix` (for example an empty sequence) throws only on SYCL |
+| `GPUMemory(count)` | Takes a block of `count × sizeof(T)` bytes from `GPUManager::allocate_block()` (TD-390's pool, see its addendum). `count == 0` gives an empty buffer with a null pointer and no budget, as CUDA's `cudaMalloc(0)` does (TD-392, fixed November 18, 2026: `malloc_device(0)` returns `nullptr`, which `allocate_block()` read as a failed allocation, so a zero-row `GPUMatrix` threw only on SYCL) |
 | Destructor, move assignment | Returns the block to `GPUManager`'s pool (TD-390, see its addendum; this used to be a `host_task` free) |
-| `copy_from_host`, `copy_to_host` | `GPUManager::wait_for(queue.memcpy(...), false)`. **Each waits for everything already queued**, so every upload and download drains the pipeline; since TD-574 the wait times out (§2) |
+| `copy_from_host`, `copy_to_host` | `GPUManager::wait_for(queue.memcpy(...), false)`; a zero count does nothing (TD-392). **Each waits for everything already queued**, so every upload and download drains the pipeline; since TD-574 the wait times out (§2) |
 
 > **Deferred frees serialize the queue with the host (verified on a CPU queue).** In an in-order
 > queue a `host_task` can't start until all earlier commands finish, and nothing after it starts
@@ -102,7 +102,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | Deferred `host_task` frees put a device→host→device bubble on the in-order queue for every `GPUMemory` destruction, and every upload/download drains the queue (§3) | Likely a large share of SYCL training and generation time on ai-machine; budget accounting lags (hence `ChatbotTrainer`'s workaround syncs) | **Verified** on a CPU queue (1.35 ms vs 0.051 ms per op); GPU magnitude unmeasured | [TD-390](../../guides/TECHNICAL_DEBT.md#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) |
 | GPUs enumerated across all platforms, so one Arc card appears twice (Level Zero and OpenCL); `GPU_DEVICE_ID` picks by platform order and the chosen backend isn't logged (§2) | The trainer may run on the OpenCL backend instead of Level Zero without anyone knowing | By inspection; **fixed in code November 9, 2026** (see the addendum below) | [TD-391](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-391-sycl-lists-the-same-gpu-once-per-platform-and-doesnt-log-the-backend) |
-| `GPUMemory(0)` throws on SYCL but not CUDA (§3) | Zero-size `GPUMatrix` (empty sequences) fails only on SYCL | **Verified** (`malloc_device(0)` → `nullptr`) | [TD-392](../../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
+| `GPUMemory(0)` threw on SYCL but not CUDA (§3) | — | **Fixed November 18, 2026** (verified on the oneAPI CPU device) | [TD-392](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | `set_device()` frees old-context allocations with the new queue and doesn't recompute the budget; `cleanup()` leaks live buffers by design and zeroes the counter; `initialize()` ignores new arguments when already initialized (§2) | Latent traps for multi-GPU and re-initialization | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (amended) |
 | Unlike CUDA, the budget is locked; the queue itself is thread-safe for submission | TD-382 is milder on SYCL; the shared fix (`ScopedCpuOnly` for the async quality thread) covers it | By inspection; **fixed in code October 17, 2026** | [TD-382](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) (amended) |
 | Nothing has run on a real Intel GPU in the development environment | — | — | — |

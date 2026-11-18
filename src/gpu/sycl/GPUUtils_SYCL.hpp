@@ -1,9 +1,9 @@
 #ifndef GPU_UTILS_SYCL_HPP
 #define GPU_UTILS_SYCL_HPP
 
-// @adai-status: beta        (capped by TD-383, TD-392 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-11-17
+// @adai-status: beta        (capped by TD-383 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.12.1
+// @adai-reviewed: 2026-11-18
 
 #include <algorithm>
 #include <atomic>
@@ -369,12 +369,18 @@ class GPUManager {
     }
 
     /// Hands out a device block of pool_size(bytes) bytes, reusing a released one when there is
-    /// one. Counts it in the budget; trims the pool and retries before refusing.
+    /// one. Counts it in the budget; trims the pool and retries before refusing. Zero bytes give
+    /// nullptr, as cudaMalloc(0) does (TD-392); release_block() ignores it.
     static void* allocate_block(size_t bytes) {
         const size_t size = pool_size(bytes);
         std::lock_guard<std::mutex> lock(memory_mutex_);
         if (!initialized_) {
             throw std::runtime_error("GPU not initialized. Call GPUManager::initialize() first.");
+        }
+        // TD-392: malloc_device(0) returns nullptr, which read as a failed allocation, so an empty
+        // GPUMemory threw only on SYCL.
+        if (size == 0) {
+            return nullptr;
         }
         auto it = free_blocks_.find(size);
         if (it != free_blocks_.end() && !it->second.empty()) {
@@ -390,8 +396,6 @@ class GPUManager {
                 throw_budget_exceeded_locked(size);
             }
         }
-        // TODO: See TD-392 in TECHNICAL_DEBT.md - malloc_device(0) returns nullptr, so a zero-size
-        // GPUMemory throws (CUDA allows zero-size allocations)
         void* block = sycl::malloc_device(size, *queue_);
         if (!block) {
             throw std::runtime_error("sycl::malloc_device failed: allocation returned null");
@@ -645,6 +649,9 @@ class GPUMemory {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");
         }
+        if (count == 0) {
+            return;  // TD-392: an empty GPUMemory has no device pointer
+        }
         GPUManager::trace_kernel("upload");  // TD-574
         GPUManager::wait_for(
             GPUManager::get_queue().memcpy(device_ptr_, host_ptr, count * sizeof(T)), false);
@@ -653,6 +660,9 @@ class GPUMemory {
     void copy_to_host(T* host_ptr, size_t count) const {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");
+        }
+        if (count == 0) {
+            return;
         }
         GPUManager::trace_kernel("download");  // TD-574
         GPUManager::wait_for(

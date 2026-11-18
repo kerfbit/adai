@@ -66,7 +66,7 @@ nothing calls it on the hot path.
 | `multiply_gpu()`, `add_gpu()`, `transpose_gpu()`, `scale_gpu()`, `hadamard_gpu()` | **Allocate, upload, compute, download and free on every call** (TD-033). They **fall back silently to the CPU** when no GPU is available; they don't throw. Only `multiply_gpu()` has a production caller, through `operator*`'s auto-dispatch; the others are used by tests |
 | `to_gpu()` / `from_gpu()` | Persistent `GPUMatrix` upload/download (TD-003). `to_gpu()` throws `runtime_error` without a GPU. `from_gpu()` is used by `LLMEncoder`'s and `Decoder`'s GPU backward paths |
 
-A zero-row operand reaching a SYCL `GPUMemory` throws (TD-392).
+A zero-row operand reaching a SYCL `GPUMemory` threw until TD-392 was fixed (November 18, 2026); it is now an empty buffer, as on CUDA.
 
 ---
 
@@ -158,7 +158,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `sum()` accumulates in `float` (§2) | 2.2% error at 16.8M elements; few callers | **Verified** | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | `randomize()` static RNG isn't thread-safe (§2) | Data race if layers initialize concurrently | By inspection | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | Public mutable `data`/`rows`/`cols`; negative sizes give `length_error`; `print()` to stdout; `*_gpu()` wrappers unused outside tests (§1, §2) | API hygiene | By inspection | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
-| Per-op GPU round trips; GPU dispatch ignores `rows`; unseedable `randomize()`; SYCL zero-size buffers | Already tracked | — | TD-033, TD-368, TD-392 (the shared-stream race, TD-382, was fixed October 17, 2026) |
+| Per-op GPU round trips; GPU dispatch ignores `rows`; unseedable `randomize()`; SYCL zero-size buffers (TD-392, fixed November 18, 2026) | Already tracked | — | TD-033, TD-368, TD-392 (the shared-stream race, TD-382, was fixed October 17, 2026) |
 
 ---
 
