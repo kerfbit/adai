@@ -23,6 +23,7 @@
 
 #include "../src/BPETokenizer.hpp"
 #include "../src/DatasetRegistry.hpp"
+#include "../src/IncrementalTrainerArgs.hpp"
 #include "../src/SignalSetup.hpp"
 #include "cpp-httplib/httplib.h"
 
@@ -761,6 +762,11 @@ TEST_F(SighupTest, AFirstTrainBuildsTheVocabularyAndExceptionsExitOne) {
     const fs::path unreadable = dir_ / "vocab_dir";
     fs::create_directories(unreadable);
     EXPECT_EQ(run(config_with_vocab(unreadable), {"init"}), 1);
+    // TD-575: the same through the pass trainer_service launches (its admin API thread running), which the
+    // binary deployed on ai-machine before TD-414 aborted in (SIGABRT from load_vocab, every pass). It's a
+    // failed pass, exit 1, so trainer_service counts it and retries.
+    EXPECT_EQ(run(config_with_vocab(unreadable), {"--admin-port", std::to_string(free_port()), "resume"}),
+              adai::kResumeExitFailed);
 }
 
 // TD-404: without MNS, the chatbot pass's run id was hostname prefix + PID, new every run (and able to

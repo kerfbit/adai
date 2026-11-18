@@ -116,6 +116,19 @@ Packages all server binaries, install scripts, config templates, SQL schema, and
 ./scripts/package_server_bundle.sh --output-dir dist/ --version v1.2.0
 ```
 
+### redeploy_server_bundle.sh
+
+Upgrades a host that already runs the server bundle: replaces the binaries its `adai-mns`, `adai-registry` and
+`adai-metrics` units run, keeping their units, configs and data, with a backup and a rollback. Runs from the unpacked
+bundle (`package_server_bundle.sh` includes it). See
+[SERVER_BUNDLE_DEPLOYMENT.md](../docs/operations/deployment/SERVER_BUNDLE_DEPLOYMENT.md#upgrade-a-host-that-already-runs-the-bundle).
+
+```bash
+scripts/redeploy_server_bundle.sh          # check (changes nothing)
+scripts/redeploy_server_bundle.sh install
+scripts/redeploy_server_bundle.sh rollback [STAMP] [--with-data]
+```
+
 ### package_windows.sh
 
 Packages Windows cross-compiled executables with all MinGW-w64 runtime DLLs into a distributable ZIP. Requires a prior `build_windows.sh` run.

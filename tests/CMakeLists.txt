@@ -1453,6 +1453,7 @@ foreach(_script_test IN ITEMS
     manual_test_reload_test.sh
     model_service_test.sh
     package_server_bundle_test.sh
+    redeploy_server_bundle_test.sh
     package_sycl_test.sh
     package_sycl_gpu_tests_test.sh
     package_windows_test.sh

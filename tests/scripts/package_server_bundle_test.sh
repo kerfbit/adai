@@ -87,6 +87,7 @@ else
         assert_contains "/config.conf"
         assert_contains "/scripts/install_server_bundle.sh"
         assert_contains "/scripts/setup_postgres.sql"
+        assert_contains "/scripts/redeploy_server_bundle.sh"
         # --include-trainer / --include-chatbot-api were NOT passed —
         # confirms those binaries are correctly left out by default.
         assert_not_contains "/bin/incremental_trainer"

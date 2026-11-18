@@ -65,7 +65,9 @@ pass registered yet, or on a second signal, it `_exit(1)`s.
 FTP and remove them afterwards; they live in `TrainingPassFiles.cpp` since November 12, 2026 ([LeJEPATrainingPass.md](LeJEPATrainingPass.md)
 §1).
 
-`main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414). In a GPU build, if a wait for GPU work timed
+`main()` turns an exception from any command into `❌ <message>` and exit 1 (TD-414), including from the `resume` pass
+`trainer_service` launches, so a vocabulary that can't be loaded is a failed pass it retries, not an abort (`SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`
+runs `init` and `--admin-port N resume` with an unreadable vocabulary, TD-575: the binary deployed on ai-machine before TD-414 aborted there). In a GPU build, if a wait for GPU work timed
 out during the command (`adai::gpu::gpu_work_stuck()`, TD-574), it then logs `[GPU] GPU work is stuck: exiting without the GPU
 runtime's teardown (exit N)`, flushes the logger and streams, and ends with `exit_without_gpu_teardown()` (`std::_Exit` with the same
 code): on the Level Zero v1 adapter the oneAPI runtime's teardown blocked on the stuck work at exit. With `ADAI_GPU_KEEP_TEARDOWN=1`

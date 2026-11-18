@@ -144,10 +144,11 @@ adai-server-bundle-<version>/
     mns_server                  Model Name Service
     mns_cli                     MNS command-line client
     incremental_trainer         (only with --include-trainer)
-    dataset_manager             (only with --include-trainer)
+    dataset_manager             (included if built; always with --include-trainer)
     vocab_builder               (included if built)
   scripts/
     install_server_bundle.sh    Bundle installer
+    redeploy_server_bundle.sh   Upgrades an installed bundle's binaries in place (backup, rollback)
     install_incremental_trainer.sh
     install_metrics_service.sh
     install_mns_server.sh
@@ -168,6 +169,38 @@ cd /tmp && tar xzf adai-server-bundle-v1.2.0.tar.gz
 cd adai-server-bundle-v1.2.0
 sudo scripts/install_server_bundle.sh --build-dir . --yes
 ```
+
+### Upgrade a Host That Already Runs the Bundle
+
+`install_server_bundle.sh` is for a fresh host: it rewrites the three units and `config.conf`, so whatever a host's
+units were changed to run with (FTP, ports, storage backend, data directories) would be lost. To upgrade one, use
+`scripts/redeploy_server_bundle.sh` from the unpacked bundle instead (TD-575, November 2026). It uses sudo and asks
+before changing anything:
+
+```bash
+scripts/redeploy_server_bundle.sh            # check: each unit, the binary it runs, its port, /health, its data
+scripts/redeploy_server_bundle.sh install    # stop, back up, replace the binaries in place, start, wait for /health
+scripts/redeploy_server_bundle.sh rollback [STAMP] [--with-data]
+```
+
+For each service it uses the unit that is running: `adai-mns`, `adai-registry`, and `adai-metrics-api`
+(`install_metrics_service.sh`'s name) or `adai-metrics` (`install_server_bundle.sh`'s). A host can have both metrics
+units, one of them old and stopped (192.168.1.16 did); the one not in use is left alone, and a unit that wasn't running
+isn't started. `install` reads each unit's `ExecStart` for the binary path, `--port` and `--data-dir`; the metrics
+server's database and storage backend come from `--db-path`/`--storage-backend`, else the unit's `Environment=`, else
+its `--config` file (`METRICS_DB_PATH`, `METRICS_STORAGE_BACKEND`; a relative path is under the unit's
+`WorkingDirectory`), else the defaults. It refuses a PostgreSQL metrics server when the package's binary was built
+without PostgreSQL. It
+stops the services (metrics, registry, MNS), and backs up into `/var/backups/adai-server-bundle/<UTC stamp>/` each binary,
+`mns_cli` and `dataset_manager` beside them, the unit files, each unit's `--config` file, `/etc/adai` and
+`/opt/adai/config`, MNS's data
+directory, the SQLite metrics database and the registry's queue files (`.txt`, `.json`, `.db`; not the datasets it
+serves). It replaces each binary at the same path with the same owner, starts again those that were running (MNS, the registry, metrics), and
+waits up to 30 s for each `/health`. If one doesn't come up it prints that service's journal and the rollback command.
+`rollback` puts back a backup's binaries (default the newest); `--with-data` also puts back its data as it was before
+that install, keeping the newer data beside it (`<dir>.rollback-<stamp>`), for when a newer binary migrated it. A
+PostgreSQL metrics database isn't backed up. A host with none of the three units is told to use
+`install_server_bundle.sh`.
 
 ---
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: stable
-# @adai-version: 1.0.0
-# @adai-reviewed: 2026-09-11
+# @adai-version: 1.1.0
+# @adai-reviewed: 2026-11-17
 
 # ADAI Server Bundle — Packaging Script
 #
@@ -83,6 +83,7 @@ Tarball contents:
     bin/                            Server binaries
     scripts/
       install_server_bundle.sh      Bundle installer (systemd + config)
+      redeploy_server_bundle.sh     Replaces an installed bundle's binaries in place (backup, rollback)
       install_incremental_trainer.sh  Trainer installer (optional)
       install_metrics_service.sh    Standalone metrics installer
       install_mns_server.sh         Standalone MNS installer
@@ -266,6 +267,16 @@ if [[ -f "${BUILD_BIN}/mns_manager_gui" ]]; then
     success "  bin/mns_manager_gui (bonus)"
 fi
 
+# Optional: include dataset_manager if it was built (the registry host's own CLI; --include-trainer
+# requires it, but it needs no trainer).
+if [[ "${INCLUDE_TRAINER}" != true && -f "${BUILD_BIN}/dataset_manager" ]]; then
+    cp "${BUILD_BIN}/dataset_manager" "${STAGE}/bin/dataset_manager"
+    if [[ "${STRIP_BINARIES}" == true ]] && command -v strip &>/dev/null; then
+        strip "${STAGE}/bin/dataset_manager" 2>/dev/null || true
+    fi
+    success "  bin/dataset_manager (bonus)"
+fi
+
 # Optional: include vocab_builder if it was built
 if [[ -f "${BUILD_BIN}/vocab_builder" ]]; then
     cp "${BUILD_BIN}/vocab_builder" "${STAGE}/bin/vocab_builder"
@@ -277,7 +288,7 @@ fi
 
 # --- Scripts ---
 info "Copying scripts..."
-for s in install_server_bundle.sh install_incremental_trainer.sh \
+for s in install_server_bundle.sh redeploy_server_bundle.sh install_incremental_trainer.sh \
          install_metrics_service.sh install_mns_server.sh \
          install_chatbot_API.sh setup_postgres.sql; do
     if [[ -f "${SCRIPT_DIR}/${s}" ]]; then
@@ -305,7 +316,14 @@ cat > "${STAGE}/README.txt" <<'READMEEOF'
 ADAI Server Bundle
 ==================
 
-Quick start (SQLite — default):
+Upgrading a host that already runs the bundle (keeps its units, configs and data;
+backs up first; rollback):
+
+  scripts/redeploy_server_bundle.sh            # check: what's installed, what would change
+  scripts/redeploy_server_bundle.sh install
+  scripts/redeploy_server_bundle.sh rollback   # if needed
+
+Quick start on a fresh host (SQLite — default):
 
   sudo scripts/install_server_bundle.sh --build-dir . --yes
 

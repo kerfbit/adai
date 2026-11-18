@@ -5113,7 +5113,7 @@ Related: TD-047, TD-048.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Deployment | November 18, 2026 | 2-4 hours, plus a look at ai-machine |
+| MEDIUM | Open — the code half was already done by TD-414 (a current binary exits 1, a failed pass, instead of aborting); what's left is on ai-machine: the vocabulary's error message, and deploying current binaries | Training / Deployment | November 18, 2026 | 2-4 hours, plus a look at ai-machine |
 
 Description:
 Split from TD-574 (November 18, 2026). During TD-574's seventh round (November 15, 2026) the `incremental_trainer` deployed on
@@ -5127,13 +5127,45 @@ code, not an abort with a core dump.
 Also on the deployed host (from TD-574): an explicit `GPU_STRATEGY=background` in `/etc/adai/config.*.conf` would override the new
 default `normal`. Less urgent now that ai-machine runs the 7.0 kernel, which resets no priority (TD-574), but still worth matching.
 
+**What ai-machine showed (November 18, 2026).** The service is in a restart loop and has trained nothing: every 47 s (systemd's
+`RestartSec=45`) a pass loads its configuration, resolves model `ambitious-aardvark` from MNS (d_model 512, 6+6 layers), starts
+the GPU (`GPU_STRATEGY` `full`) and aborts with `VocabularyFileError: Could not open vocabulary file:
+/home/rodney/Repos/adai/vocab.txt`.
+- The binary is `/opt/adai/bin/incremental_trainer` of **September 23, 2026**, before TD-414 (the handler), TD-358 (GPU targets),
+  TD-538, TD-560 and the rest of the training fixes; there is no `trainer_service` (TD-172's cutover never happened).
+- It reads `/opt/adai/config/config.conf`, the legacy single-file config, whose `VOCAB_PATH` is a path on the development
+  machine. `/etc/adai/config.conf` names `/opt/adai/vocab/vocab.txt`, but this binary doesn't read it. Even the right path in the
+  wrong place would fail: the unit's `ProtectHome=yes` hides `/home`.
+- Its log file is the relative `chatbot_server.log`, which `ProtectSystem=strict` makes read-only, so it logs to the journal only.
+
+Fixing the path alone would let a September binary train, with TD-358's unshifted GPU targets: it would damage the checkpoint
+further. So the service stays stopped until the deployment is current (TD-172's cutover to `trainer_service`, TD-563's order).
+
 Action items:
-- [ ] On ai-machine: `coredumpctl info 2455` (or the newest `incremental_trainer` dump) and the journal around it; the exception's
-  message names the reason.
-- [ ] Fix the cause (deploy current binaries and vocabulary together, TD-563's order).
-- [ ] Catch the exception in `incremental_trainer`'s startup (log it, exit with a failed-pass code), and test that a bad vocabulary
-  file fails the pass without an abort.
-- [ ] `grep -H GPU_STRATEGY /etc/adai/config.*.conf` on ai-machine; remove an explicit `background`.
+- [x] On ai-machine: `coredumpctl info 2455` (or the newest `incremental_trainer` dump) and the journal around it; the exception's
+  message names the reason. (November 18, 2026: the journal; above.)
+- [x] Stop and disable the looping `adai-trainer` unit until the deployment is current. (November 18, 2026. The installed unit
+  is the old one: `incremental_trainer --config /opt/adai/config/config.conf --foreground resume`, `Restart=on-failure`. Also
+  deployed: `chatbot_api_server` of July 4, the vocabulary of July 4 (lowercase v1, before TD-220's merge fix), and only the legacy
+  `/etc/adai/config.conf` of July 4.)
+- [x] Upgrade the server host first (192.168.1.16: `mns_server`, `registry_server`, `metrics_api_server`, `mns_cli`,
+  `dataset_manager`), November 18, 2026: the portable build of `98d65486`, packed by `package_server_bundle.sh`, put in place
+  by the new `redeploy_server_bundle.sh install`, which kept the host's units (`adai-mns`, `adai-registry` with plain FTP,
+  `adai-metrics-api` with `--config /opt/adai/etc/config.conf`; the old, stopped `adai-metrics` left alone), configs and data.
+  All three answer `/health`; MNS still lists its three models and the metrics server its sessions. Backup and rollback:
+  `/var/backups/adai-server-bundle/20261118T064630Z`. The binaries it replaced were from September 20 and October 1.
+- [ ] Register the new model in MNS (owner decision November 18: a new model rather than retraining `ambitious-aardvark`), and
+  settle `ambitious-aardvark`'s stale `training` lock (`run-01`, since August) and `chatbot-v1`.
+- [ ] Fix the cause: deploy current binaries and `trainer_service` (TD-172's cutover) with per-service configs under
+  `/etc/adai/` whose `VOCAB_PATH` names the deployed vocabulary, together with the vocabulary (TD-563's order).
+- [x] Catch the exception in `incremental_trainer`'s startup (log it, exit with a failed-pass code), and test that a bad vocabulary
+  file fails the pass without an abort. (November 18, 2026: already done in code by TD-414, November 2. The crash's stack has
+  `main` → `IncrementalTrainer::IncrementalTrainer` → `build_model` → `load_vocab` → `__cxa_throw` → `std::terminate`, with no
+  handler, so the deployed binary predates TD-414; every current command runs inside `main()`'s `try`. Added the deployed path to
+  `SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`: `--admin-port N resume` with an unreadable vocabulary exits
+  1 (a failed pass), and exits 134 (`SIGABRT`) with `main()`'s handler removed, as on ai-machine.)
+- [x] `grep -H GPU_STRATEGY /etc/adai/config.*.conf` on ai-machine; remove an explicit `background`. (November 18, 2026: the
+  running pass logs `full`; nothing to change.)
 
 Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokenizer.cpp` (`load_vocab()`),
 `src/IncrementalTrainingTool.cpp`.
