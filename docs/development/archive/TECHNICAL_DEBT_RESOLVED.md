@@ -1,10 +1,32 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (479 on November 18, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (480 on November 18, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-576: `FeedForwardGradientTest.ClipGradients` Uses an Absolute Tolerance
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | Transformer / FeedForward | Test fix (LOW, filed November 18, 2026) |
+
+Description:
+Split from TD-574 (November 18, 2026). `feedforwardTests`' `ClipGradients` failed once on the Arc: the clipped norm was 5.00011
+against a limit checked as `5.0 + 1e-4`. Float rounding in a norm of that size can exceed an absolute 1e-4, so the test can fail on a
+correct implementation.
+
+Action items:
+- [x] Check the clipped norm with a relative tolerance (e.g. `EXPECT_NEAR(norm, 5.0f, 5.0f * 1e-4f)` or `EXPECT_LE(norm, 5.0f * (1 +
+  1e-4f))`), in `tests/feedforward_test.cpp`.
+
+**Fix (November 18, 2026):** `EXPECT_NEAR(norm_after, max_norm, max_norm * 1e-4f)`, which also fails if the clip does nothing, after an
+`ASSERT_GT` that the norm before clipping is over twice the limit. `feedforwardTests` passes (59).
+
+Location in code: `tests/feedforward_test.cpp` (`FeedForwardGradientTest.ClipGradients`).
+
+Related: TD-574.
 
 ### TD-578: `mainline_kernel.sh` Rebuilds Change the Package's Root mtime, Failing Its Test Under Load
 

@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 18, 2026
-**Active Items:** 99 (7 high, 20 medium, 72 low)
+**Active Items:** 98 (7 high, 20 medium, 71 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 479 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 480 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 99 open items:
+**Where things stand.** Of the 98 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **78 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **77 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -30,7 +30,7 @@ that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
 **November 18, 2026:** Filed [TD-575](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) (MEDIUM, the deployed trainer's startup abort in `load_vocab`) and
-[TD-576](#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) (LOW, a test tolerance), both split from TD-574 when it closed.
+[TD-576](../archive/TECHNICAL_DEBT_RESOLVED.md#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) (LOW, a test tolerance, fixed the same day), both split from TD-574 when it closed.
 Filed and fixed [TD-577](../archive/TECHNICAL_DEBT_RESOLVED.md#td-577-bpe-merge-learning-recounts-the-whole-corpus-every-round)
 (MEDIUM): BPE merge learning recounted the whole corpus every round, so `bodacious-badger`'s vocabulary build would have taken days; it now
 takes seconds and learns the same merges. Filed and fixed [TD-578](../archive/TECHNICAL_DEBT_RESOLVED.md#td-578-mainline_kernelsh-rebuilds-change-the-packages-root-mtime-failing-its-test-under-load)
@@ -147,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (99 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-577 and TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (98 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -225,7 +225,6 @@ as TD-426 and TD-467 were:
   `SIGReg`).
 - [TD-435](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) (LOW, `Matrix`) and [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) (LOW, the SIMD self-check and a startup CPU check).
 - [TD-397](#td-397-hippocampal-swap-file-grows-without-bound) (LOW) and [TD-398](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves) (LOW): the hippocampal swap file's cap and the per-step copies.
-- [TD-576](#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) (LOW): a relative tolerance in `FeedForwardGradientTest.ClipGradients`.
 
 ### 7. Code work: serving and RAG
 
@@ -366,7 +365,6 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
-  - [TD-576: `FeedForwardGradientTest.ClipGradients` Uses an Absolute Tolerance](#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5204,32 +5202,11 @@ Related: TD-574 (archived), TD-563, TD-560.
 
 ---
 
-### TD-576: `FeedForwardGradientTest.ClipGradients` Uses an Absolute Tolerance
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Transformer / FeedForward | November 18, 2026 | 0-2 hours |
-
-Description:
-Split from TD-574 (November 18, 2026). `feedforwardTests`' `ClipGradients` failed once on the Arc: the clipped norm was 5.00011
-against a limit checked as `5.0 + 1e-4`. Float rounding in a norm of that size can exceed an absolute 1e-4, so the test can fail on a
-correct implementation.
-
-Action items:
-- [ ] Check the clipped norm with a relative tolerance (e.g. `EXPECT_NEAR(norm, 5.0f, 5.0f * 1e-4f)` or `EXPECT_LE(norm, 5.0f * (1 +
-  1e-4f))`), in `tests/feedforward_test.cpp`.
-
-Location in code: `tests/feedforward_test.cpp` (`FeedForwardGradientTest.ClipGradients`).
-
-Related: TD-574 (archived).
-
----
-
 ---
 
 ## Resolved Items
 
-478 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+479 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---

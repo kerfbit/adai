@@ -452,7 +452,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(99 on November 18, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(98 on November 18, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -555,4 +555,3 @@ reference doc that tracks it):
 | TD-563 (MEDIUM) | Rebuild Vocabularies and Retrain With Case, and Deploy in Order. Format refusal landed November 4, 2026; rebuild, retrain and rollout pending (TD-358). Left: Deploy binaries with TD-560 everywhere (`incremental_trainer`/`trainer_service` hosts, `chatbot_api_server`, `vocab_builder`, any tool reading… (and 4 more). |
 | TD-573 (LOW) | What the Android Apps Need to Reach `stable`. Left: Setup 1: make `wear-sdk` optional for `opsdashboard` (checking the watch-face push code without it) (and 7 more). |
 | TD-575 (MEDIUM) | Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`. Split from TD-574, November 18, 2026. The abort is a September 23 binary (pre-TD-414; current ones exit 1, a failed pass) reading the legacy `/opt/adai/config/config.conf`, whose `VOCAB_PATH` is a development-machine path; it restarts every 47 s and has trained nothing. Stopped and disabled November 18; the server host (192.168.1.16: MNS, registry, metrics) upgraded in place the same day (`redeploy_server_bundle.sh`). `bodacious-badger` (768/12/3072, 8+24, 1024, run group `bb01`) registered with `world-model-v1` linked every 8 decoder layers; `ambitious-aardvark` and `chatbot-v1` retired. Left: queue `bb01`'s data, then deploy current binaries and `trainer_service` (TD-172's cutover) with per-service configs and the vocabulary, in TD-563's order. |
-| TD-576 (LOW) | `FeedForwardGradientTest.ClipGradients` Uses an Absolute Tolerance. Split from TD-574, November 18, 2026. Left: Check the clipped norm with a relative tolerance in `tests/feedforward_test.cpp`. |

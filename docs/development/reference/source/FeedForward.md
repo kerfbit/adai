@@ -118,7 +118,8 @@ open question of residual growth in Pre-LN training on ai-machine, though it isn
 - construction across sizes and expansion ratios;
 - forward (shapes, single token, long sequences, determinism, zero/negative/large inputs);
 - backward (shapes, non-zero gradients, accumulation, varying lengths);
-- `zero_grad()`, gradient norm and clipping;
+- `zero_grad()`, gradient norm and clipping (`ClipGradients` checks the clipped norm equals the limit within a relative 1e-4, TD-576;
+  an absolute 1e-4 failed once on the Arc at 5.00011);
 - plain updates, and optimizer integration (set, null, switch, LR scheduling, comparison with SGD);
 - save/load (round trip, after training, dimension mismatch, missing file, repeated);
 - a training loop and a residual-connection pattern;

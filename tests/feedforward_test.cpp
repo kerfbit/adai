@@ -409,10 +409,13 @@ TEST(FeedForwardGradientTest, ClipGradients) {
     ff.backward(grad_output);
 
     float max_norm = 5.0f;
+    ASSERT_GT(ff.get_gradient_norm(), 2 * max_norm);  // so the clip has work to do
     ff.clip_gradients(max_norm);
 
+    // TD-576: rescaled to the limit, within float rounding relative to the norm. An absolute 1e-4 failed
+    // on the Arc at 5.00011, a relative error of 2e-5 from summing about 33,000 squares in another order.
     float norm_after = ff.get_gradient_norm();
-    EXPECT_LE(norm_after, max_norm + 1e-4f);  // Allow small numerical error
+    EXPECT_NEAR(norm_after, max_norm, max_norm * 1e-4f);
 }
 
 TEST(FeedForwardGradientTest, ClipGradientsNoEffect) {
