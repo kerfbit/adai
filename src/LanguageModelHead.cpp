@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-19
 
 #include "LanguageModelHead.hpp"
 #include "BinaryIO.hpp"
@@ -9,10 +9,15 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
-#include <iostream>
 #include <random>
 #include <stdexcept>
-#include "Activation.hpp"
+#include "Logger.hpp"
+
+namespace {
+std::string shape(int rows, int cols) {
+    return "[" + std::to_string(rows) + ", " + std::to_string(cols) + "]";
+}
+}  // namespace
 
 LanguageModelHead::LanguageModelHead(int d_model, int vocab_size)
     : d_model(d_model),
@@ -33,14 +38,20 @@ LanguageModelHead::LanguageModelHead(int d_model, int vocab_size)
     W_output_grad.fill(0.0f);
     bias_grad.fill(0.0f);
 
-    // TODO: See TD-425 in TECHNICAL_DEBT.md - std::cout in library code; int parameter count can overflow
-    std::cout << "LanguageModelHead initialized:" << '\n';
-    std::cout << "  Input dimension: " << d_model << '\n';
-    std::cout << "  Vocabulary size: " << vocab_size << '\n';
-    std::cout << "  Parameters: " << (d_model * vocab_size + vocab_size) << '\n';
+    // TD-425: one debug line (four std::cout lines before), and the count in 64 bits (an int
+    // overflows past 2^31 parameters).
+    const long long parameters =
+        static_cast<long long>(d_model) * vocab_size + static_cast<long long>(vocab_size);
+    adai::Logger::debug("LanguageModelHead: d_model {}, vocab_size {}, {} parameters", d_model,
+                        vocab_size, parameters);
 }
 
 Matrix LanguageModelHead::forward(const Matrix& input) {
+    if (input.cols != d_model) {  // TD-425
+        throw std::invalid_argument("LanguageModelHead::forward: input has " +
+                                    std::to_string(input.cols) + " columns, expected d_model " +
+                                    std::to_string(d_model));
+    }
     // Cache input for backward pass
     cached_input = input;
 
@@ -57,27 +68,12 @@ Matrix LanguageModelHead::forward(const Matrix& input) {
     return output;
 }
 
-// TODO: See TD-425 in TECHNICAL_DEBT.md - no production caller
-std::vector<float> LanguageModelHead::get_probabilities(const std::vector<float>& logits) {
-    // Convert vector to matrix for softmax
-    Matrix logits_matrix(1, static_cast<int>(logits.size()));
-    for (size_t i = 0; i < logits.size(); ++i) {
-        logits_matrix(0, static_cast<int>(i)) = logits[i];
-    }
-
-    // Apply softmax
-    Matrix probs_matrix = Activation::softmax(logits_matrix);
-
-    // Convert back to vector
-    std::vector<float> probs(logits.size());
-    for (size_t i = 0; i < logits.size(); ++i) {
-        probs[i] = probs_matrix(0, static_cast<int>(i));
-    }
-
-    return probs;
-}
-
 Matrix LanguageModelHead::backward(const Matrix& grad_output) {
+    if (grad_output.rows != cached_input.rows || grad_output.cols != vocab_size) {  // TD-425
+        throw std::invalid_argument("LanguageModelHead::backward: expected " +
+                                    shape(cached_input.rows, vocab_size) + " (the last forward()), got " +
+                                    shape(grad_output.rows, grad_output.cols));
+    }
     // Gradient w.r.t. W_output: input^T * grad_output
     Matrix grad_W = cached_input.transpose() * grad_output;
 
@@ -143,6 +139,33 @@ void LanguageModelHead::load(const std::string& filepath) {
     file.expect_end();
     W_output = std::move(loaded_w);
     bias = std::move(loaded_bias);
+    refresh_gpu_mirror();  // TD-425
+}
+
+void LanguageModelHead::set_W_output(const Matrix& m) {
+    if (m.rows != d_model || m.cols != vocab_size) {
+        throw std::invalid_argument("LanguageModelHead::set_W_output: expected " +
+                                    shape(d_model, vocab_size) + ", got " + shape(m.rows, m.cols));
+    }
+    W_output = m;
+    refresh_gpu_mirror();
+}
+
+void LanguageModelHead::set_bias(const Matrix& m) {
+    if (m.rows != 1 || m.cols != vocab_size) {
+        throw std::invalid_argument("LanguageModelHead::set_bias: expected " +
+                                    shape(1, vocab_size) + ", got " + shape(m.rows, m.cols));
+    }
+    bias = m;
+    refresh_gpu_mirror();
+}
+
+void LanguageModelHead::refresh_gpu_mirror() {
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_) {
+        gpu_upload_weights();
+    }
+#endif
 }
 
 void LanguageModelHead::set_optimizer(Optimizer* opt) {
@@ -243,8 +266,16 @@ adai::gpu::GPUMatrix LanguageModelHead::gpu_forward(const adai::gpu::GPUMatrix& 
     return result;
 }
 
-// TODO: See TD-425 in TECHNICAL_DEBT.md - dereferences gpu_ unchecked (null before any gpu_forward())
 adai::gpu::GPUMatrix LanguageModelHead::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    // TD-425: gpu_ is null until the first gpu_forward()/gpu_upload_weights().
+    if (!gpu_) {
+        throw std::logic_error("LanguageModelHead::gpu_backward called before gpu_forward");
+    }
+    if (dout.rows != gpu_->cached_input.rows || dout.cols != vocab_size) {
+        throw std::invalid_argument("LanguageModelHead::gpu_backward: expected " +
+                                    shape(gpu_->cached_input.rows, vocab_size) + ", got " +
+                                    shape(dout.rows, dout.cols));
+    }
     // dW += input^T * dout
     gpu_->dW.add_inplace(gpu_->cached_input.transpose() * dout);
     // db += sum_rows(dout)

@@ -269,14 +269,6 @@ public:
     Matrix forward(const Matrix& input);
 
     /**
-     * Get probability distribution for next token prediction
-     *
-     * @param logits Output logits [vocab_size] (single position)
-     * @return Probability distribution [vocab_size]
-     */
-    std::vector<float> get_probabilities(const std::vector<float>& logits);
-
-    /**
      * Backward pass: Compute gradients
      *
      * @param grad_output Gradient from loss [seq_len, vocab_size]

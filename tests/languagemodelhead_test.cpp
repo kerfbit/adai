@@ -143,110 +143,6 @@ TEST(LanguageModelHeadForwardTest, Deterministic) {
 }
 
 // ============================================================================
-// Probability Tests
-// ============================================================================
-
-TEST(LanguageModelHeadProbabilityTest, SumToOne) {
-    int d_model = 64;
-    int vocab_size = 100;
-
-    LanguageModelHead lm_head(d_model, vocab_size);
-
-    std::vector<float> logits(vocab_size);
-    for (int i = 0; i < vocab_size; ++i) {
-        logits[i] = static_cast<float>(i) / 10.0f;
-    }
-
-    std::vector<float> probs = lm_head.get_probabilities(logits);
-
-    float sum = 0.0f;
-    for (float p : probs) {
-        sum += p;
-    }
-
-    EXPECT_NEAR(sum, 1.0f, 1e-5f);
-}
-
-TEST(LanguageModelHeadProbabilityTest, AllPositive) {
-    int d_model = 64;
-    int vocab_size = 100;
-
-    LanguageModelHead lm_head(d_model, vocab_size);
-
-    std::vector<float> logits(vocab_size);
-    for (int i = 0; i < vocab_size; ++i) {
-        logits[i] = (rand() % 100) / 10.0f - 5.0f;  // Range [-5, 5]
-    }
-
-    std::vector<float> probs = lm_head.get_probabilities(logits);
-
-    for (float p : probs) {
-        EXPECT_GT(p, 0.0f);
-        EXPECT_LT(p, 1.0f);
-    }
-}
-
-TEST(LanguageModelHeadProbabilityTest, MaximumLogitHighestProbability) {
-    int d_model = 64;
-    int vocab_size = 100;
-
-    LanguageModelHead lm_head(d_model, vocab_size);
-
-    std::vector<float> logits(vocab_size, 0.0f);
-    int max_idx = 42;
-    logits[max_idx] = 10.0f;  // Much higher than others
-
-    std::vector<float> probs = lm_head.get_probabilities(logits);
-
-    // Find argmax
-    int predicted_idx = std::max_element(probs.begin(), probs.end()) - probs.begin();
-
-    EXPECT_EQ(predicted_idx, max_idx);
-    EXPECT_GT(probs[max_idx], 0.9f);  // Should be very confident
-}
-
-TEST(LanguageModelHeadProbabilityTest, UniformLogitsUniformProbs) {
-    int d_model = 64;
-    int vocab_size = 10;
-
-    LanguageModelHead lm_head(d_model, vocab_size);
-
-    std::vector<float> logits(vocab_size, 1.0f);  // All same
-
-    std::vector<float> probs = lm_head.get_probabilities(logits);
-
-    float expected_prob = 1.0f / vocab_size;
-    for (float p : probs) {
-        EXPECT_NEAR(p, expected_prob, 1e-5f);
-    }
-}
-
-TEST(LanguageModelHeadProbabilityTest, NumericalStability) {
-    int d_model = 64;
-    int vocab_size = 100;
-
-    LanguageModelHead lm_head(d_model, vocab_size);
-
-    // Very large logits that could cause overflow
-    std::vector<float> logits(vocab_size, 100.0f);
-    logits[50] = 101.0f;
-
-    EXPECT_NO_THROW({
-        std::vector<float> probs = lm_head.get_probabilities(logits);
-
-        // Check still valid probabilities
-        float sum = 0.0f;
-        for (float p : probs) {
-            EXPECT_TRUE(std::isfinite(p));
-            EXPECT_GE(p, 0.0f);
-            EXPECT_LE(p, 1.0f);
-            sum += p;
-        }
-        EXPECT_NEAR(sum, 1.0f, 1e-5f);
-    });
-}
-
-// ============================================================================
 // Backward Pass Tests
 // ============================================================================
 
@@ -575,7 +471,8 @@ TEST(LanguageModelHeadIntegrationTest, CrossEntropyGradient) {
         for (int j = 0; j < vocab_size; ++j) {
             logits_i[j] = logits(i, j);
         }
-        std::vector<float> probs = lm_head.get_probabilities(logits_i);
+        std::vector<float> probs(vocab_size);
+        Activation::softmax_row(logits_i.data(), probs.data(), vocab_size);
 
         // Target: one-hot at position 2
         int target = 2;
@@ -614,7 +511,8 @@ TEST(LanguageModelHeadIntegrationTest, GenerationSimulation) {
         for (int j = 0; j < vocab_size; ++j) {
             logits_vec[j] = logits(0, j);
         }
-        std::vector<float> probs = lm_head.get_probabilities(logits_vec);
+        std::vector<float> probs(vocab_size);
+        Activation::softmax_row(logits_vec.data(), probs.data(), vocab_size);
 
         // Greedy selection (argmax)
         int next_token = std::max_element(probs.begin(), probs.end()) - probs.begin();
@@ -1224,6 +1122,79 @@ TEST(LanguageModelHeadPersistenceTest, FailedWriteThrows) {
     LanguageModelHead head(16, 40);
     EXPECT_THROW(head.save("/dev/full"), std::runtime_error);
 }
+
+// TD-425: shapes are checked, and a rejected input changes nothing.
+TEST(LanguageModelHeadShapeTest, ForwardBackwardAndSettersCheckShapes) {
+    LanguageModelHead head(8, 20);
+    EXPECT_THROW(head.forward(Matrix(3, 9)), std::invalid_argument);
+    EXPECT_THROW(head.forward(Matrix(3, 7)), std::invalid_argument);
+    head.forward(Matrix(3, 8));
+    EXPECT_THROW(head.backward(Matrix(3, 19)), std::invalid_argument);
+    EXPECT_THROW(head.backward(Matrix(2, 20)), std::invalid_argument);
+    EXPECT_NO_THROW(head.backward(Matrix(3, 20)));
+
+    const Matrix before_w = head.get_W_output();
+    const Matrix before_b = head.get_bias();
+    EXPECT_THROW(head.set_W_output(Matrix(20, 8)), std::invalid_argument);  // transposed
+    EXPECT_THROW(head.set_bias(Matrix(20, 1)), std::invalid_argument);
+    EXPECT_THROW(head.set_bias(Matrix(1, 21)), std::invalid_argument);
+    EXPECT_EQ(head.get_W_output()(2, 5), before_w(2, 5));
+    EXPECT_EQ(head.get_bias()(0, 5), before_b(0, 5));
+
+    Matrix w(8, 20);
+    w.fill(0.25f);
+    head.set_W_output(w);
+    Matrix b(1, 20);
+    b.fill(1.0f);
+    head.set_bias(b);
+    Matrix input(1, 8);
+    input.fill(1.0f);
+    EXPECT_FLOAT_EQ(head.forward(input)(0, 7), 8 * 0.25f + 1.0f);
+}
+
+// TD-425: the constructor printed four lines to stdout.
+TEST(LanguageModelHeadShapeTest, ConstructorWritesNothingToStdout) {
+    testing::internal::CaptureStdout();
+    LanguageModelHead head(8, 20);
+    EXPECT_EQ(testing::internal::GetCapturedStdout(), "");
+}
+
+#ifdef ADAI_ENABLE_GPU
+// TD-425: gpu_backward() dereferenced gpu_ unchecked (null before any gpu_forward()), and the
+// setters left the device copy stale.
+TEST(LanguageModelHeadGPUTest, BackwardBeforeForwardThrowsAndSettersRefreshTheDevice) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    LanguageModelHead head(8, 20);
+    adai::gpu::GPUMatrix dout(3, 20);
+    dout.zero();
+    EXPECT_THROW(head.gpu_backward(dout), std::logic_error);
+
+    adai::gpu::GPUMatrix input(3, 8);
+    std::vector<float> ones(3 * 8, 1.0f);
+    input.upload(ones.data(), 3 * 8);
+    head.gpu_forward(input);
+    adai::gpu::GPUMatrix wrong(2, 20);
+    wrong.zero();
+    EXPECT_THROW(head.gpu_backward(wrong), std::invalid_argument);
+    EXPECT_NO_THROW(head.gpu_backward(dout));
+
+    Matrix w(8, 20);
+    w.fill(0.5f);
+    head.set_W_output(w);
+    Matrix b(1, 20);
+    b.fill(2.0f);
+    head.set_bias(b);
+    adai::gpu::GPUMatrix logits = head.gpu_forward(input);
+    std::vector<float> host(3 * 20);
+    logits.download(host.data(), 3 * 20);
+    for (float v : host)
+        ASSERT_FLOAT_EQ(v, 8 * 0.5f + 2.0f);  // the old weights, before the fix
+}
+#endif
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

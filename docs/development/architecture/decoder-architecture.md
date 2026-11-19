@@ -573,7 +573,6 @@ Memory Growth: O(N × d_model) per sequence
 │─────────────────────────────│          │
 │ + forward()                 │          │
 │ + backward()                │          │
-│ + get_probabilities()       │          │
 └─────────────────────────────┘          │
                                          │
 ┌─────────────────────────────┐          │

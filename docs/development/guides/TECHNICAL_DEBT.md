@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 19, 2026
-**Active Items:** 95 (7 high, 20 medium, 68 low)
+**Active Items:** 94 (7 high, 20 medium, 67 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 483 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 484 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 95 open items:
+**Where things stand.** Of the 94 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **74 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **73 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -147,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (95 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (94 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -219,7 +219,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 The remaining hygiene items of the layers, mostly found by the code-traced reference docs. Each is small; take them a file at a time,
 as TD-426 and TD-467 were:
-- [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) (LOW, `FeedForward`), [TD-425](#td-425-languagemodelhead-hygiene) (LOW, `LanguageModelHead`), [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW,
+- [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) (LOW, `FeedForward`), [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW,
   `TokenEmbedding`), [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) (LOW) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) (LOW, `EncoderBlock`), [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) (LOW, `LLMDecoder`), [TD-345](#td-345-decoderblock-persistence-gaps-for-gated-state) (LOW, `DecoderBlock`
   persistence), [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) (LOW, decoder-only mode), [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) (LOW, `LeJEPAEncoder`), [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) (LOW,
   `SIGReg`).
@@ -320,7 +320,6 @@ as TD-426 and TD-467 were:
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
   - [TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented)
   - [TD-400: `NullMetricsReporter` Keeps Reporting-Only Work Switched On](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on)
-  - [TD-425: `LanguageModelHead` Hygiene](#td-425-languagemodelhead-hygiene)
   - [TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads)
   - [TD-432: `LoRAAdapter::load()` Silently Adopts the File's Shape](#td-432-loraadapterload-silently-adopts-the-files-shape)
   - [TD-433: `LoRA` Initialization, Update and Config Gaps](#td-433-lora-initialization-update-and-config-gaps)
@@ -3402,30 +3401,6 @@ Files to Modify:
 
 - `src/IMetricsReporter.hpp`
 - `src/ChatbotTrainer.cpp`
-
----
-
-### TD-425: `LanguageModelHead` Hygiene
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `LanguageModelHead`, by inspection: the constructor prints four lines to
-`std::cout` (library code) and computes its parameter count in `int`; `forward()` doesn't check
-`input.cols`; `set_W_output()`/`set_bias()` don't check shapes or refresh the GPU mirror; `gpu_backward()`
-dereferences `gpu_` without a check; `get_probabilities()` has no production caller.
-
-Action Items:
-
-- [ ] Switch to `adai::Logger`; add shape checks; invalidate the GPU mirror in the setters; guard `gpu_backward()`; remove or test `get_probabilities()`.
-
-Location in code: `src/LanguageModelHead.{hpp,cpp}`; tagged `TODO: See TD-425`.
-
-Files to Modify:
-
-- `src/LanguageModelHead.{hpp,cpp}`
 
 ---
 

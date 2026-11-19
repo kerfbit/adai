@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-19
 
 
 #include <memory>
@@ -56,6 +56,9 @@ class LanguageModelHead {
     // Optimizer integration (optional)
     Optimizer* optimizer{nullptr};  // Pointer to optimizer (nullptr = simple gradient descent)
 
+    // TD-425: uploads W_output/bias to the device mirror, when there is one.
+    void refresh_gpu_mirror();
+
    public:
     float learning_rate{0.001f};  // Used when optimizer is nullptr (backward compatibility)
 
@@ -78,18 +81,12 @@ class LanguageModelHead {
      *
      * @param input Decoder output [seq_len, d_model]
      * @return Logits [seq_len, vocab_size]
+     * @throws std::invalid_argument if input.cols != d_model (TD-425)
      */
     Matrix forward(const Matrix& input);
 
-    /**
-     * Get probability distribution for next token prediction
-     *
-     * Applies softmax to convert logits to probabilities.
-     *
-     * @param logits Output logits [vocab_size] (single position)
-     * @return Probability distribution [vocab_size]
-     */
-    static std::vector<float> get_probabilities(const std::vector<float>& logits);
+    // TD-425: get_probabilities() was removed (no production caller). For a probability
+    // distribution over logits, use Activation::softmax_row() or TextGenerator.
 
     /**
      * Backward pass: Compute gradients
@@ -99,6 +96,7 @@ class LanguageModelHead {
      *
      * @param grad_output Gradient from loss [seq_len, vocab_size]
      * @return Gradient w.r.t. input [seq_len, d_model]
+     * @throws std::invalid_argument unless grad_output is [last forward()'s seq_len, vocab_size]
      */
     Matrix backward(const Matrix& grad_output);
 
@@ -127,6 +125,8 @@ class LanguageModelHead {
 
     /**
      * Load parameters from file
+     *
+     * Refreshes the GPU mirror, when there is one (TD-425).
      *
      * @param filepath Path to load file
      */
@@ -157,13 +157,14 @@ class LanguageModelHead {
     const Matrix& get_bias() const {
         return bias;
     }
-    // TODO: See TD-425 in TECHNICAL_DEBT.md - setters don't check shapes or refresh the GPU mirror
-    void set_W_output(const Matrix& m) {
-        W_output = m;
-    }
-    void set_bias(const Matrix& m) {
-        bias = m;
-    }
+    /**
+     * Replace the weights or bias (SafeTensors import), refreshing the GPU mirror when there is one.
+     *
+     * @throws std::invalid_argument unless m is [d_model, vocab_size] / [1, vocab_size]
+     *         (nothing changes, TD-425)
+     */
+    void set_W_output(const Matrix& m);
+    void set_bias(const Matrix& m);
 
     /**
      * Save weights to file (consistent with other components)
@@ -205,7 +206,8 @@ class LanguageModelHead {
     void gpu_zero_grads();
     /** GPU forward: returns logits [seq, vocab_size]. */
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);
-    /** GPU backward: accumulates dW, db; returns d_input [seq, d_model]. */
+    /** GPU backward: accumulates dW, db; returns d_input [seq, d_model]. Throws
+     *  std::logic_error before any gpu_forward(), invalid_argument on a wrong shape (TD-425). */
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
 #endif
 };

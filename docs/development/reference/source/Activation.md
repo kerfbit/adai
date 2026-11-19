@@ -214,7 +214,6 @@ result is mathematically identical (softmax is invariant to adding a constant to
 | `src/CrossAttention.cpp` — `CrossAttention::forward()` (≈ line 146) | Per-head decoder→encoder attention weights |
 | `src/CrossAttention.cpp` — `CrossAttention::forward_with_scores()` (≈ line 261) | Same, after adding an external `score_bias` to each head's scores |
 | `src/CrossAttention.cpp` — `CrossAttention::forward_with_cache()` (≈ line 388) | Same, for cached incremental decoding |
-| `src/LanguageModelHead.cpp` — `LanguageModelHead::get_probabilities()` (≈ line 65) | Wraps a single logit vector into a `1 × vocab` matrix, softmaxes it, unwraps it. Currently only exercised by `tests/languagemodelhead_test.cpp` |
 
 All four attention call sites follow the same TD-059 per-head pattern: slice each head's `d_k`
 columns, compute `Q_h·K_hᵀ`, scale by `1/√d_k`, set masked positions to `-1e9f`, then call

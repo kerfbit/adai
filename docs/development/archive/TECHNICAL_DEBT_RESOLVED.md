@@ -1,10 +1,55 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (483 on November 19, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (484 on November 19, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-425: `LanguageModelHead` Hygiene
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 19, 2026 | Models / LanguageModelHead | Code fix (LOW, filed October 14, 2026) |
+
+Description:
+Found while tracing `LanguageModelHead`, by inspection: the constructor prints four lines to
+`std::cout` (library code) and computes its parameter count in `int`; `forward()` doesn't check
+`input.cols`; `set_W_output()`/`set_bias()` don't check shapes or refresh the GPU mirror; `gpu_backward()`
+dereferences `gpu_` without a check; `get_probabilities()` has no production caller.
+
+Action Items:
+
+- [x] Switch to `adai::Logger`; add shape checks; invalidate the GPU mirror in the setters; guard `gpu_backward()`; remove or test `get_probabilities()`.
+
+**Fix (November 19, 2026):**
+- **Console output.** The constructor logs one `adai::Logger` debug line, with the parameter count in 64 bits, instead of four
+  `std::cout` lines.
+- **Shape checks.** `forward()` throws `std::invalid_argument` unless `input.cols == d_model`, and `backward()` unless the gradient is
+  `[rows of the last forward() input, vocab_size]` (a wrong width used to fail as an out-of-bounds index in the accumulation loop).
+  `set_W_output()`/`set_bias()` throw on any other shape and leave the head unchanged.
+- **GPU mirror.** The setters and a successful `load()` re-upload the weights when a device copy exists, as `LayerNorm`'s setters do
+  since TD-426; before, a `gpu_forward()` after `set_W_output()` used the old weights.
+- **`gpu_backward()`** throws `std::logic_error` before any `gpu_forward()` (it dereferenced a null `gpu_`), and `invalid_argument`
+  on a wrong shape.
+- **`get_probabilities()`** is removed (owner's choice, November 19). It was a static softmax of one logit vector with no production
+  caller: generation (`TextGenerator`), the loss and RLHF all use `Activation::softmax_row()`, whose own tests cover the same
+  properties. Its five tests went with it, and the two integration tests that used it call `softmax_row()` directly. Anything
+  that later wants token probabilities (an API, entropy or calibration metrics) should use `TextGenerator` or `softmax_row()`.
+
+Tests: `LanguageModelHeadShapeTest.ForwardBackwardAndSettersCheckShapes`, `.ConstructorWritesNothingToStdout`, and, in GPU builds,
+`LanguageModelHeadGPUTest.BackwardBeforeForwardThrowsAndSettersRefreshTheDevice` (run on the oneAPI CPU device). 41 tests pass (42 in
+GPU builds). `LanguageModelHead.{hpp,cpp}` 2.0.0 (the removal breaks the interface).
+
+Location in code: `src/LanguageModelHead.{hpp,cpp}`.
+
+Files to Modify:
+
+- `src/LanguageModelHead.{hpp,cpp}`
+- `tests/languagemodelhead_test.cpp`
+- `docs/development/reference/source/{LanguageModelHead,Activation}.md`, `docs/development/architecture/{decoder-architecture,transformer-design}.md`
+
+---
 
 ### TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O
 
