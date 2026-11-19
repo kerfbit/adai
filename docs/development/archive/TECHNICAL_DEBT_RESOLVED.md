@@ -1,10 +1,55 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (481 on November 18, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (482 on November 18, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 18, 2026 | Layers / PositionalEncoding | Code fix (LOW, filed October 17, 2026) |
+
+Description:
+Found while tracing `PositionalEncoding` (encoding verified within 3.1×10⁻⁵ of a double reference; the decoder's inline copies verified bit-identical):
+- **No width check (verified).** `forward()` doesn't compare `input.cols` with `d_model`: a 770-wide input into a 768 encoding threw
+  `std::out_of_range("Matrix index out of bounds")`; a 100-wide input was accepted with only its first 100 dimensions encoded.
+- **Warning spam (by inspection).** Inputs longer than `max_len` print a warning to `std::cerr` (not `Logger`) on every call, so once per decode step
+  on the uncached generation paths.
+- **Duplicated formula (by inspection).** `LLMDecoder::forward_with_cache()` and the GPU incremental decode path re-type the formula inline (offset by
+  `current_position`); identical today, but a change has to be made in three places (as TD-216 for softmax/GELU).
+- **Console output** in `print_config()`/`visualize()`.
+
+Action Items:
+
+- [x] Throw `invalid_argument` when `input.cols != d_model`.
+- [x] Log the over-length warning once (via `Logger`).
+- [x] Add `encoding_at(absolute_pos, out_row)` (or `forward(input, start_pos)`) and use it in both decoder paths (with TD-347's max-length policy). (Both decoder paths now read `PositionalEncoding::get_encoding()`'s table: the GPU cached path since TD-547, the CPU cached path since TD-347, October 26, 2026. No inline copy of the formula remains in the decoder.)
+
+**Fix (November 18, 2026):**
+- **Width check.** `forward()` throws `std::invalid_argument` naming both widths when `input.cols != d_model`.
+- **Warning.** The over-length warning is an `adai::Logger` warning logged once per process (a static `std::atomic<bool>`), instead of
+  `std::cerr` on every call. A full run of `positionalencodingTests`, several of whose tests feed over-length input, prints it once.
+- **Console output.** `print_config()` and `visualize()` log through `adai::Logger` at info (one line per position for `visualize()`), as
+  TD-467 did for `MultiHeadAttention`. Neither has a production caller.
+- **Formula copies.** None remain, as the third item records: both cached decoder paths read `get_encoding()`'s table (checked again in
+  `Decoder.cpp` on November 18).
+
+Tests: `InputWidthMustMatchDModel`, `OverLengthWarningIsLoggedAtMostOncePerProcess`, `PrintersLogInsteadOfWritingToStdout`; 32 tests pass.
+`PositionalEncoding.cpp` 1.1.0, `.hpp` 1.0.1.
+
+Location in code: `src/PositionalEncoding.{hpp,cpp}`.
+
+Files to Modify:
+
+- `src/PositionalEncoding.{hpp,cpp}`
+- `src/Decoder.cpp`
+- `tests/positionalencoding_test.cpp`
+
+**Follow-up (October 19, 2026, TD-547).** The GPU decode step's inline copy of the formula was removed; it now uses `PositionalEncoding`'s
+table on the device. The CPU `forward_with_cache()` copy remains.
 
 ### TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds
 

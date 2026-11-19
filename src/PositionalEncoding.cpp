@@ -1,12 +1,14 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-18
 
 #include "PositionalEncoding.hpp"
 #include <algorithm>
+#include <atomic>
 #include <iomanip>
-#include <iostream>
+#include <sstream>
 #include <stdexcept>
+#include "Logger.hpp"
 
 PositionalEncoding::PositionalEncoding(int max_len, int d_model)
     : pos_encoding(max_len, d_model), max_len(max_len), d_model(d_model) {
@@ -29,8 +31,15 @@ PositionalEncoding::PositionalEncoding(int max_len, int d_model)
     }
 }
 
-// TODO: See TD-478 in TECHNICAL_DEBT.md - no input.cols == d_model check; over-length warning to std::cerr on every call
 Matrix PositionalEncoding::forward(const Matrix& input) {
+    // TD-478: a wider input read past the table (std::out_of_range from Matrix), a narrower one was
+    // encoded in its first columns only.
+    if (input.cols != d_model) {
+        throw std::invalid_argument("PositionalEncoding::forward: input has " +
+                                    std::to_string(input.cols) + " columns, expected d_model " +
+                                    std::to_string(d_model));
+    }
+
     // Create a copy of the input
     Matrix result = input;
 
@@ -44,11 +53,15 @@ Matrix PositionalEncoding::forward(const Matrix& input) {
     }
 
     // If sequence is longer than max_len, the remaining positions
-    // won't have positional encodings added (though this should be rare)
-    if (input.rows > max_len) {
-        std::cerr << "Warning: Input sequence length (" << input.rows << ") exceeds max_len ("
-                  << max_len << "). "
-                  << "Positions beyond max_len will not receive positional encodings." << '\n';
+    // won't have positional encodings added (though this should be rare).
+    // TD-478: logged once per process; it went to std::cerr on every call, so once per decode step
+    // on the uncached generation paths.
+    static std::atomic<bool> warned_over_length{false};
+    if (input.rows > max_len && !warned_over_length.exchange(true)) {
+        adai::Logger::warn(
+            "PositionalEncoding: input sequence length ({}) exceeds max_len ({}); positions beyond "
+            "max_len get no positional encoding (logged once)",
+            input.rows, max_len);
     }
 
     return result;
@@ -68,49 +81,32 @@ std::vector<float> PositionalEncoding::get_position_encoding(int pos) const {
 }
 
 void PositionalEncoding::print_config(const std::string& name) const {
-    std::cout << "\n" << name << " Configuration:" << '\n';
-    std::cout << "  Maximum Sequence Length: " << max_len << '\n';
-    std::cout << "  Embedding Dimension (d_model): " << d_model << '\n';
-    std::cout << "  Encoding Type: Sinusoidal (fixed, not learned)" << '\n';
-    std::cout << "  Memory Usage: "
-              << (static_cast<float>(max_len) * static_cast<float>(d_model) * sizeof(float)) /
-                     1024.0f
-              << " KB" << '\n';
+    // TD-478: through adai::Logger instead of std::cout, as TD-467 did for MultiHeadAttention.
+    const double kilobytes = static_cast<double>(max_len) * d_model * sizeof(float) / 1024.0;
+    adai::Logger::info("{}: sinusoidal (fixed), max_len {}, d_model {} ({:.1f} KB)", name, max_len,
+                       d_model, kilobytes);
 }
 
 void PositionalEncoding::visualize(int num_positions, int num_dims) const {
-    // Limit display to actual dimensions
-    num_positions = std::min(num_positions, max_len);
-    num_dims = std::min(num_dims, d_model);
+    // TD-478: through adai::Logger, one line per row, instead of std::cout.
+    num_positions = std::max(0, std::min(num_positions, max_len));
+    num_dims = std::max(0, std::min(num_dims, d_model));
 
-    std::cout << "\nPositional Encoding Visualization:" << '\n';
-    std::cout << "Showing first " << num_positions << " positions and " << num_dims << " dimensions"
-              << '\n';
-    std::cout << std::string(80, '-') << '\n';
-
-    // Print header
-    std::cout << std::setw(6) << "Pos";
+    adai::Logger::info("Positional encoding: first {} positions, {} dimensions (even dims sine, odd "
+                       "cosine; lower dims vary faster; range [-1, 1])",
+                       num_positions, num_dims);
+    std::ostringstream header;
+    header << std::setw(6) << "Pos";
     for (int j = 0; j < num_dims; ++j) {
-        std::cout << std::setw(10) << ("Dim" + std::to_string(j));
+        header << std::setw(10) << ("Dim" + std::to_string(j));
     }
-    std::cout << '\n';
-    std::cout << std::string(80, '-') << '\n';
-
-    // Print encoding values
+    adai::Logger::info("{}", header.str());
     for (int i = 0; i < num_positions; ++i) {
-        std::cout << std::setw(6) << i;
+        std::ostringstream row;
+        row << std::setw(6) << i << std::fixed << std::setprecision(4);
         for (int j = 0; j < num_dims; ++j) {
-            std::cout << std::setw(10) << std::fixed << std::setprecision(4) << pos_encoding(i, j);
+            row << std::setw(10) << pos_encoding(i, j);
         }
-        std::cout << '\n';
+        adai::Logger::info("{}", row.str());
     }
-    std::cout << std::string(80, '-') << '\n';
-
-    // Print pattern information
-    std::cout << "\nPattern Analysis:" << '\n';
-    std::cout << "  - Even dimensions (0, 2, 4, ...): sine functions" << '\n';
-    std::cout << "  - Odd dimensions (1, 3, 5, ...): cosine functions" << '\n';
-    std::cout << "  - Lower dimensions vary faster (higher frequency)" << '\n';
-    std::cout << "  - Higher dimensions vary slower (lower frequency)" << '\n';
-    std::cout << "  - Range: [-1.0, 1.0] for all positions and dimensions" << '\n';
 }

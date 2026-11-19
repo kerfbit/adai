@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 18, 2026
-**Active Items:** 97 (7 high, 20 medium, 70 low)
+**Active Items:** 96 (7 high, 20 medium, 69 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 481 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 482 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 97 open items:
+**Where things stand.** Of the 96 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **76 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **75 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -58,7 +58,7 @@ editing a local `data_registry.txt`, so against `registry_server` it re-queued n
 (`POST /registry/<group>[/<kind>]/requeue`, `dataset_manager requeue`, `RegistryTransport::requeue_trained()`) replaces it.
 **Now:** the deployment's re-queue before the retraining and a re-queue in the Android ops dashboard remain.
 
-**October 17, 2026:** Filed [TD-478](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) (LOW) from the code-traced [PositionalEncoding.md](../reference/source/PositionalEncoding.md),
+**October 17, 2026:** Filed [TD-478](../archive/TECHNICAL_DEBT_RESOLVED.md#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) (LOW; fixed November 18, 2026) from the code-traced [PositionalEncoding.md](../reference/source/PositionalEncoding.md),
 which verified the encoding (within 3.1×10⁻⁵ of a double reference) and the decoder's two inline copies (bit-identical): `forward()` doesn't check
 input width (770-wide threw `out_of_range`, 100-wide was silently partial, verified), the over-length warning goes to `std::cerr` on every call, and
 the formula exists in three places.
@@ -147,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (97 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (96 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -219,7 +219,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 The remaining hygiene items of the layers, mostly found by the code-traced reference docs. Each is small; take them a file at a time,
 as TD-426 and TD-467 were:
-- [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) (LOW, `FeedForward`), [TD-425](#td-425-languagemodelhead-hygiene) (LOW, `LanguageModelHead`), [TD-478](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) (LOW, `PositionalEncoding`), [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW,
+- [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) (LOW, `FeedForward`), [TD-425](#td-425-languagemodelhead-hygiene) (LOW, `LanguageModelHead`), [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW,
   `TokenEmbedding`), [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) (LOW) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) (LOW, `EncoderBlock`), [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) (LOW, `LLMDecoder`), [TD-345](#td-345-decoderblock-persistence-gaps-for-gated-state) (LOW, `DecoderBlock`
   persistence), [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) (LOW, decoder-only mode), [TD-367](#td-367-llmencoder-console-output-and-unchecked-weight-io) (LOW, `LLMEncoder`), [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) (LOW, `LeJEPAEncoder`), [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) (LOW,
   `SIGReg`).
@@ -338,7 +338,6 @@ as TD-426 and TD-467 were:
   - [TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
   - [TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock)
   - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
-  - [TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula)
   - [TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries)
   - [TD-481: PPO Advantages Are Normalized Within Each Response](#td-481-ppo-advantages-are-normalized-within-each-response)
   - [TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1)
@@ -4071,41 +4070,6 @@ Files to Modify:
 
 ---
 
-### TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Layers / PositionalEncoding | October 17, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `PositionalEncoding` (encoding verified within 3.1×10⁻⁵ of a double reference; the decoder's inline copies verified bit-identical):
-- **No width check (verified).** `forward()` doesn't compare `input.cols` with `d_model`: a 770-wide input into a 768 encoding threw
-  `std::out_of_range("Matrix index out of bounds")`; a 100-wide input was accepted with only its first 100 dimensions encoded.
-- **Warning spam (by inspection).** Inputs longer than `max_len` print a warning to `std::cerr` (not `Logger`) on every call, so once per decode step
-  on the uncached generation paths.
-- **Duplicated formula (by inspection).** `LLMDecoder::forward_with_cache()` and the GPU incremental decode path re-type the formula inline (offset by
-  `current_position`); identical today, but a change has to be made in three places (as TD-216 for softmax/GELU).
-- **Console output** in `print_config()`/`visualize()`.
-
-Action Items:
-
-- [ ] Throw `invalid_argument` when `input.cols != d_model`.
-- [ ] Log the over-length warning once (via `Logger`).
-- [x] Add `encoding_at(absolute_pos, out_row)` (or `forward(input, start_pos)`) and use it in both decoder paths (with TD-347's max-length policy). (Both decoder paths now read `PositionalEncoding::get_encoding()`'s table: the GPU cached path since TD-547, the CPU cached path since TD-347, October 26, 2026. No inline copy of the formula remains in the decoder.)
-
-Location in code: `src/PositionalEncoding.cpp` (`forward()`); `src/Decoder.cpp` (inline copies); tagged `TODO: See TD-478`.
-
-Files to Modify:
-
-- `src/PositionalEncoding.{hpp,cpp}`
-- `src/Decoder.cpp`
-- `tests/positionalencoding_test.cpp`
-
-**Follow-up (October 19, 2026, TD-547).** The GPU decode step's inline copy of the formula was removed; it now uses `PositionalEncoding`'s
-table on the device. The CPU `forward_with_cache()` copy remains.
-
----
-
 ### TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -5180,7 +5144,7 @@ Related: TD-574 (archived), TD-563, TD-560.
 
 ## Resolved Items
 
-480 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
+481 items resolved (256 of them moved there on November 14, 2026). See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md)
 for full details, newest first, followed by the archived overview notes and execution-order notes.
 
 ---

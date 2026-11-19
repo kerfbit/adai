@@ -452,7 +452,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(97 on November 18, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(96 on November 18, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -528,7 +528,6 @@ reference doc that tracks it):
 | TD-472 (LOW) | `ParquetReader` Contract, Memory Use and Test Coverage Gaps. Left: Re-enable the pyarrow comparison on generated fixtures (no network) (and 1 more). See [ParquetReader.md](docs/development/reference/source/ParquetReader.md). |
 | TD-473 (LOW) | `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock. Left: Use `std::chrono::steady_clock` (and 2 more). See [PerformanceProfiler.md](docs/development/reference/source/PerformanceProfiler.md). |
 | TD-477 (LOW) | Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions. Left: Add `parse_iso8601_utc()` returning `std::optional<time_point>`: strict digits and ranges, fractional seconds by digit position, `Z`/`±HH:MM`… (and 2 more). See [PortableTime.md](docs/development/reference/source/PortableTime.md). |
-| TD-478 (LOW) | `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula. Left: Throw `invalid_argument` when `input.cols != d_model` (and 1 more). See [PositionalEncoding.md](docs/development/reference/source/PositionalEncoding.md). |
 | TD-480 (LOW) | `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries. Left: Bootstrap the schema on the first successful connection (any time), not just at construction (and 2 more). See [PostgresMetricsDatabase.md](docs/development/reference/source/PostgresMetricsDatabase.md). |
 | TD-481 (LOW) | PPO Advantages Are Normalized Within Each Response. Deferred with RLHF. Left: Normalize advantages across a batch of rollouts (or not at all, relying on the value baseline), not within one response (and 1 more). See [PPOOptimizer.md](docs/development/reference/source/PPOOptimizer.md). |
 | TD-482 (LOW) | `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1. Deferred with RLHF. Left: Apply the clipped objective to the policy (compute new log-probs with the live model each PPO epoch and backpropagate the clipped loss, with KL early… (and 1 more). See [PPOOptimizer.md](docs/development/reference/source/PPOOptimizer.md). |

@@ -1,7 +1,13 @@
 #include "../src/PositionalEncoding.hpp"
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <algorithm>
 #include <cmath>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
+#include "../src/Logger.hpp"
 
 // ============================================================================
 // Test Suite 1: Initialization Tests
@@ -587,4 +593,67 @@ TEST(PositionalEncodingTest, GetEncodingMatrix) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ============================================================================
+// TD-478: width check and a once-only over-length warning
+// ============================================================================
+
+TEST(PositionalEncodingTest, InputWidthMustMatchDModel) {
+    PositionalEncoding pe(10, 8);
+    // Wider read past the table (std::out_of_range from Matrix); narrower was encoded in part.
+    EXPECT_THROW(pe.forward(Matrix(3, 9)), std::invalid_argument);
+    EXPECT_THROW(pe.forward(Matrix(3, 4)), std::invalid_argument);
+    EXPECT_NO_THROW(pe.forward(Matrix(3, 8)));
+}
+
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink =
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() {
+        adai::Logger::get()->sinks().push_back(sink);
+    }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+
+int count_of(const std::string& text, const std::string& needle) {
+    int n = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1))
+        ++n;
+    return n;
+}
+}  // namespace
+
+TEST(PositionalEncodingTest, OverLengthWarningIsLoggedAtMostOncePerProcess) {
+    // It went to std::cerr on every call, so once per decode step. Once per process: an earlier
+    // test in this binary may already have logged it, so at most one here.
+    PositionalEncoding pe(4, 8);
+    LogCapture log;
+    testing::internal::CaptureStderr();
+    for (int i = 0; i < 3; ++i)
+        pe.forward(Matrix(6, 8));
+    const std::string err = testing::internal::GetCapturedStderr();
+    EXPECT_LE(count_of(log.out.str(), "exceeds max_len"), 1);
+    EXPECT_EQ(err.find("Warning: Input sequence length"), std::string::npos);
+}
+
+TEST(PositionalEncodingTest, PrintersLogInsteadOfWritingToStdout) {
+    PositionalEncoding pe(10, 8);
+    LogCapture log;
+    testing::internal::CaptureStdout();
+    pe.print_config("MyEncoding");
+    pe.visualize(3, 4);
+    const std::string out = testing::internal::GetCapturedStdout();
+    const std::string logged = log.out.str();
+    EXPECT_NE(logged.find("MyEncoding: sinusoidal (fixed), max_len 10, d_model 8"), std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("Dim3"), std::string::npos) << logged;
+    EXPECT_NE(logged.find("1.0000"), std::string::npos) << logged;  // cos(0) at position 0, dim 1
+    EXPECT_EQ(out.find("Configuration:"), std::string::npos) << out;
+    EXPECT_EQ(out.find("Pattern Analysis"), std::string::npos) << out;
 }

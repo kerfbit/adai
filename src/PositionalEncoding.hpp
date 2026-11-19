@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-11-18
 
 
 #include <cmath>
@@ -61,7 +61,10 @@ class PositionalEncoding {
      *   output[i][j] = input[i][j] + pos_encoding[i][j]
      *
      * Note: If input sequence length exceeds max_len, only the first
-     * max_len positions will receive positional encodings.
+     * max_len positions will receive positional encodings (a warning is logged
+     * once per process, TD-478).
+     *
+     * @throws std::invalid_argument if input.cols != d_model (TD-478)
      */
     Matrix forward(const Matrix& input);
 
@@ -93,7 +96,7 @@ class PositionalEncoding {
     }
 
     /**
-     * Print positional encoding configuration
+     * Log the positional encoding configuration (adai::Logger at info, TD-478)
      *
      * @param name Optional name for the encoding
      */
@@ -111,7 +114,8 @@ class PositionalEncoding {
     /**
      * Visualize encoding pattern for analysis
      *
-     * Prints a subset of the encoding matrix to show the sinusoidal pattern.
+     * Logs a subset of the encoding matrix (adai::Logger at info, one line per position, TD-478)
+     * to show the sinusoidal pattern.
      * Useful for debugging and understanding the encoding structure.
      *
      * @param num_positions Number of positions to display (default: 10)
