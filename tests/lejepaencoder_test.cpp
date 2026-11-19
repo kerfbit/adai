@@ -8,14 +8,18 @@
 #include "../src/LeJEPAEncoder.hpp"
 #include "../src/SIGReg.hpp"
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <algorithm>
 #include <cmath>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
+#include "../src/BPETokenizer.hpp"
+#include "../src/Logger.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 #include "../src/encoder.hpp"
@@ -391,6 +395,102 @@ TEST_F(LeJEPAEncoderTest, LoadMismatchedArchitectureThrows) {
                                                                                     // num_layers
 
     EXPECT_THROW(encoder2.load(save_dir), std::runtime_error);
+}
+
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink =
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() {
+        adai::Logger::get()->sinks().push_back(sink);
+    }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+}  // namespace
+
+// TD-429: the config's reads weren't checked, so a short config.bin left fields 0 and failed as a
+// misleading "architecture mismatch". Short and over-long configs throw, naming the problem, and
+// leave the encoder unchanged.
+TEST_F(LeJEPAEncoderTest, ShortOrOverLongConfigThrowsAndLeavesTheEncoderUnchanged) {
+    create_test_vocabulary();
+    const std::string save_dir = temp_dir + "/config_check";
+    LeJEPAEncoder saved(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    saved.save(save_dir);
+
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    const Matrix before = encoder.encode("hello world");
+
+    const std::string config = save_dir + "/config.bin";
+    fs::resize_file(config, 5 * sizeof(int));
+    try {
+        encoder.load(save_dir);
+        ADD_FAILURE() << "a short config loaded";
+    } catch (const std::runtime_error& e) {
+        EXPECT_EQ(std::string(e.what()).find("architecture mismatch"), std::string::npos)
+            << e.what();
+    }
+    {
+        saved.save(save_dir);
+        std::ofstream append(config, std::ios::binary | std::ios::app);
+        append.put('x');
+    }
+    EXPECT_THROW(encoder.load(save_dir), std::runtime_error);
+    EXPECT_EQ(max_abs_diff(encoder.encode("hello world"), before), 0.0f);
+}
+
+// TD-429: max_seq_length was read but never compared. No weight depends on it, so a different one
+// loads with a warning and gives the same output; the same one loads silently.
+TEST_F(LeJEPAEncoderTest, DifferentMaxSeqLengthLoadsWithAWarning) {
+    create_test_vocabulary();
+    const std::string save_dir = temp_dir + "/seq_len";
+    LeJEPAEncoder saved(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, /*max_seq_length=*/16);
+    saved.load_tokenizer_vocab(vocab_file);
+    saved.save(save_dir);
+    {
+        LogCapture log;
+        LeJEPAEncoder same(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, 16);
+        same.load(save_dir);
+        EXPECT_EQ(log.out.str().find("were saved with max_seq_length"), std::string::npos);
+    }
+    LogCapture log;
+    LeJEPAEncoder longer(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, /*max_seq_length=*/32);
+    longer.load_tokenizer_vocab(vocab_file);
+    ASSERT_NO_THROW(longer.load(save_dir));
+    EXPECT_NE(log.out.str().find("were saved with max_seq_length 16; loading them with "
+                                 "max_seq_length 32"),
+              std::string::npos)
+        << log.out.str();
+    EXPECT_EQ(max_abs_diff(saved.encode("hello world"), longer.encode("hello world")), 0.0f);
+}
+
+// TD-429: the constructor, save/load, the tokenizer methods and print_config() wrote to stdout.
+TEST_F(LeJEPAEncoderTest, WritesNothingToStdout) {
+    create_test_vocabulary();
+    const std::string save_dir = temp_dir + "/quiet";
+    LogCapture log;
+    testing::internal::CaptureStdout();
+    {
+        LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+        encoder.load_tokenizer_vocab(vocab_file);
+        encoder.print_config();
+        encoder.save(save_dir);
+        encoder.load(save_dir);
+    }
+    const std::string out = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(out.find("LeJEPA"), std::string::npos) << out;
+    const std::string logged = log.out.str();
+    EXPECT_NE(logged.find("LeJEPAEncoder configuration: vocab 1000, d_model 32, 2 encoder layers"),
+              std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("Saved LeJEPA encoder weights to " + save_dir), std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("Loaded LeJEPA encoder weights from " + save_dir), std::string::npos)
+        << logged;
 }
 
 TEST_F(LeJEPAEncoderTest, SaveAndLoadPreservesEncodeOutput) {
@@ -833,6 +933,24 @@ TEST_F(LeJEPAEncoderTest, TrainBatchSkipsUnusableTextsAndReportsTheTrainedOnes) 
     for (float loss : result.predictor_losses)
         EXPECT_TRUE(std::isfinite(loss));
     EXPECT_TRUE(std::isfinite(result.sigreg_loss));
+}
+
+// TD-429: invalid UTF-8 throws TokenizerEncodingError, a runtime_error rather than the
+// invalid_argument the pass once caught, so one bad line in a book ended the whole pass. A batch
+// skips that text and trains the rest.
+TEST_F(LeJEPAEncoderTest, TrainBatchSkipsInvalidUtf8) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.build_tokenizer(kBatchTexts, VOCAB_SIZE);
+    const std::string invalid = "caf\xc3 \xff\xfe bad bytes";
+    BPETokenizer probe;
+    probe.build_vocab(kBatchTexts, VOCAB_SIZE);
+    ASSERT_THROW(probe.encode(invalid, true), TokenizerEncodingError);
+
+    LeJEPAEncoder::BatchStepResult result;
+    ASSERT_NO_THROW(result = encoder.train_batch({kBatchTexts[0], invalid, kBatchTexts[1]}));
+    EXPECT_EQ(result.trained, (std::vector<size_t>{0, 2}));
+    for (float loss : result.predictor_losses)
+        EXPECT_TRUE(std::isfinite(loss));
 }
 
 TEST_F(LeJEPAEncoderTest, TrainBatchOfOneHasNoSigregLoss) {

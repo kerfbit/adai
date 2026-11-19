@@ -452,7 +452,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(94 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(93 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -510,7 +510,6 @@ reference doc that tracks it):
 | TD-398 (LOW) | `HippocampalMemory` Per-Step Copies and Unchecked Saves. Left: Cache the packed key/value matrices and update them incrementally on write/evict; check stream state after saves; save both files atomically together… See [HippocampalMemory.md](docs/development/reference/source/HippocampalMemory.md). |
 | TD-399 (LOW) | `IMetricsReporter` Buffering and Ordering Contract Is Undocumented. Left: Document per method whether it's pushed immediately or included in the next `end_epoch()`, and the ordering rule, in the interface (and 1 more). See [IMetricsReporter.md](docs/development/reference/source/IMetricsReporter.md). |
 | TD-400 (LOW) | `NullMetricsReporter` Keeps Reporting-Only Work Switched On. Left: Add `virtual bool enabled() const` to `IMetricsReporter` (false for `NullMetricsReporter`), and have `ChatbotTrainer` check `metrics_reporter_ &&… See [IMetricsReporter.md](docs/development/reference/source/IMetricsReporter.md). |
-| TD-429 (LOW) | `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads. Left: Catch tokenizer exceptions per sample in the LeJEPA loop; switch to `adai::Logger`; validate `max_seq_length` and check reads on load. See [LeJEPAEncoder.md](docs/development/reference/source/LeJEPAEncoder.md). |
 | TD-432 (LOW) | `LoRAAdapter::load()` Silently Adopts the File's Shape. Left: Validate the file's shape against the adapter (throw on mismatch, leaving it unchanged), reject non-positive rank/dims, and check reads and writes. See [LoRA.md](docs/development/reference/source/LoRA.md). |
 | TD-433 (LOW) | `LoRA` Initialization, Update and Config Gaps. Left: Use the project RNG (TD-368) for initialization; zero gradients in `update()` (or document); implement or remove `dropout`/`apply_to_ffn`; guard the… See [LoRA.md](docs/development/reference/source/LoRA.md). |
 | TD-435 (LOW) | `Matrix` Accessor Cost, `sum()` Accuracy, `randomize()` Race and API Hygiene. Left: Inline `operator()` in the header (keep the bounds check under a debug macro, or offer an unchecked accessor) and measure the attention loops (and 2 more). See [Matrix.md](docs/development/reference/source/Matrix.md). |

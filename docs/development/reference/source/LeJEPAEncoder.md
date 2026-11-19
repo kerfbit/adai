@@ -1,12 +1,12 @@
 # `LeJEPAEncoder` — Source File Reference
 
-- **Files:** [`src/LeJEPAEncoder.hpp`](../../../../src/LeJEPAEncoder.hpp), [`src/LeJEPAEncoder.cpp`](../../../../src/LeJEPAEncoder.cpp)
+- **Files:** [`src/LeJEPAEncoder.hpp`](../../../../src/LeJEPAEncoder.hpp) (386 lines), [`src/LeJEPAEncoder.cpp`](../../../../src/LeJEPAEncoder.cpp) (585)
 - **Namespace:** global
 - **Built into:** `adai_lejepa`; used by `incremental_trainer --objective=lejepa` (pretraining, [IncrementalTrainingTool.md](IncrementalTrainingTool.md)) and attached frozen to the chatbot by `IncrementalTrainer::maybe_attach_world_model()` and `chatbot_api_server`
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.4.0`, `@adai-reviewed: 2026-09-17`
-- **Tests:** [`tests/lejepaencoder_test.cpp`](../../../../tests/lejepaencoder_test.cpp) (37 tests)
+- **Status tag:** `@adai-status: beta` (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes); `.cpp` `@adai-version: 0.12.0`, `.hpp` `0.11.3`; both `@adai-reviewed: 2026-11-19`
+- **Tests:** [`tests/lejepaencoder_test.cpp`](../../../../tests/lejepaencoder_test.cpp) (50 tests)
 - **Design:** [lejepa_world_model_gated_injection_plan.md](../../../proposals/lejepa_world_model_gated_injection_plan.md) (TD-176–TD-189, TD-196)
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-11-19 (§2, §3's smaller items, §4 and §5; the addenda record earlier changes)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by training and saving/reloading
 > the real class in a scratch program.
@@ -40,13 +40,14 @@ collapse), so both views train the same encoder.
 
 | Member | Behaviour |
 |---|---|
-| `LeJEPAEncoder(vocab, d_model = 512, layers = 6, heads = 8, d_ff = 2048, max_seq = 512, sketches = 64)` | Builds the encoder, a `Predictor(d_model, d_ff)` and a `SIGReg(d_model, sketches)`; an ASCII `BPETokenizer` (not loaded); prints a banner to `std::cout` |
+| `LeJEPAEncoder(vocab, d_model = 512, layers = 6, heads = 8, d_ff = 2048, max_seq = 512, sketches = 64)` | Builds the encoder, a `Predictor(d_model, d_ff)` and a `SIGReg(d_model, sketches)`; a `BPETokenizer` in Unicode mode (not loaded; TD-416/TD-564, `set_tokenizer_mode()`); logs its configuration in one line at debug level (TD-429; it printed an 8-line banner to `std::cout`) |
 | `encode(text)` | Tokenizes with `BOS`/`EOS`, truncates with `resize` (dropping `EOS` when too long, as in TD-364), and runs `encode_tokens()` |
 | `train_step(text)` | §1; returns `{predictor_loss, sigreg_loss}` and records diagnostics (masking ratio, cosine similarity, SIGReg variance mean/stddev, gradient norm). Throws `invalid_argument` under 2 tokens. With `requires_grad = false` it only computes the losses |
 | `set_sigreg_lambda()`, `set_requires_grad()`, `set_learning_rate()` (not the predictor), `register_parameters_with_optimizer()` (encoder + predictor; SIGReg has no parameters) | Configuration |
-| `load_tokenizer_vocab()`, `build_tokenizer()` | The encoder's own tokenizer; **doesn't resize the embedding** (callers probe the vocab size first) |
-| `save(dir)` / `load(dir)` | `config.bin` (6 ints), `token_embedding.bin`, `encoder_block_<i>.bin` (+ sidecars), `final_norm.bin`. `load()` checks five dimensions, not `max_seq_length`; the sub-loaders' reads are unchecked (TD-357/TD-426 class). **The predictor isn't saved** (§3) |
-| Accessors | `get_encoder_block()`, `get_num_layers()`, `get_embedding_dim()`, `get_sigreg_num_sketches()`, `get_last_*()` diagnostics; `print_config()` (stdout) |
+| `train_batch(texts)` | The pass's entry point (TD-503, see its addendum). A text that fails to tokenize (empty, or invalid UTF-8: `TokenizerEncodingError`) or has under 2 tokens is skipped; the rest train |
+| `load_tokenizer_vocab()`, `build_tokenizer()` | The encoder's own tokenizer; **doesn't resize the embedding** (callers probe the vocab size first). Log at info |
+| `save(dir)` / `load(dir)` | `config.bin` (6 ints), `token_embedding.bin`, `encoder_block_<i>.bin` (+ sidecars), `final_norm.bin`, `predictor.bin` (TD-427). The config's writes and reads are checked (`adai::binio`, TD-429): a failed write throws, and a short or over-long `config.bin` throws before anything changes (it used to fail as a misleading architecture mismatch). `load()` throws on a mismatch of five dimensions; a different `max_seq_length` loads with a `Logger` warning, since no weight depends on it (TD-429). The sub-loaders check their own files (TD-423, TD-426). Both log the directory at info |
+| Accessors | `get_encoder_block()`, `get_num_layers()`, `get_embedding_dim()`, `get_sigreg_num_sketches()`, `get_last_*()` diagnostics; `print_config()` (one info line, TD-429) |
 
 ---
 
@@ -84,43 +85,43 @@ possible.
 
 ### Smaller items (by inspection)
 
-- **An escaping exception type (no longer ends the pass).** `TokenizerEncodingError` derives from `runtime_error`, so it escaped the pass's
-  old `catch (const std::invalid_argument&)` and ended the pass. Since TD-503 the pass (now `run_lejepa_training_pass()` in
-  `LeJEPATrainingPass.cpp`) catches any exception per batch and skips the batch, or, since TD-566, stops when the GPU is lost; the exception
-  type itself is unchanged (TD-429).
-- **Hard-coded and unseeded choices.** The span RNG is seeded from `random_device` (TD-368); the mask
-  ratio is fixed at 25% (`kMaskRatio`).
-- **The tokenizer is always ASCII** (TD-416).
-- **Console output:** `std::cout` in the constructor, save/load and the tokenizer methods.
-- **Unchecked reads.** `load()` ignores `max_seq_length` and inherits the sub-loaders' unchecked reads.
+- **An escaping exception type (fixed).** `TokenizerEncodingError` derives from `runtime_error`, so it escaped the pass's
+  old `catch (const std::invalid_argument&)` and ended the pass. Since TD-503, `train_batch()` skips a text that fails to tokenize and the
+  pass (`run_lejepa_training_pass()` in `LeJEPATrainingPass.cpp`) catches any exception per batch, or, since TD-566, stops when the GPU
+  is lost. `TrainBatchSkipsInvalidUtf8` (TD-429) covers invalid UTF-8, the case real books can hit.
+- **Hard-coded choices.** The mask ratio is fixed at 25% (`kMaskRatio`). The span RNG follows `SEED` (`adai::next_init_seed()`,
+  TD-368); it was seeded from `random_device`.
+- **Tokenizer mode:** fixed. It was always ASCII; it follows `TOKENIZER_MODE` since TD-416 and defaults to Unicode since TD-564.
+- **Console output and unchecked config reads:** fixed (TD-429, see §2).
 
 ---
 
 ## 4. Tests
 
-`lejepaencoder_test.cpp` (37 tests) covers:
+`lejepaencoder_test.cpp` (50 tests) covers:
 - shape-compatibility with `LLMEncoder`;
 - `encode()` shapes;
 - `train_step()` (losses finite, decreasing over steps, `< 2`-token rejection, `requires_grad = false` no-update);
 - optimizer registration (single step per update, TD-178);
 - diagnostics;
-- save/load of the encoder (including architecture mismatch).
-
-**Not covered:** the predictor surviving save/load.
+- save/load of the encoder (including architecture mismatch) and of the predictor (TD-427);
+- `train_batch()`, including skipped texts and invalid UTF-8 (TD-503, TD-429);
+- short and over-long `config.bin`, a different `max_seq_length`, and nothing written to stdout (TD-429);
+- checkpoint directory resolution (TD-548) and tokenizer mode (TD-416, TD-564).
 
 ---
 
 ## 5. Known gaps and gotchas (summary)
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
+Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
 `TODO: See TD-NNN`.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `save()`/`load()` skip the `Predictor`; every resumed pass gets a random predictor (§3) | Predictor re-learned each pass; its random gradients disturb the resumed encoder; misleading loss curve | **Verified** (0.0017 → 2.053) | [TD-427](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) |
 | Two sequential `update_weights()` per sample, justified by a TD-189 overwrite problem that TD-195 fixed (§3) | Two optimizer steps per sample; momentum applied twice; stale rationale | By inspection | [TD-428](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
-| `TokenizerEncodingError` escapes the caller's `invalid_argument` catch; `std::cout`; unchecked loads; `max_seq_length` not compared (§3) | One bad sample ends a pass; console noise | By inspection | [TD-429](../../guides/TECHNICAL_DEBT.md#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) |
-| Gates never train; unseeded RNG; ASCII-only tokenizer | Already tracked | — | TD-341, TD-368, TD-416 |
+| `TokenizerEncodingError` escapes the caller's `invalid_argument` catch; `std::cout`; unchecked loads; `max_seq_length` not compared (§3) | — | **Fixed November 19, 2026** | [TD-429](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) |
+| SIGReg's frequency grid, NaN inputs and repeated projections | Caps the status at `beta` | By inspection | [TD-504](../../guides/TECHNICAL_DEBT.md#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) |
 
 ---
 
@@ -178,3 +179,11 @@ sketch count, learning rate. No optimizer is attached. `EncoderDecoderModel::clo
 `set_tokenizer_mode(mode)` starts a fresh tokenizer in that mode; call it before `load_tokenizer_vocab()`.
 `get_tokenizer_mode()` reports it. The tokenizer used to be ASCII always; as for the chatbot's tokenizer, a vocabulary
 file that records its own `TOKENIZER_MODE` still overrides the mode on load.
+
+## Addendum (November 19, 2026): logging and checked config I/O (TD-429)
+
+The constructor logs one debug line and save/load, the tokenizer methods and `print_config()` log at info, instead of writing to
+`std::cout`. `config.bin` is written and read through `adai::binio`, so a short or over-long config throws, and a different
+`max_seq_length` loads with a warning. The exception escape was already gone (TD-503); `TrainBatchSkipsInvalidUtf8` now covers it.
+Tests: `ShortOrOverLongConfigThrowsAndLeavesTheEncoderUnchanged`, `DifferentMaxSeqLengthLoadsWithAWarning`, `WritesNothingToStdout`,
+`TrainBatchSkipsInvalidUtf8`.

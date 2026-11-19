@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-429, TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.2
-// @adai-reviewed: 2026-11-10
+// @adai-status: beta        (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
+// @adai-version: 0.11.3
+// @adai-reviewed: 2026-11-19
 
 #include <memory>
 #include <random>
@@ -262,13 +262,10 @@ class LeJEPAEncoder {
     void register_parameters_with_optimizer(Optimizer& optimizer);
 
     /**
-     * Persist the encoder itself — token_embedding, encoder_blocks, final_norm — to `directory`
-     * (created if absent), mirroring ModelSerializer's own "directory, created if absent"
-     * convention rather than LLMEncoder's filename-with-suffix one. `predictor`/`sigreg` are
-     * deliberately NOT persisted: they are pretraining scaffolding whose job ends once this
-     * encoder is frozen (see the class doc above and the plan's Component 2/3 docs) — the
-     * reusable downstream artifact is the encoder's own weights, exactly what LLMEncoder's own
-     * save_weights() persists for itself.
+     * Persist the encoder — token_embedding, encoder_blocks, final_norm — and, since TD-427, the
+     * predictor to `directory` (created if absent), mirroring ModelSerializer's own "directory,
+     * created if absent" convention rather than LLMEncoder's filename-with-suffix one. `sigreg`
+     * has no weights. The config's writes are checked (TD-429): a failed write or flush throws.
      */
     void save(const std::string& directory) const;
 
@@ -279,10 +276,13 @@ class LeJEPAEncoder {
      */
     std::unique_ptr<LeJEPAEncoder> clone() const;
 
-    /** @throws std::runtime_error if `directory` is missing its config or the saved architecture
-     *  does not match this instance's own (vocab_size/d_model/num_layers/num_heads/d_ff). */
+    /** @throws std::runtime_error if `directory` is missing its config, the config is short or
+     *  over-long, or the saved architecture does not match this instance's own
+     *  (vocab_size/d_model/num_layers/num_heads/d_ff). A different max_seq_length loads with a
+     *  warning: no weight depends on it (TD-429). */
     void load(const std::string& directory);
 
+    /** Logs the configuration in one line (adai::Logger at info, TD-429). */
     void print_config() const;
 
     int get_embedding_dim() const {

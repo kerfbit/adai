@@ -1,16 +1,15 @@
-// @adai-status: beta        (capped by TD-429, TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.2
-// @adai-reviewed: 2026-11-10
+// @adai-status: beta        (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-19
 
 #include "LeJEPAEncoder.hpp"
+#include "BinaryIO.hpp"
 #include "Logger.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
-#include <iostream>
 #include <random>
 #include <stdexcept>
 
@@ -64,14 +63,11 @@ LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int nu
     predictor = std::make_unique<Predictor>(d_model, d_ff);
     sigreg = std::make_unique<SIGReg>(d_model, sigreg_num_sketches);
 
-    std::cout << "LeJEPA Encoder initialized with:" << '\n';
-    std::cout << "  Vocab size: " << vocab_size << '\n';
-    std::cout << "  Model dimension: " << d_model << '\n';
-    std::cout << "  Number of layers: " << num_layers << '\n';
-    std::cout << "  Number of heads: " << num_heads << '\n';
-    std::cout << "  Feed-forward dimension: " << d_ff << '\n';
-    std::cout << "  Max sequence length: " << max_seq_length << '\n';
-    std::cout << "  SIGReg sketches: " << sigreg_num_sketches << '\n';
+    // TD-429: one debug line (an 8-line std::cout banner on every construction before).
+    adai::Logger::debug("LeJEPAEncoder: vocab {}, d_model {}, {} layers, {} heads, d_ff {}, "
+                        "max_seq_length {}, {} SIGReg sketches",
+                        vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length,
+                        sigreg_num_sketches);
 }
 
 Matrix LeJEPAEncoder::encode(const std::string& text) {
@@ -378,13 +374,13 @@ void LeJEPAEncoder::set_tokenizer_mode(TokenizerMode mode) {
 
 void LeJEPAEncoder::load_tokenizer_vocab(const std::string& vocab_file) {
     tokenizer->load_vocab(vocab_file);
-    std::cout << "Loaded LeJEPA encoder tokenizer vocabulary from: " << vocab_file << '\n';
+    adai::Logger::info("Loaded LeJEPA encoder tokenizer vocabulary from {}", vocab_file);
 }
 
 void LeJEPAEncoder::build_tokenizer(const std::vector<std::string>& corpus, int vocab_size) {
     tokenizer->build_vocab(corpus, vocab_size);
-    std::cout << "Built LeJEPA encoder tokenizer with vocabulary size: "
-              << tokenizer->get_vocab_size() << '\n';
+    adai::Logger::info("Built LeJEPA encoder tokenizer with vocabulary size {}",
+                       tokenizer->get_vocab_size());
 }
 
 void LeJEPAEncoder::set_requires_grad(bool requires_grad) {
@@ -447,17 +443,11 @@ std::string LeJEPAEncoder::resolve_checkpoint_dir(const std::string& session_dir
 void LeJEPAEncoder::save(const std::string& directory) const {
     std::filesystem::create_directories(directory);
 
-    std::string config_path = directory + "/" + kConfigFile;
-    std::ofstream config_file(config_path, std::ios::binary);
-    if (!config_file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + config_path);
+    // TD-429: checked writes (a failed write or flush throws instead of leaving a short config).
+    adai::binio::Writer config_file(directory + "/" + kConfigFile);
+    for (int field : {vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length}) {
+        config_file.value(field, "LeJEPA config");
     }
-    config_file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&num_layers), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
     config_file.close();
 
     token_embedding->save_weights(directory + "/" + kTokenEmbeddingFile);
@@ -469,7 +459,7 @@ void LeJEPAEncoder::save(const std::string& directory) const {
     final_norm->save_weights(directory + "/" + kFinalNormFile);
     predictor->save(directory + "/" + kPredictorFile);
 
-    std::cout << "Saved LeJEPA encoder weights to " << directory << '\n';
+    adai::Logger::info("Saved LeJEPA encoder weights to {}", directory);
 }
 
 std::unique_ptr<LeJEPAEncoder> LeJEPAEncoder::clone() const {
@@ -506,24 +496,16 @@ void LeJEPAEncoder::load(const std::string& directory) {
 #ifdef ADAI_ENABLE_GPU
     gpu_weights_current_ = false;  // TD-342: re-upload before the next gpu_encode()
 #endif
-    std::string config_path = directory + "/" + kConfigFile;
-    std::ifstream config_file(config_path, std::ios::binary);
-    if (!config_file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + config_path);
-    }
-
-    // TODO: See TD-429 in TECHNICAL_DEBT.md - reads unchecked, max_seq_length not compared; std::cout here and in
-    // the constructor/save/tokenizer methods
-    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
-    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
-
-    config_file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_num_layers), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
-    config_file.close();
+    // TD-429: checked reads. A short config used to leave its fields 0 and fail as a misleading
+    // "architecture mismatch"; a short or over-long one now throws, before anything changes.
+    adai::binio::Reader config_file(directory + "/" + kConfigFile);
+    const int loaded_vocab_size = config_file.value<int>("vocab_size");
+    const int loaded_d_model = config_file.value<int>("d_model");
+    const int loaded_num_layers = config_file.value<int>("num_layers");
+    const int loaded_num_heads = config_file.value<int>("num_heads");
+    const int loaded_d_ff = config_file.value<int>("d_ff");
+    const int loaded_max_seq_length = config_file.value<int>("max_seq_length");
+    config_file.expect_end();
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
         loaded_num_layers != num_layers || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
@@ -536,6 +518,14 @@ void LeJEPAEncoder::load(const std::string& directory) {
             ") vs current (vocab=" + std::to_string(vocab_size) +
             ", d_model=" + std::to_string(d_model) + ", layers=" + std::to_string(num_layers) +
             ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
+    }
+    // TD-429: no weight depends on max_seq_length (the positional encoding is the fixed sinusoidal
+    // table, built for this instance's length), so a different one loads, with a warning.
+    if (loaded_max_seq_length != max_seq_length) {
+        adai::Logger::warn("LeJEPA weights in {} were saved with max_seq_length {}; loading them "
+                           "with max_seq_length {} (positional encoding is fixed, no weights depend "
+                           "on it)",
+                           directory, loaded_max_seq_length, max_seq_length);
     }
 
     token_embedding->load_weights(directory + "/" + kTokenEmbeddingFile);
@@ -560,19 +550,14 @@ void LeJEPAEncoder::load(const std::string& directory) {
                            e.what());
     }
 
-    std::cout << "Loaded LeJEPA encoder weights from " << directory << '\n';
+    adai::Logger::info("Loaded LeJEPA encoder weights from {}", directory);
 }
 
 void LeJEPAEncoder::print_config() const {
-    std::cout << "\n=== LeJEPA Encoder Configuration ===" << '\n';
-    std::cout << "Vocabulary size: " << vocab_size << '\n';
-    std::cout << "Model dimension (d_model): " << d_model << '\n';
-    std::cout << "Number of encoder layers: " << num_layers << '\n';
-    std::cout << "Number of attention heads: " << num_heads << '\n';
-    std::cout << "Feed-forward dimension: " << d_ff << '\n';
-    std::cout << "Max sequence length: " << max_seq_length << '\n';
-    std::cout << "SIGReg lambda: " << sigreg_lambda << '\n';
-    std::cout << "=====================================\n" << '\n';
+    adai::Logger::info("LeJEPAEncoder configuration: vocab {}, d_model {}, {} encoder layers, {} "
+                       "heads, d_ff {}, max_seq_length {}, SIGReg lambda {}",
+                       vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length,
+                       sigreg_lambda);
 }
 
 #ifdef ADAI_ENABLE_GPU

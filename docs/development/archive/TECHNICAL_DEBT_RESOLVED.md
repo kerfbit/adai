@@ -1,10 +1,50 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (484 on November 19, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (485 on November 19, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 19, 2026 | World Model / LeJEPAEncoder | Code fix (LOW, filed October 14, 2026) |
+
+Description:
+Found while tracing `LeJEPAEncoder`, by inspection: `TokenizerEncodingError` derives from
+`runtime_error`, so it escapes `run_lejepa_training_pass()`'s `catch (const std::invalid_argument&)` and
+ends the whole pass; the constructor, save/load and tokenizer methods print to `std::cout`; `load()`
+doesn't compare `max_seq_length` and inherits the sub-loaders' unchecked reads (TD-357/TD-426 class).
+
+Action Items:
+
+- [x] Catch tokenizer exceptions per sample in the LeJEPA loop; switch to `adai::Logger`; validate `max_seq_length` and check reads on load.
+
+**Fix (November 19, 2026):**
+- **Exception escape.** Already fixed by TD-503 (October 21, 2026): `train_batch()` skips a text that fails to tokenize, and the pass
+  (`run_lejepa_training_pass()`, now in `LeJEPATrainingPass.cpp`) catches any exception per batch. Invalid UTF-8, which throws
+  `TokenizerEncodingError` and is the likely case in real books, had no test; `TrainBatchSkipsInvalidUtf8` covers it now.
+- **Console output.** The constructor logs one `adai::Logger` debug line instead of an 8-line `std::cout` banner; `save()`, `load()`,
+  `load_tokenizer_vocab()`, `build_tokenizer()` and `print_config()` log at info.
+- **Checked config I/O.** `config.bin` is written and read through `adai::binio`: a failed write or flush throws, and a short or
+  over-long config throws before anything changes (a short one used to leave fields 0 and fail as a misleading "architecture
+  mismatch"). The sub-loaders already check their own files (TD-423, TD-426).
+- **`max_seq_length`.** Compared on load; a difference loads with a warning naming both lengths, since no weight depends on it (the
+  positional encoding is the fixed sinusoidal table), as `LLMEncoder` does since TD-367.
+
+Tests: `TrainBatchSkipsInvalidUtf8`, `ShortOrOverLongConfigThrowsAndLeavesTheEncoderUnchanged`, `DifferentMaxSeqLengthLoadsWithAWarning`,
+`WritesNothingToStdout`; 50 tests pass. `LeJEPAEncoder.cpp` 0.12.0, `.hpp` 0.11.3; the status cap is now TD-504 alone.
+
+Location in code: `src/LeJEPAEncoder.{hpp,cpp}`.
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.{hpp,cpp}`
+- `tests/lejepaencoder_test.cpp`
+
+---
 
 ### TD-425: `LanguageModelHead` Hygiene
 
