@@ -452,7 +452,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(96 on November 18, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(95 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -491,7 +491,6 @@ reference doc that tracks it):
 | TD-356 (LOW) | `EncoderBlock` Gradient Norm and Clipping Ignore `LayerNorm`; Header Describes Post-LN. Left: Include `LayerNorm` gradients in `get_gradient_norm()`/`clip_gradients()` (add a norm accessor to `LayerNorm`), or remove the unused… (and 1 more). See [EncoderBlock.md](docs/development/reference/source/EncoderBlock.md). |
 | TD-357 (LOW) | `EncoderBlock` Learning-Rate Handling, Unchecked Loads and Console Output. Left: Add `set_learning_rate()` (propagating to sub-layers, like `DecoderBlock`'s) and stop overwriting in `update_weights()`; check reads in… See [EncoderBlock.md](docs/development/reference/source/EncoderBlock.md). |
 | **TD-358** (HIGH) | GPU Training Feeds Unshifted Targets, Teaching the Model to Copy Instead of Predict. Code fix landed October 17, 2026. Left: Retrain affected models; consider bumping the checkpoint format version so GPU-trained pre-fix checkpoints are flagged. See [EncoderDecoderModel.md](docs/development/reference/source/EncoderDecoderModel.md). |
-| TD-367 (LOW) | `LLMEncoder` Console Output and Unchecked Weight I/O. Left: Switch to `adai::Logger` (debug level for the per-call message) (and 1 more). See [LLMEncoder.md](docs/development/reference/source/LLMEncoder.md). |
 | TD-368 (MEDIUM) | Weight Initialization Can't Be Seeded or Reproduced. Code fix landed November 9, 2026. Left: GPU replays are close, not exact (see below). See [FeedForward.md](docs/development/reference/source/FeedForward.md). |
 | TD-370 (LOW) | `FeedForward` Argument Checks, GPU Null Dereference and Console Output. Left: Validate constructor arguments; check shapes in the setters and invalidate (or re-upload) the GPU mirror (and 3 more). See [FeedForward.md](docs/development/reference/source/FeedForward.md). |
 | TD-376 (LOW) | `FtpDataServer` Slow Shutdown, Unencrypted `FEAT` and Silent Start Failures. Left: Replace the sleep with a condition-variable wait that `stop()` notifies (and 2 more). See [FtpDataServer.md](docs/development/reference/source/FtpDataServer.md). |

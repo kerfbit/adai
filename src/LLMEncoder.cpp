@@ -1,13 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-11-19
 
 #include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cmath>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -43,13 +42,10 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
         encoder_blocks.back()->scale_residual_init(num_layers);  // TD-371
     }
 
-    std::cout << "LLM Encoder initialized with:" << '\n';
-    std::cout << "  Vocab size: " << vocab_size << '\n';
-    std::cout << "  Model dimension: " << d_model << '\n';
-    std::cout << "  Number of layers: " << num_layers << '\n';
-    std::cout << "  Number of heads: " << num_heads << '\n';
-    std::cout << "  Feed-forward dimension: " << d_ff << '\n';
-    std::cout << "  Max sequence length: " << max_seq_length << '\n';
+    // TD-367: one debug line (a 7-line std::cout banner on every construction before).
+    adai::Logger::debug("LLMEncoder: vocab {}, d_model {}, {} layers, {} heads, d_ff {}, "
+                        "max_seq_length {}",
+                        vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length);
 }
 
 std::vector<int> LLMEncoder::keep_last_positions(std::vector<int> token_ids) const {
@@ -84,7 +80,6 @@ Matrix LLMEncoder::encode(const std::string& text, bool add_special_tokens) {
         token_ids = keep_last_positions(tokenizer->encode(text, false));
     }
 
-    // TODO: See TD-367 in TECHNICAL_DEBT.md - std::cout in the constructor and save/load
     // TD-350: this used to print to stdout on every call, including every RAG query.
     adai::Logger::debug("Encoding {} tokens", token_ids.size());
 
@@ -255,23 +250,18 @@ void LLMEncoder::set_learning_rate(float lr) {
 
 void LLMEncoder::load_tokenizer_vocab(const std::string& vocab_file) {
     tokenizer->load_vocab(vocab_file);
-    std::cout << "Loaded tokenizer vocabulary from: " << vocab_file << '\n';
+    adai::Logger::info("Loaded tokenizer vocabulary from {}", vocab_file);
 }
 
 void LLMEncoder::build_tokenizer(const std::vector<std::string>& corpus, int vocab_size) {
     tokenizer->build_vocab(corpus, vocab_size);
-    std::cout << "Built tokenizer with vocabulary size: " << tokenizer->get_vocab_size() << '\n';
+    adai::Logger::info("Built tokenizer with vocabulary size {}", tokenizer->get_vocab_size());
 }
 
 void LLMEncoder::print_config() const {
-    std::cout << "\n=== LLM Encoder Configuration ===" << '\n';
-    std::cout << "Vocabulary size: " << vocab_size << '\n';
-    std::cout << "Model dimension (d_model): " << d_model << '\n';
-    std::cout << "Number of encoder layers: " << num_layers << '\n';
-    std::cout << "Number of attention heads: " << num_heads << '\n';
-    std::cout << "Feed-forward dimension: " << d_ff << '\n';
-    std::cout << "Max sequence length: " << max_seq_length << '\n';
-    std::cout << "=================================\n" << '\n';
+    adai::Logger::info("LLMEncoder configuration: vocab {}, d_model {}, {} encoder layers, {} heads, "
+                       "d_ff {}, max_seq_length {}",
+                       vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length);
 }
 
 int LLMEncoder::get_embedding_dim() const {
@@ -300,19 +290,18 @@ void LLMEncoder::save_weights(const std::string& filename) {
 
     final_norm->save_weights(base + "_encoder_final_norm.bin");
 
-    std::cout << "Saved Encoder weights to " << filename << '\n';
+    adai::Logger::info("Saved Encoder weights to {}", filename);
 }
 
 void LLMEncoder::load_weights(const std::string& filename) {
     // Read and verify header (TD-423/TD-367: checked reads)
-    // TODO: See TD-367 in TECHNICAL_DEBT.md - max_seq_length read but not compared
     adai::binio::Reader file(filename);
     const int loaded_vocab_size = file.value<int>("vocab_size");
     const int loaded_d_model = file.value<int>("d_model");
     const int loaded_num_layers = file.value<int>("num_layers");
     const int loaded_num_heads = file.value<int>("num_heads");
     const int loaded_d_ff = file.value<int>("d_ff");
-    file.value<int>("max_seq_length");
+    const int loaded_max_seq_length = file.value<int>("max_seq_length");
     file.expect_end();
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
@@ -326,7 +315,14 @@ void LLMEncoder::load_weights(const std::string& filename) {
             ", d_model=" + std::to_string(d_model) + ", layers=" + std::to_string(num_layers) +
             ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
     }
-
+    // TD-367: no weight depends on max_seq_length (the positional encoding is the fixed sinusoidal
+    // table, built for this instance's length), so a different one loads, with a warning.
+    if (loaded_max_seq_length != max_seq_length) {
+        adai::Logger::warn("Encoder weights in {} were saved with max_seq_length {}; loading them "
+                           "with max_seq_length {} (positional encoding is fixed, no weights depend "
+                           "on it)",
+                           filename, loaded_max_seq_length, max_seq_length);
+    }
 
     // Load component weights from separate files. TD-538: files saved before the
     // encoder-specific names have only the shared "_token_emb.bin"/"_final_norm.bin", which in an
@@ -351,7 +347,7 @@ void LLMEncoder::load_weights(const std::string& filename) {
 
     final_norm->load_weights(component_path("final_norm.bin"));
 
-    std::cout << "Loaded Encoder weights from " << filename << '\n';
+    adai::Logger::info("Loaded Encoder weights from {}", filename);
 }
 
 void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {

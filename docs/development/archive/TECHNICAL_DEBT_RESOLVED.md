@@ -1,10 +1,53 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (482 on November 18, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (483 on November 19, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 19, 2026 | Transformer / LLMEncoder | Code fix (LOW, filed October 11, 2026) |
+
+Description:
+Found while tracing `LLMEncoder`, by inspection. Library code writes to `std::cout`: a 7-line banner in
+the constructor, `"Encoding N tokens..."` on **every** `encode()` call (every RAG add or search and
+every pipeline request), save/load, the tokenizer methods and `print_config()`. `load_weights()`
+doesn't check its header reads, so a short file produces a misleading "architecture mismatch"
+message, and it reads `max_seq_length` but doesn't compare it. `save_weights()` doesn't check its
+writes. Same class as TD-357 (`EncoderBlock`).
+
+Action Items:
+
+- [x] Switch to `adai::Logger` (debug level for the per-call message).
+- [x] Check header reads and writes, and decide whether `max_seq_length` must match (harmless for sinusoidal encoding, so a warning is enough).
+
+**Load/save checks (October 26, 2026, with TD-423).** `LLMEncoder::save_weights()`/`load_weights()`'s header reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
+
+**Fix (November 19, 2026):**
+- **Console output.** Nothing in `LLMEncoder.cpp` writes to `std::cout` any more. The constructor logs its configuration in one line at
+  debug level (it printed a 7-line banner on every construction, including every RAG encoder copy and every test); `save_weights()`,
+  `load_weights()`, `load_tokenizer_vocab()`, `build_tokenizer()` and `print_config()` log at info. `encode()`'s per-call message had
+  already moved to debug with TD-350.
+- **`max_seq_length`.** `load_weights()` compares it, and a difference loads with a `Logger` warning naming both lengths: no weight depends
+  on it, since the positional encoding is the fixed sinusoidal table built for the loading instance's length. Weights saved at 32 and loaded
+  at 64 give the same sentence embedding.
+- **Header reads and writes** were already checked (TD-423, above).
+
+Tests: `WritesNothingToStdout`, `DifferentMaxSeqLengthLoadsWithAWarning`; 44 `llmencoderTests` pass. `LLMEncoder.cpp` 1.8.0,
+`encoder.hpp` 1.6.1.
+
+Location in code: `src/LLMEncoder.cpp` (constructor, `encode()`, `save_weights()`, `load_weights()`).
+
+Files to Modify:
+
+- `src/LLMEncoder.cpp`, `src/encoder.hpp`
+- `tests/llmencoder_test.cpp`
+
+---
 
 ### TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula
 

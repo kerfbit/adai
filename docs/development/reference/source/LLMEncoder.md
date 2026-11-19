@@ -1,11 +1,11 @@
 # `LLMEncoder` — Source File Reference
 
-- **Files:** [`src/encoder.hpp`](../../../../src/encoder.hpp) (303 lines, declaration), [`src/LLMEncoder.cpp`](../../../../src/LLMEncoder.cpp) (455, implementation)
+- **Files:** [`src/encoder.hpp`](../../../../src/encoder.hpp) (306 lines, declaration), [`src/LLMEncoder.cpp`](../../../../src/LLMEncoder.cpp) (451, implementation)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), `ModelSerializer` and `RLHFTrainer`
-- **Status tag:** `@adai-status: stable`; `encoder.hpp` `@adai-version: 1.6.0`, `LLMEncoder.cpp` `1.7.0`; both `@adai-reviewed: 2026-11-12`
-- **Tests:** [`tests/llmencoder_test.cpp`](../../../../tests/llmencoder_test.cpp) → `llmencoderTests` (42 tests); `encoderdecoder_test.cpp` covers checkpoint loading and the update step through the model
-- **Last traced against the code:** 2026-11-12
+- **Status tag:** `@adai-status: stable`; `encoder.hpp` `@adai-version: 1.6.1`, `LLMEncoder.cpp` `1.8.0`; both `@adai-reviewed: 2026-11-19`
+- **Tests:** [`tests/llmencoder_test.cpp`](../../../../tests/llmencoder_test.cpp) → `llmencoderTests` (44 tests); `encoderdecoder_test.cpp` covers checkpoint loading and the update step through the model
+- **Last traced against the code:** 2026-11-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (linked against the debug libraries) in a scratch program.
@@ -44,7 +44,7 @@ There are two live instances with different roles:
 
 | Member | Behaviour |
 |---|---|
-| `LLMEncoder(vocab_size, d_model = 512, num_layers = 6, num_heads = 8, d_ff = 2048, max_seq_length = 512)` | Builds an empty `BPETokenizer`, `TokenEmbedding(vocab_size, d_model)`, `PositionalEncoding(max_seq_length, d_model)`, the blocks (each scaling its residual output projections for depth, TD-371) and the final norm. **Prints a 7-line configuration banner to `std::cout`** on every construction (TD-367) |
+| `LLMEncoder(vocab_size, d_model = 512, num_layers = 6, num_heads = 8, d_ff = 2048, max_seq_length = 512)` | Builds an empty `BPETokenizer`, `TokenEmbedding(vocab_size, d_model)`, `PositionalEncoding(max_seq_length, d_model)`, the blocks (each scaling its residual output projections for depth, TD-371) and the final norm. Logs its configuration in one line at debug level (TD-367; it printed a 7-line banner to `std::cout` on every construction) |
 | `requires_grad` | Defaults to **`true`**, so a fresh training run caches what `backward()` needs. When true, `encode*()` keep the token ids. Serving instances clear it: `EncoderDecoderModel::set_training(false)` and `copy_encoder()` (TD-366) |
 | `learning_rate` | 0.001. `set_learning_rate(lr)` writes it to the token embedding, every block's public `learning_rate` and the final norm (the TD-093 fix). Only matters on the no-optimizer path |
 | `set_dropout(rate, active)` | Every block's dropout (TD-344); `EncoderDecoderModel::set_dropout()` calls it |
@@ -74,8 +74,8 @@ There are two live instances with different roles:
 
 | Method | Behaviour |
 |---|---|
-| `load_tokenizer_vocab(path)` | Loads the encoder's **own** tokenizer. Caller: `copy_encoder()` (the RAG encoder, with the model's vocabulary). Prints to `std::cout` (TD-367) |
-| `build_tokenizer(corpus, vocab_size = 10000)` | Tests only. Prints to `std::cout` |
+| `load_tokenizer_vocab(path)` | Loads the encoder's **own** tokenizer. Caller: `copy_encoder()` (the RAG encoder, with the model's vocabulary). Logs the path at info |
+| `build_tokenizer(corpus, vocab_size = 10000)` | Tests only. Logs the vocabulary size at info |
 
 Inside `EncoderDecoderModel` the encoder's own tokenizer is **empty**: the model tokenizes with its
 own and calls `encode_with_mask()`/`gpu_encode()`. There's no accessor for the encoder's tokenizer, so
@@ -85,8 +85,8 @@ own and calls `encode_with_mask()`/`gpu_encode()`. There's no accessor for the e
 
 | Method | Behaviour |
 |---|---|
-| `save_weights(file)` | Writes a 6-int header (`vocab_size`, `d_model`, `num_layers`, `num_heads`, `d_ff`, `max_seq_length`) with checked writes (`adai::binio::Writer`, TD-423), then `<file minus extension>_encoder_token_emb.bin`, `_encoder_block_<i>.bin` (each block adds its own sub-layer files) and `_encoder_final_norm.bin`. Prints to `std::cout` |
-| `load_weights(file)` | Reads the header with checked reads (a short or over-long header throws), and throws on a mismatch of five fields; **`max_seq_length` is read but not compared** (harmless for sinusoidal encoding, TD-367). Loads the encoder-specific embedding/norm files, or falls back with a warning to the old shared `_token_emb.bin`/`_final_norm.bin` that pre-TD-538 checkpoints have. Each sub-layer's loader checks its own file (TD-423). Prints to `std::cout` |
+| `save_weights(file)` | Writes a 6-int header (`vocab_size`, `d_model`, `num_layers`, `num_heads`, `d_ff`, `max_seq_length`) with checked writes (`adai::binio::Writer`, TD-423), then `<file minus extension>_encoder_token_emb.bin`, `_encoder_block_<i>.bin` (each block adds its own sub-layer files) and `_encoder_final_norm.bin`. Logs the path at info |
+| `load_weights(file)` | Reads the header with checked reads (a short or over-long header throws), and throws on a mismatch of five fields. A different `max_seq_length` loads with a `Logger` warning: no weight depends on it, since the positional encoding is the fixed sinusoidal table built for this instance's length (TD-367; it was read but not compared). **Verified** by `DifferentMaxSeqLengthLoadsWithAWarning`: same output at 32 and 64. Loads the encoder-specific embedding/norm files, or falls back with a warning to the old shared `_token_emb.bin`/`_final_norm.bin` that pre-TD-538 checkpoints have. Each sub-layer's loader checks its own file (TD-423). Logs the path at info |
 
 Before TD-538's fix (October 18, 2026) the embedding and norm used `_token_emb.bin`/`_final_norm.bin`,
 the decoder's names too, so inside an `EncoderDecoderModel` checkpoint the decoder's copies overwrote
@@ -100,7 +100,7 @@ goes through the accessors.
 
 `get_num_layers()`, `get_encoder_block(i)` (throws `out_of_range`; used for LoRA and SafeTensors),
 `get_token_embedding()`, `get_final_norm()` and `get_embedding_dim()` (returns `d_model`).
-`print_config()` writes to `std::cout` and has no production caller.
+`print_config()` logs the configuration in one line at info (TD-367; it wrote to `std::cout`) and has no production caller.
 
 ### GPU (`ADAI_ENABLE_GPU`)
 
@@ -132,7 +132,7 @@ the mask, so the two are equivalent.
 
 ## 4. Tests
 
-`llmencoder_test.cpp` has 42 tests:
+`llmencoder_test.cpp` has 44 tests:
 - construction with default, custom and minimal configurations;
 - tokenizer load/build, including a missing file and an empty corpus;
 - encode shapes, long-text truncation, empty strings, single words, repeats, Unicode and special characters;
@@ -144,7 +144,9 @@ the mask, so the two are equivalent.
 - `set_requires_grad()`, `set_learning_rate()` and its propagation to blocks;
 - `zero_grad()`, backward passes, `backward_sentence_embedding()`, a training workflow;
 - save/load, including a missing file, a mismatched architecture and an output-preserving round trip;
-- `get_embedding_dim()`, `print_config()`, optimizer registration and workflow.
+- `get_embedding_dim()`, `print_config()`, optimizer registration and workflow;
+- nothing written to stdout by construction, `encode()`, save/load, the tokenizer or `print_config()`,
+  which log instead, and a different `max_seq_length` loading with a warning and the same output (TD-367).
 
 `encoderdecoder_test.cpp` checks every checkpoint file on load (`EveryCheckpointFileIsCheckedOnLoad`,
 TD-423) and one update per step (`OneUpdateIsOneStepWithOrWithoutAnOptimizer`, TD-297/TD-360).
@@ -161,12 +163,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `std::cout` in the constructor, save/load, the tokenizer methods and `print_config()`; `load_weights()` doesn't compare `max_seq_length` (§2) | Console noise from library code; a header field silently ignored | By inspection | [TD-367](../../guides/TECHNICAL_DEBT.md#td-367-llmencoder-console-output-and-unchecked-weight-io) |
+| `std::cout` in the constructor, save/load, the tokenizer methods and `print_config()`; `load_weights()` doesn't compare `max_seq_length` (§2) | — | **Fixed November 19, 2026** | [TD-367](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-367-llmencoder-console-output-and-unchecked-weight-io) |
 
 ---
 
 ## 6. History
 
+- **TD-367 (November 19, 2026):** the constructor, save/load, the tokenizer methods and `print_config()`
+  log through `adai::Logger` instead of `std::cout`, and `load_weights()` warns when `max_seq_length`
+  differs.
 - **TD-349 (November 12, 2026):** `count_tokens()`, for `DocumentStore`'s chunking.
 - **TD-547 (October 19, 2026):** the token embedding moved to the device for `gpu_encode()`/`gpu_backward()`
   and the GPU weight/gradient methods; it used to be looked up on the host and uploaded every sample.

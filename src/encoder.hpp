@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.6.1
+// @adai-reviewed: 2026-11-19
 
 #include <algorithm>
 #include <cassert>
@@ -152,7 +152,7 @@ class LLMEncoder {
     void build_tokenizer(const std::vector<std::string>& corpus, int vocab_size = 10000);
 
     /**
-     * Print model configuration
+     * Log the model configuration (adai::Logger at info, TD-367)
      */
     void print_config() const;
 
@@ -173,7 +173,10 @@ class LLMEncoder {
     /**
      * Load model weights from file
      *
+     * A different max_seq_length loads with a warning: no weight depends on it (TD-367).
+     *
      * @param filename Path to load weights from
+     * @throws std::runtime_error on a short or over-long header, or a different architecture
      */
     void load_weights(const std::string& filename);
 

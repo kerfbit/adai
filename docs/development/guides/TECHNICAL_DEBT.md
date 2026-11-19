@@ -5,10 +5,10 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 
 ## Overview
 
-**Last Updated:** November 18, 2026
-**Active Items:** 96 (7 high, 20 medium, 69 low)
+**Last Updated:** November 19, 2026
+**Active Items:** 95 (7 high, 20 medium, 68 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 482 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 483 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 96 open items:
+**Where things stand.** Of the 95 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **75 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **74 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -147,7 +147,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (96 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (95 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -221,7 +221,7 @@ The remaining hygiene items of the layers, mostly found by the code-traced refer
 as TD-426 and TD-467 were:
 - [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) (LOW, `FeedForward`), [TD-425](#td-425-languagemodelhead-hygiene) (LOW, `LanguageModelHead`), [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW,
   `TokenEmbedding`), [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) (LOW) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) (LOW, `EncoderBlock`), [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) (LOW, `LLMDecoder`), [TD-345](#td-345-decoderblock-persistence-gaps-for-gated-state) (LOW, `DecoderBlock`
-  persistence), [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) (LOW, decoder-only mode), [TD-367](#td-367-llmencoder-console-output-and-unchecked-weight-io) (LOW, `LLMEncoder`), [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) (LOW, `LeJEPAEncoder`), [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) (LOW,
+  persistence), [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) (LOW, decoder-only mode), [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) (LOW, `LeJEPAEncoder`), [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) (LOW,
   `SIGReg`).
 - [TD-435](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) (LOW, `Matrix`) and [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) (LOW, the SIMD self-check and a startup CPU check).
 - [TD-397](#td-397-hippocampal-swap-file-grows-without-bound) (LOW) and [TD-398](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves) (LOW): the hippocampal swap file's cap and the per-step copies.
@@ -301,7 +301,6 @@ as TD-426 and TD-467 were:
   - [TD-356: `EncoderBlock` Gradient Norm and Clipping Ignore `LayerNorm`; Header Describes Post-LN](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln)
   - [TD-357: `EncoderBlock` Learning-Rate Handling, Unchecked Loads and Console Output](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output)
   - [TD-358: GPU Training Feeds Unshifted Targets, Teaching the Model to Copy Instead of Predict](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict)
-  - [TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O](#td-367-llmencoder-console-output-and-unchecked-weight-io)
   - [TD-368: Weight Initialization Can't Be Seeded or Reproduced](#td-368-weight-initialization-cant-be-seeded-or-reproduced)
   - [TD-370: `FeedForward` Argument Checks, GPU Null Dereference and Console Output](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output)
   - [TD-376: `FtpDataServer` Slow Shutdown, Unencrypted `FEAT` and Silent Start Failures](#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures)
@@ -2646,35 +2645,6 @@ Files to Modify:
 On-device result (November 10, 2026): on ai-machine's Arc Pro B60 (Level Zero), package `adai-sycl-gpu-tests-bf3501cb-20261109`, run November 10, 2026, `EncoderDecoderGPUTest` passed in full, including
 `GpuForwardLossMatchesCpuForwardTeacherForcing` and `GpuAndCpuGenerationAgree`, so the GPU path now trains on the shifted targets
 on the real card. Retraining every GPU-trained checkpoint remains.
-
----
-
-### TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Transformer / LLMEncoder | October 11, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `LLMEncoder`, by inspection. Library code writes to `std::cout`: a 7-line banner in
-the constructor, `"Encoding N tokens..."` on **every** `encode()` call (every RAG add or search and
-every pipeline request), save/load, the tokenizer methods and `print_config()`. `load_weights()`
-doesn't check its header reads, so a short file produces a misleading "architecture mismatch"
-message, and it reads `max_seq_length` but doesn't compare it. `save_weights()` doesn't check its
-writes. Same class as TD-357 (`EncoderBlock`).
-
-Action Items:
-
-- [ ] Switch to `adai::Logger` (debug level for the per-call message).
-- [ ] Check header reads and writes, and decide whether `max_seq_length` must match (harmless for sinusoidal encoding, so a warning is enough).
-
-**Load/save checks (October 26, 2026, with TD-423).** `LLMEncoder::save_weights()`/`load_weights()`'s header reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
-
-Location in code: `src/LLMEncoder.cpp` (constructor, `encode()`, `save_weights()`, `load_weights()`); tagged `TODO: See TD-367`.
-
-Files to Modify:
-
-- `src/LLMEncoder.cpp`
 
 ---
 

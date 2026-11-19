@@ -7,14 +7,17 @@
  */
 
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 #include "../src/BPETokenizer.hpp"
+#include "../src/Logger.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 #include "../src/encoder.hpp"
@@ -721,4 +724,78 @@ TEST_F(LLMEncoderTest, CountTokensIsTheUntruncatedEncodeLength) {
     EXPECT_EQ(encoder.count_tokens("hello"), tok.encode("hello", false).size());
     EXPECT_EQ(encoder.count_tokens(""), 0u);
     EXPECT_EQ(encoder.count_tokens(" \n\t "), 0u);
+}
+
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink =
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() {
+        adai::Logger::get()->sinks().push_back(sink);
+    }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+}  // namespace
+
+// TD-367: library code wrote a banner on every construction, and save/load/print_config, to stdout.
+TEST_F(LLMEncoderTest, WritesNothingToStdout) {
+    create_test_vocabulary();
+    const std::string weights_file = temp_dir + "/quiet.bin";
+    LogCapture log;
+    testing::internal::CaptureStdout();
+    {
+        LLMEncoder encoder(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+        encoder.load_tokenizer_vocab(vocab_file);
+        encoder.encode("hello world");
+        encoder.print_config();
+        encoder.save_weights(weights_file);
+        encoder.load_weights(weights_file);
+    }
+    const std::string out = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(out.find("LLM Encoder initialized"), std::string::npos) << out;
+    EXPECT_EQ(out.find("Configuration ==="), std::string::npos) << out;
+    EXPECT_EQ(out.find("Encoder weights"), std::string::npos) << out;
+    EXPECT_EQ(out.find("tokenizer vocabulary"), std::string::npos) << out;
+    const std::string logged = log.out.str();
+    EXPECT_NE(logged.find("LLMEncoder configuration: vocab 1000, d_model 64, 1 encoder layers"),
+              std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("Saved Encoder weights to " + weights_file), std::string::npos) << logged;
+    EXPECT_NE(logged.find("Loaded Encoder weights from " + weights_file), std::string::npos)
+        << logged;
+}
+
+// TD-367: max_seq_length was read from the header but never compared. No weight depends on it,
+// so a different one loads with a warning (and the same output), and the same one loads silently.
+TEST_F(LLMEncoderTest, DifferentMaxSeqLengthLoadsWithAWarning) {
+    create_test_vocabulary();
+    const std::string weights_file = temp_dir + "/seq.bin";
+    LLMEncoder saved(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, /*max_seq_length=*/32);
+    saved.load_tokenizer_vocab(vocab_file);
+    saved.save_weights(weights_file);
+
+    {
+        LogCapture log;
+        LLMEncoder same(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, 32);
+        same.load_weights(weights_file);
+        EXPECT_EQ(log.out.str().find("were saved with max_seq_length"), std::string::npos);
+    }
+
+    LogCapture log;
+    LLMEncoder longer(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, /*max_seq_length=*/64);
+    longer.load_tokenizer_vocab(vocab_file);
+    ASSERT_NO_THROW(longer.load_weights(weights_file));
+    EXPECT_NE(log.out.str().find("were saved with max_seq_length 32; loading them with "
+                                 "max_seq_length 64"),
+              std::string::npos)
+        << log.out.str();
+    const std::vector<float> a = saved.get_sentence_embedding("hello world");
+    const std::vector<float> b = longer.get_sentence_embedding("hello world");
+    ASSERT_EQ(a.size(), b.size());
+    for (size_t i = 0; i < a.size(); ++i)
+        EXPECT_FLOAT_EQ(a[i], b[i]) << "dimension " << i;
 }
