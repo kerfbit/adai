@@ -3,10 +3,10 @@
 - **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,040 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,035 lines)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
-- **Status tags:** `@adai-status: stable`; `Config.hpp` and `Config.cpp` `@adai-version: 1.33.0`; `@adai-reviewed: 2026-11-15`
-- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (110); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
+- **Status tags:** `@adai-status: stable`; `Config.hpp` and `Config.cpp` `@adai-version: 1.34.0`; `@adai-reviewed: 2026-11-19`
+- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (112); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15
+- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `ConfigLoader` (a scratch program compiled against
 > `Config.cpp`) or the binaries.
@@ -78,7 +78,7 @@ Precedence is **command-line flags > environment > file > defaults**; each binar
   width, strategy);
 - **training:** learning rate, epochs, batch size, accumulation steps, weight decay, dropout `[0, 1)`, clipping and adaptive clipping, seed;
 - **GPU** fraction `(0, 1]`, device, `gpu_queue_depth` `[0, 1000000]` and `gpu_wait_timeout_seconds` `[0, 86400]` (TD-574); **every port** (PASV min ≤ max; the trainer's admin port ≠ its child port); every metrics, registry, FTP,
-  MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569). A field whose 0 means "off" or "no limit" accepts 0.
+  MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569); each `GUTENBERG_MIRRORS` entry an `https://` URL (TD-579). A field whose 0 means "off" or "no limit" accepts 0.
 
 `validate_or_exit(config, binary)` logs every error and calls `std::exit(1)`. Every shipped `config.*.conf` passes
 (`EveryShippedConfigFilePassesValidation`).
@@ -108,10 +108,10 @@ line (`chatbot_api_server` at start-up).
 
 ## 7. Tests
 
-`config_test.cpp` (107): defaults; file parsing per key group; quotes and inline comments; numbers (trailing characters, negatives, non-finite);
+`config_test.cpp` (112): defaults; file parsing per key group; quotes and inline comments; numbers (trailing characters, negatives, non-finite);
 booleans in any case and bad ones keeping the default; enum values; the environment overriding the file, with the same checks; discovery order;
 `validate()` for every group, and every shipped file passing; reload applying any key, reporting additions/removals with secrets hidden, naming
-restart-only and flag-held keys; `METRICS_DB_URL` hidden in the reload diff (TD-571); `to_string()`; the strict parsers; `TRAINER_PASS_STALL_MINUTES`. `config_startup_log_test.cpp`: start-up
+restart-only and flag-held keys; `METRICS_DB_URL` hidden in the reload diff (TD-571); `to_string()`; the strict parsers; `TRAINER_PASS_STALL_MINUTES`; `GUTENBERG_MIRRORS` (TD-579). `config_startup_log_test.cpp`: start-up
 messages reaching the log file.
 
 ---
@@ -146,3 +146,7 @@ messages reaching the log file.
   binaries. Test: `ConfigTest.GpuWaitTimeoutDefaultFileEnvAndRange`. After the fourth round (that evening) the default is 8 again:
   the bound cut the resets in every round, and the passes that seemed to hang in its wait were resets the runtime never reported,
   which the wait timeout ends.
+- **November 19, 2026:** `GUTENBERG_MIRRORS` (TD-579): `ServiceConfig::gutenberg_mirrors`, default `kDefaultGutenbergMirrors`
+  (declared in `DataFetcher.hpp`, which `Config.hpp` now includes), from the file or the environment, each comma-separated entry
+  validated as `https://`, empty allowed (the main site only), printed by `to_string()`. Read by `registry_server` at startup and by
+  `dataset_manager` ([DataFetcher.md](DataFetcher.md)). Test: `ConfigTest.GutenbergMirrorsKey`.

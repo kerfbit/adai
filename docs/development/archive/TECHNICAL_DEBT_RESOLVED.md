@@ -1,10 +1,99 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (486 on November 19, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (487 on November 19, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-579: Gutenberg Downloads Don't Fall Back to a Mirror When gutenberg.org Is Unavailable
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 19, 2026 | Data / DataFetcher | Code fix (MEDIUM, filed November 19, 2026) |
+
+Description:
+`DataFetcher` downloads every Project Gutenberg book from one host: `gutenberg_urls()` lists
+`https://www.gutenberg.org/files/<id>/<id>-0.txt`, `files/<id>/<id>.txt` and `cache/epub/<id>/pg<id>.txt` (the last added by
+TD-314), all on `www.gutenberg.org`. When `www.gutenberg.org` is down, every `fetch/gutenberg` request to `registry_server` (`dataset_manager gutenberg`/`gutenberg-batch`, the
+Android Registry tab's fetch dialog) fails with `502 fetch_failed`, though the same files are on Project Gutenberg's official
+mirrors. Gutenberg also asks automated downloaders to use a mirror rather than the main site.
+
+Seen November 18-19, 2026: queueing `bodacious-badger`'s world-model books (run group `bb01`, kind `world_model`, 14 books) failed
+for days. A check on November 19 (HEAD requests for book 1342):
+
+| URL | Status |
+|---|---|
+| `https://www.gutenberg.org/cache/epub/1342/pg1342.txt` | 503 |
+| `https://gutenberg.pglaf.org/1/3/4/1342/1342-0.txt` | 200 |
+| `https://mirrors.xmission.com/gutenberg/1/3/4/1342/1342-0.txt` | 200 |
+| `https://mirror.csclub.uwaterloo.ca/gutenberg/1/3/4/1342/1342-0.txt` | 200 |
+| `https://aleph.gutenberg.org/…`, `https://gutenberg.readingroo.ms/…` | TLS certificate failure (curl exit 60) |
+
+The mirrors don't use the main site's `files/<id>/` layout. A book's directory is one level per digit of its ID except the last,
+then the ID: `1/3/4/1342/`, `1/11/` for book 11, `9/98/` for book 98. Each book still has `<id>-0.txt` (UTF-8) or only `<id>.txt`
+(29838 has only the latter), so the existing `-0.txt` → `.txt` fallback is needed on mirrors too. `cache/epub/<id>/pg<id>.txt`
+isn't on xmission.
+
+A mirror can also be stale or broken, so what it serves must be checked: a `200` HTML error page would otherwise be cached as the
+book (`ensure_gutenberg_book()` keeps whatever downloaded) and split into training pairs.
+
+Action Items:
+
+- [x] Add `FetcherConfig::gutenberg_mirrors` (base URLs, tried in order after the main site) with a built-in default list of the
+      mirrors that work over https (pglaf, xmission, csclub above); configurable in `config.registry.conf` as `GUTENBERG_MIRRORS`
+      (comma-separated; empty = main site only) and passed by `registry_server`'s two `FetcherConfig` sites and `dataset_manager`.
+- [x] Build the mirror URL from the digit-path layout (`<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`) after
+      `gutenberg_urls()`'s main-site ones; add each configured mirror's host to the download allow-list (`kDownloadHosts`), https only.
+- [x] Fall back only when the main site is unavailable: connection failure, timeout, TLS error, `429` or `5xx`
+      (`HttpDownloadResult::http_status`). A `404` from the main site for both file names means the book has no plain-text file;
+      don't try every mirror for it. Try the next mirror on the same failures.
+- [x] Check a download before caching it: plain text (not HTML) containing Project Gutenberg's `*** START OF` marker; otherwise
+      discard it and try the next source. (`ensure_gutenberg_book()` keeps whatever downloaded, for `fetch_gutenberg()` too since
+      TD-314.)
+- [x] Log which source served each book, and log one warning per request when the main site was skipped (not one per mirror).
+- [x] Tests against a local server (`extra_download_hosts`/`allow_plain_http`, as the HuggingFace tests do): main site 503 → the
+      mirror is used; main 404 → no mirror tried; a mirror's HTML page → rejected, next mirror used; digit-path URLs for 1-, 2-
+      and 5-digit IDs.
+- [x] Update `DataFetcher.md`, `config.registry.conf`'s comments and the `dataset_manager` operator guide.
+
+**Fix (November 19, 2026):**
+- **Mirrors.** `FetcherConfig::gutenberg_mirrors` (comma-separated base URLs) defaults to `kDefaultGutenbergMirrors` (pglaf,
+  xmission, csclub). `ServiceConfig::gutenberg_mirrors` reads `GUTENBERG_MIRRORS` from the file or the environment; `validate()`
+  requires every entry to be `https://`, and empty turns the fallback off. `registry_server` copies it at startup for
+  `fetch/gutenberg`; `dataset_manager`'s local `gutenberg`/`gutenberg-batch` pass it. `config.registry.conf` documents it (commented, so
+  the default applies).
+- **Digit paths.** `gutenberg_mirror_urls(id, base)` builds `<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`, with `0/<id>/`
+  for a one-digit ID (checked against pglaf: `0/5/5.txt` 200). Each URL's own host is allowed for that request only.
+- **When to fall back.** `download_gutenberg_book()` (now a member) leaves a source on no answer (status 0: connection, TLS, timeout),
+  `429`, `5xx` or a 200 that isn't a Gutenberg text, and tries the source's next file name on any other error. A `404` for every
+  main-site name asks no mirror. A down main site is skipped after its first failure, not tried three times.
+- **The content check.** `looks_like_gutenberg_text()`: not HTML (first non-blank character after any BOM isn't `<`) and
+  `*** START OF`/`***START OF` within the first 256 KiB. The download goes to `book.txt.download` and becomes `book.txt` only when it
+  passes, so an error page is never cached.
+- **Logging.** One warning per book when the main site is skipped, with its error; mirror failures at debug, and the last error in
+  the final one; the serving URL at info.
+- **Tests:** `GutenbergMirrorTest` (9, a local server as the main site and two mirrors), `MirrorUrlsUseTheDigitPath`,
+  `MirrorListIsTrimmed`, `OnlyGutenbergTextsAreKept`, `ConfigTest.GutenbergMirrorsKey`. Not run against the real mirrors from the
+  binaries; the queueing of `bb01`'s books will be the first real use, after `registry_server` on 192.168.1.16 is redeployed.
+- Docs: `DataFetcher.md` (§3, §6–§8, an addendum), `Config.md`, `RegistryServer.md`, `DatasetManagerTool.md`,
+  `dataset-manager-guide.md`.
+
+TD-314 (November 19, 2026) made `gutenberg_urls()` the list `download_gutenberg_book()` walks, so mirror URLs can be appended to
+it.
+
+Location in code: `src/DataFetcher.cpp` (`gutenberg_urls()`, `download_gutenberg_book()`, `ensure_gutenberg_book()`, `kDownloadHosts`).
+
+Files to Modify:
+
+- `src/DataFetcher.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `src/DatasetManagerTool.cpp`
+- `src/Config.{hpp,cpp}`
+- `config.registry.conf`
+- `tests/DataFetcherTests.cpp`
+
+---
 
 ### TD-314: `DataFetcher` Source Coverage and Hygiene Gaps
 
@@ -37,7 +126,7 @@ Action Items:
   fetch dialog. With none named, the whole `/parquet` listing is read and `default` used when the dataset has it, else its only config;
   several others are an error that names them (`Salesforce/wikitext` needs `--config`). A named config is cached in `<id>_<split>__<config>/` and has its own registry cursor; an unnamed one keeps the old names.
 - **Gutenberg.** `gutenberg_urls()` lists `files/<id>/<id>-0.txt`, `files/<id>/<id>.txt` and `cache/epub/<id>/pg<id>.txt`, tried in
-  order by `download_gutenberg_book()`. Not checked against the live site, which answered 503 throughout (TD-579).
+  order by `download_gutenberg_book()`. Not checked against the live site, which answered 503 throughout ([TD-579](#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable), fixed the same day).
 - **Caching.** `fetch_gutenberg()` shares `ensure_gutenberg_book()`'s `gutenberg_<id>/book.txt` with `ensure_gutenberg_cached()`, and
   `fetch_huggingface()` goes through `ensure_huggingface_cached()`; both downloaded on every call.
 - **Logging.** `fetch_huggingface()`/`download_hf_full_dataset()` log through `Logger` instead of `std::cout`/`std::cerr`.

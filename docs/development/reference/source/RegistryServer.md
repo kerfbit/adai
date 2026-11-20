@@ -3,10 +3,10 @@
 - **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,415 lines; `main()` and every handler, file-scope globals)
 - **Binary:** `registry_server` (port 8082), built from `RegistryServer.cpp`, `Config.cpp` and `RegistryServerArgs.cpp`
 - **Clients:** `RemoteTransport` ([DatasetRegistry.md](DatasetRegistry.md)) in `incremental_trainer` and `dataset_manager`; the Android ops dashboard's Registry tab; `mns_server`'s dataset proxy
-- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.33.0`, `@adai-reviewed: 2026-11-19`
+- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.34.0`, `@adai-reviewed: 2026-11-19`
 - **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (107 tests against a running server; **all pass** against a local instance, November 19, 2026), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
 - **Related:** [FtpDataServer.md](FtpDataServer.md), [DataFetcher.md](DataFetcher.md), [ParquetReader.md](ParquetReader.md), [DaemonConfigStore.md](DaemonConfigStore.md), [DataTransport.md](DataTransport.md)
-- **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314)
+- **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314); `fetch/gutenberg`'s mirrors 2026-11-19 (TD-579)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against the real `registry_server` binary (`build/debug/bin`), started with
 > `--config /dev/null` and a scratch `--data-dir`, using `curl`.
@@ -351,3 +351,11 @@ only one. A non-empty config must pass `is_safe_hf_component()`, like `split`, o
 `ensure_huggingface_cached(dataset_id, split, config)` and into the names of the cursor (`hf_<id>__<split>__cfg-<config>__<model>.txt`)
 and the slice file (`<id>_<split>_<config>_<model>_row<offset>…`); without one both names are as before, so existing cursors keep their
 place. Test: `LiveRegistryTest.FetchHuggingfaceRejectsUnsafeConfig`.
+
+## Addendum (November 19, 2026): `fetch/gutenberg` falls back to mirrors (TD-579)
+
+`main()` copies `GUTENBERG_MIRRORS` (`ServiceConfig::gutenberg_mirrors`, from `config.registry.conf` or the environment) into
+`g_gutenberg_mirrors` at startup, before the server listens, and the `fetch/gutenberg` handler passes it to its `FetcherConfig`. When
+`www.gutenberg.org` is unavailable (no answer, `429` or `5xx`), `DataFetcher` tries each mirror in turn, and a download is cached only
+when it is a Gutenberg text ([DataFetcher.md](DataFetcher.md) §3). It isn't admin-mutable; a change needs a restart. Requests and
+responses are unchanged: a book no source can serve still answers `502 fetch_failed`.

@@ -2,10 +2,10 @@
 
 - **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,185 lines; `main()` of the `dataset_manager` binary)
 - **Built into:** `dataset_manager` (with `DatasetManagerArgs.cpp` and `Config.cpp`, linking `DataFetcher`, `DatasetRegistry` and `adai_core`; `ModelNameClient` when `BUILD_MNS_SERVER`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.12.0`, `@adai-reviewed: 2026-11-19`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.13.0`, `@adai-reviewed: 2026-11-19`
 - **Tests:** `registryFtpConfinementTests` runs the real binary against a `registry_server` it starts (11 cases, §5); the parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
 - **Operator guide:** [dataset-manager-guide.md](../../../operations/guides/dataset-manager-guide.md) (§6)
-- **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575); `huggingface --config` 2026-11-19 (TD-314)
+- **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575); `huggingface --config` 2026-11-19 (TD-314); Gutenberg mirrors in local mode 2026-11-19 (TD-579)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real
 > `dataset_manager` binary against scratch local pools and a local `registry_server`.
@@ -184,3 +184,10 @@ is their only full description.
 `huggingface` passes `--config` to `fetch_huggingface()` (local) or `remote_fetch_huggingface()` (remote), so a dataset without a
 `default` config can be fetched. The usage line and the error help show it, with `Salesforce/wikitext 500 --config wikitext-2-raw-v1`
 as the example.
+
+## Addendum (November 19, 2026): Gutenberg mirrors in local mode (TD-579)
+
+In local mode (no `REGISTRY_SERVER_URL`), `gutenberg` and `gutenberg-batch` build their `DataFetcher` with
+`FetcherConfig::gutenberg_mirrors` from the loaded config's `GUTENBERG_MIRRORS`, so a book downloads from a mirror when
+`www.gutenberg.org` is unavailable, as `registry_server`'s `fetch/gutenberg` does in remote mode ([DataFetcher.md](DataFetcher.md) §3).
+They used a default-constructed `DataFetcher` before. The command line is unchanged.

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
+// @adai-version: 1.8.0
 // @adai-reviewed: 2026-11-19
 
 #include "DataFetcher.hpp"
@@ -111,7 +111,8 @@ std::string DataFetcher::ensure_gutenberg_book(int book_id) const {
         return "";
     }
     Logger::info("Downloading Project Gutenberg book #{} to cache...", book_id);
-    // http_download() renames a complete download into place, so book.txt is never partial.
+    // http_download() renames a complete download into place, and TD-579's check renames it to
+    // book.txt only when it is a Gutenberg text, so book.txt is never partial or an error page.
     return download_gutenberg_book(book_id, text_file) ? text_file : "";
 }
 
@@ -399,11 +400,54 @@ int DataFetcher::convert_huggingface_slice(const std::string& cached_jsonl,
 /*static*/
 // TD-314: cache/epub/<id>/pg<id>.txt is the generated plain text every book has; some books have no
 // files/<id>/ text at all.
-std::vector<std::string> DataFetcher::gutenberg_urls(int book_id) {
+std::vector<std::string> DataFetcher::gutenberg_urls(int book_id, const std::string& site_url) {
     const std::string id = std::to_string(book_id);
-    const std::string site = "https://www.gutenberg.org/";
+    const std::string site = site_url + "/";
     return {site + "files/" + id + "/" + id + "-0.txt", site + "files/" + id + "/" + id + ".txt",
             site + "cache/epub/" + id + "/pg" + id + ".txt"};
+}
+
+/*static*/
+std::vector<std::string> DataFetcher::gutenberg_mirror_urls(int book_id, const std::string& base) {
+    const std::string id = std::to_string(book_id);
+    std::string dir = base;
+    if (id.size() == 1) {
+        dir += "/0";
+    } else {
+        for (size_t i = 0; i + 1 < id.size(); ++i)
+            dir += "/" + id.substr(i, 1);
+    }
+    dir += "/" + id + "/";
+    return {dir + id + "-0.txt", dir + id + ".txt"};
+}
+
+/*static*/
+std::vector<std::string> DataFetcher::split_gutenberg_mirrors(const std::string& list) {
+    std::vector<std::string> mirrors;
+    std::stringstream in(list);
+    std::string item;
+    while (std::getline(in, item, ',')) {
+        const size_t first = item.find_first_not_of(" \t");
+        if (first == std::string::npos)
+            continue;
+        item = item.substr(first, item.find_last_not_of(" \t") - first + 1);
+        while (!item.empty() && item.back() == '/')
+            item.pop_back();
+        if (!item.empty())
+            mirrors.push_back(item);
+    }
+    return mirrors;
+}
+
+/*static*/
+bool DataFetcher::looks_like_gutenberg_text(const std::string& text) {
+    const std::string head = text.substr(0, 256 * 1024);
+    size_t first = head.rfind("\xEF\xBB\xBF", 0) == 0 ? 3 : 0;  // UTF-8 byte-order mark
+    first = head.find_first_not_of(" \t\r\n", first);
+    if (first == std::string::npos || head[first] == '<')  // empty, or an HTML page
+        return false;
+    return head.find("*** START OF") != std::string::npos ||
+           head.find("***START OF") != std::string::npos;
 }
 
 namespace {
@@ -411,20 +455,28 @@ namespace {
 const std::vector<std::string> kDownloadHosts = {
     "gutenberg.org", ".gutenberg.org", "huggingface.co", ".huggingface.co", "hf.co", ".hf.co"};
 
-bool fetch_to(const std::string& url, const std::string& output_path,
-              const std::string& bearer_token = "", const FetcherConfig* config = nullptr) {
+adai::HttpDownloadResult fetch_result(const std::string& url, const std::string& output_path,
+                                      const std::string& bearer_token,
+                                      const FetcherConfig* config,
+                                      const std::vector<std::string>& more_hosts = {}) {
     adai::HttpDownloadRequest request;
     request.url = url;
     request.output_path = output_path;
     request.bearer_token = bearer_token;
     request.allowed_hosts = kDownloadHosts;
+    request.allowed_hosts.insert(request.allowed_hosts.end(), more_hosts.begin(), more_hosts.end());
     if (config) {
         request.allowed_hosts.insert(request.allowed_hosts.end(),
                                      config->extra_download_hosts.begin(),
                                      config->extra_download_hosts.end());
         request.allow_plain_http = config->allow_plain_http;
     }
-    const adai::HttpDownloadResult result = adai::http_download(request);
+    return adai::http_download(request);
+}
+
+bool fetch_to(const std::string& url, const std::string& output_path,
+              const std::string& bearer_token = "", const FetcherConfig* config = nullptr) {
+    const adai::HttpDownloadResult result = fetch_result(url, output_path, bearer_token, config);
     if (!result.ok) {
         Logger::error("Download failed: {} ({})", url, result.error);
     }
@@ -434,6 +486,27 @@ bool fetch_to(const std::string& url, const std::string& output_path,
 std::string hf_token() {
     const char* token = std::getenv("HF_TOKEN");
     return token ? token : "";
+}
+
+// TD-579: the host of an http(s) URL ("" if it has none).
+std::string url_host(const std::string& url) {
+    const size_t scheme = url.find("://");
+    if (scheme == std::string::npos)
+        return "";
+    const size_t start = scheme + 3;
+    const size_t end = url.find_first_of(":/?#", start);
+    return url.substr(start, end == std::string::npos ? std::string::npos : end - start);
+}
+
+// TD-579: a failure that means the source is down, not that it lacks the file: no answer (connection,
+// TLS, timeout) or 429/5xx. A 404 means the file isn't there.
+bool source_unavailable(const adai::HttpDownloadResult& result) {
+    return result.http_status == 0 || result.http_status == 429 || result.http_status >= 500;
+}
+
+std::string read_file(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 }  // namespace
 
@@ -449,15 +522,77 @@ bool DataFetcher::download_file(const std::string& url, const std::string& outpu
     return false;
 }
 
-/*static*/
 // The `-0.txt` -> `.txt` fallback used to live in download_file(); TD-314 moved it into
-// gutenberg_urls() with the cache/epub pattern.
-bool DataFetcher::download_gutenberg_book(int book_id, const std::string& dest) {
-    for (const std::string& url : gutenberg_urls(book_id)) {
-        if (download_file(url, dest))
+// gutenberg_urls() with the cache/epub pattern. TD-579: when the main site is unavailable (no
+// answer, 429 or 5xx), each mirror is tried in turn; a 404 for every main-site URL means the book has
+// no plain text, so no mirror is asked. A download is kept only when it looks like a Gutenberg book
+// (a mirror can answer 200 with an HTML page), and it reaches @p dest only then.
+bool DataFetcher::download_gutenberg_book(int book_id, const std::string& dest) const {
+    const std::string candidate = dest + ".download";
+    std::error_code ec;
+    std::string last_error;
+    // 1 = checked book at dest, 0 = this URL doesn't have it, -1 = the source is unavailable.
+    auto attempt = [&](const std::string& url, const std::vector<std::string>& hosts) {
+        const adai::HttpDownloadResult result =
+            fetch_result(url, candidate, "", &config_, hosts);
+        if (!result.ok) {
+            Logger::debug("Gutenberg book #{}: {} failed ({})", book_id, url, result.error);
+            last_error = result.error;
+            return source_unavailable(result) ? -1 : 0;
+        }
+        if (!looks_like_gutenberg_text(read_file(candidate))) {
+            fs::remove(candidate, ec);
+            last_error = url + " isn't a Project Gutenberg text";
+            Logger::warn("Gutenberg book #{}: {} isn't a Project Gutenberg text; discarded", book_id,
+                         url);
+            return -1;
+        }
+        fs::rename(candidate, dest, ec);
+        if (ec) {
+            Logger::error("Cannot move {} to {}: {}", candidate, dest, ec.message());
+            fs::remove(candidate, ec);
+            return -1;
+        }
+        Logger::info("Gutenberg book #{} downloaded from {}", book_id, url);
+        return 1;
+    };
+
+    const std::vector<std::string> site_hosts = {url_host(config_.gutenberg_site_url)};
+    bool site_unavailable = false;
+    for (const std::string& url : gutenberg_urls(book_id, config_.gutenberg_site_url)) {
+        const int outcome = attempt(url, site_hosts);
+        if (outcome == 1)
             return true;
+        if (outcome < 0) {
+            site_unavailable = true;
+            break;
+        }
     }
-    Logger::error("Failed to download Gutenberg book #{} from any of its URLs", book_id);
+    if (!site_unavailable) {
+        Logger::error("Project Gutenberg has no plain-text file for book #{}", book_id);
+        return false;
+    }
+
+    const std::vector<std::string> mirrors = split_gutenberg_mirrors(config_.gutenberg_mirrors);
+    if (mirrors.empty()) {
+        Logger::error("Cannot download Gutenberg book #{}: {} is unavailable ({}) and no mirror is "
+                      "set (GUTENBERG_MIRRORS)",
+                      book_id, config_.gutenberg_site_url, last_error);
+        return false;
+    }
+    Logger::warn("{} is unavailable ({}); trying {} mirror(s) for Gutenberg book #{}",
+                 config_.gutenberg_site_url, last_error, mirrors.size(), book_id);
+    for (const std::string& mirror : mirrors) {
+        for (const std::string& url : gutenberg_mirror_urls(book_id, mirror)) {
+            const int outcome = attempt(url, {url_host(mirror)});
+            if (outcome == 1)
+                return true;
+            if (outcome < 0)
+                break;  // this mirror is down or serves something else: the next mirror
+        }
+    }
+    Logger::error("Failed to download Gutenberg book #{} from the main site or any mirror (last: {})",
+                  book_id, last_error);
     return false;
 }
 

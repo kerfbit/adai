@@ -1,12 +1,18 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-19
 
 #include <string>
 #include <utility>
 #include <vector>
+
+/// TD-579: Project Gutenberg mirrors that serve the plain-text files over https (checked November
+/// 19, 2026), tried in order when www.gutenberg.org is unavailable. `GUTENBERG_MIRRORS` overrides it.
+inline constexpr const char* kDefaultGutenbergMirrors =
+    "https://gutenberg.pglaf.org,https://mirrors.xmission.com/gutenberg,"
+    "https://mirror.csclub.uwaterloo.ca/gutenberg";
 
 /**
  * @brief Configuration for DataFetcher.
@@ -19,6 +25,12 @@ struct FetcherConfig {
     std::string huggingface_output_dir = "huggingface_data";
     /// TD-313: base of HuggingFace's datasets-server API (`<base>/parquet?dataset=…`).
     std::string huggingface_api_url = "https://datasets-server.huggingface.co";
+    /// TD-579: Project Gutenberg's main site, tried first.
+    std::string gutenberg_site_url = "https://www.gutenberg.org";
+    /// TD-579: comma-separated mirror base URLs (the digit-path layout, `<base>/1/3/4/1342/`), tried
+    /// in order only when the main site is unavailable; empty = the main site only. Each mirror's
+    /// host is added to the download allow-list.
+    std::string gutenberg_mirrors = kDefaultGutenbergMirrors;
     /// Tests against a local server only: more hosts to download from, and `http://` allowed.
     std::vector<std::string> extra_download_hosts;
     bool allow_plain_http = false;
@@ -210,10 +222,21 @@ class DataFetcher {
 
     // TD-314: the main site's plain-text URLs for a book, in the order they're tried:
     // files/<id>/<id>-0.txt (UTF-8), files/<id>/<id>.txt, cache/epub/<id>/pg<id>.txt.
-    static std::vector<std::string> gutenberg_urls(int book_id);
+    // TD-579: @p site is FetcherConfig::gutenberg_site_url.
+    static std::vector<std::string> gutenberg_urls(int book_id,
+                                                   const std::string& site = "https://www.gutenberg.org");
+    // TD-579: a mirror's URLs for a book: `<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`
+    // (`0/<id>/` for a one-digit ID).
+    static std::vector<std::string> gutenberg_mirror_urls(int book_id, const std::string& base);
+    // TD-579: the comma-separated list split, trimmed of spaces and trailing slashes, empties dropped.
+    static std::vector<std::string> split_gutenberg_mirrors(const std::string& list);
+    // TD-579: true when @p text is a Gutenberg plain-text book: not an HTML page, and Project
+    // Gutenberg's `*** START OF` marker within its first 256 KiB.
+    static bool looks_like_gutenberg_text(const std::string& text);
     static bool download_file(const std::string& url, const std::string& dest);
-    // Tries gutenberg_urls() in order; true once one downloaded to @p dest.
-    static bool download_gutenberg_book(int book_id, const std::string& dest);
+    // Tries gutenberg_urls() in order, then (TD-579) each mirror when the main site was
+    // unavailable; true once a checked book is at @p dest.
+    bool download_gutenberg_book(int book_id, const std::string& dest) const;
     // TD-314: `gutenberg_<id>/book.txt`, downloaded only when missing or empty; "" on failure.
     std::string ensure_gutenberg_book(int book_id) const;
     static std::string clean_gutenberg_text(const std::string& raw_text);

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.12.0
+// @adai-version: 1.13.0
 // @adai-reviewed: 2026-11-19
 
 #include <algorithm>
@@ -454,7 +454,9 @@ int main(int argc, char* argv[]) {
             path = reg.remote_fetch_gutenberg(book_id, num_pairs, model);
         } else {
             std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
-            DataFetcher fetcher;
+            FetcherConfig fcfg;
+            fcfg.gutenberg_mirrors = svc_config.gutenberg_mirrors;  // TD-579
+            DataFetcher fetcher(fcfg);
             // TD-328: DataFetcher's output dirs are relative, but add_file() queues them absolute.
             path = fetcher.fetch_gutenberg(book_id, num_pairs);
             if (!path.empty() && !reg.add_file(path))
@@ -497,7 +499,9 @@ int main(int argc, char* argv[]) {
             }
         } else {
             std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
-            DataFetcher fetcher;
+            FetcherConfig fcfg;
+            fcfg.gutenberg_mirrors = svc_config.gutenberg_mirrors;  // TD-579
+            DataFetcher fetcher(fcfg);
             auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
             for (const auto& p : paths) {
                 if (!p.empty() && reg.add_file(p))

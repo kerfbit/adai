@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.33.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.34.0
+// @adai-reviewed: 2026-11-19
 
 #include <climits>
 #include <cstdint>
@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "DataFetcher.hpp"
 #include "gpu/QueuePriority.hpp"
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
@@ -453,6 +454,10 @@ struct ServiceConfig {
     int registry_max_upload_mb = 2048;
     /// TD-494: fetch/gutenberg + fetch/huggingface requests that may run at once; more → 429.
     int registry_max_concurrent_fetches = 2;
+    /// TD-579: Project Gutenberg mirror base URLs (comma-separated, https only), tried in order when
+    /// www.gutenberg.org is unavailable; empty = the main site only. Read by registry_server and
+    /// dataset_manager (GUTENBERG_MIRRORS).
+    std::string gutenberg_mirrors = kDefaultGutenbergMirrors;
 
     // ============================================================
     // FTP Dataset Transport Configuration (Phase 10)

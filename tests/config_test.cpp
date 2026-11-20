@@ -1718,6 +1718,39 @@ TEST_F(ConfigTest, ValidateRejectsEachBadValue) {
     }
 }
 
+// TD-579: GUTENBERG_MIRRORS defaults to the built-in mirror list, may be emptied, and takes https://
+// entries only.
+TEST_F(ConfigTest, GutenbergMirrorsKey) {
+    const adai::ServiceConfig defaults;
+    EXPECT_EQ(defaults.gutenberg_mirrors, kDefaultGutenbergMirrors);
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(defaults, errors)) << (errors.empty() ? "" : errors[0]);
+
+    {
+        std::ofstream file(test_file);
+        file << "GUTENBERG_MIRRORS=https://a.example/gutenberg, https://b.example\n";
+    }
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gutenberg_mirrors,
+              "https://a.example/gutenberg, https://b.example");
+    {
+        std::ofstream file(test_file);
+        file << "GUTENBERG_MIRRORS=\n";
+    }
+    const auto empty = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(empty.gutenberg_mirrors, "");
+    errors.clear();
+    EXPECT_TRUE(ConfigLoader::validate(empty, errors));
+
+    adai::ServiceConfig plain;
+    plain.gutenberg_mirrors = "https://a.example,http://b.example";
+    errors.clear();
+    EXPECT_FALSE(ConfigLoader::validate(plain, errors));
+    EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const std::string& e) {
+        return e.find("gutenberg_mirrors") != std::string::npos &&
+               e.find("http://b.example") != std::string::npos;
+    }));
+}
+
 // TD-410: early stopping and the schedule are settings, with the values that used to be fixed.
 TEST_F(ConfigTest, TrainingPolicyKeys) {
     const adai::ServiceConfig defaults;

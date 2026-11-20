@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.33.0
+// @adai-version: 0.34.0
 // @adai-reviewed: 2026-11-19
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -241,6 +241,8 @@ static long long g_server_start_unix = 0;
 
 // TD-494: fetches that may run at once, so slow downloads can't occupy every request thread.
 static std::atomic<int> g_max_concurrent_fetches{2};
+// TD-579: GUTENBERG_MIRRORS, set once at startup before the server listens.
+static std::string g_gutenberg_mirrors = kDefaultGutenbergMirrors;
 static std::atomic<int> g_fetches_running{0};
 
 // ============================================================================
@@ -1690,6 +1692,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
     const std::string out_dir = group_dir(group, kind) + "/datasets";
     FetcherConfig fcfg;
     fcfg.gutenberg_output_dir = out_dir;
+    fcfg.gutenberg_mirrors = g_gutenberg_mirrors;  // TD-579
     DataFetcher fetcher(fcfg);
 
     Logger::info("[{}] fetch/gutenberg: ensuring book #{} is cached...", group, book_id);
@@ -2198,6 +2201,7 @@ int main(int argc, char* argv[]) {
     }
     g_claim_lease_seconds.store(static_cast<long long>(td494.claim_lease_minutes) * 60);
     g_max_concurrent_fetches.store(td494.max_concurrent_fetches);
+    g_gutenberg_mirrors = file_config.gutenberg_mirrors;  // TD-579
     g_server_start_unix = static_cast<long long>(std::time(nullptr));
     const std::size_t max_body_bytes = static_cast<std::size_t>(td494.max_upload_mb) * 1024 * 1024;
     // TD-284: the FTP listener (file < CLI; not admin-mutable). These used to come from the CLI

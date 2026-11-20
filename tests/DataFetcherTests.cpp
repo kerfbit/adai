@@ -832,7 +832,46 @@ class DataFetcherDownloadTest : public ::testing::Test {
     static std::vector<std::string> gutenberg_urls(int book_id) {
         return DataFetcher::gutenberg_urls(book_id);
     }
+    static std::vector<std::string> mirror_urls(int book_id, const std::string& base) {
+        return DataFetcher::gutenberg_mirror_urls(book_id, base);
+    }
+    static std::vector<std::string> split_mirrors(const std::string& list) {
+        return DataFetcher::split_gutenberg_mirrors(list);
+    }
+    static bool looks_like_book(const std::string& text) {
+        return DataFetcher::looks_like_gutenberg_text(text);
+    }
 };
+
+// TD-579: mirrors keep a book under one directory per digit of its ID but the last, then the ID
+// (0/<id>/ for a one-digit ID), and have the two files/<id>/ names but not cache/epub.
+TEST_F(DataFetcherDownloadTest, MirrorUrlsUseTheDigitPath) {
+    const std::string m = "https://gutenberg.pglaf.org";
+    EXPECT_EQ(mirror_urls(5, m), (std::vector<std::string>{m + "/0/5/5-0.txt", m + "/0/5/5.txt"}));
+    EXPECT_EQ(mirror_urls(98, m),
+              (std::vector<std::string>{m + "/9/98/98-0.txt", m + "/9/98/98.txt"}));
+    EXPECT_EQ(mirror_urls(1342, m),
+              (std::vector<std::string>{m + "/1/3/4/1342/1342-0.txt", m + "/1/3/4/1342/1342.txt"}));
+    EXPECT_EQ(mirror_urls(29838, m),
+              (std::vector<std::string>{m + "/2/9/8/3/29838/29838-0.txt",
+                                        m + "/2/9/8/3/29838/29838.txt"}));
+}
+
+TEST_F(DataFetcherDownloadTest, MirrorListIsTrimmed) {
+    EXPECT_EQ(split_mirrors(" https://a.example/gutenberg/ ,, https://b.example "),
+              (std::vector<std::string>{"https://a.example/gutenberg", "https://b.example"}));
+    EXPECT_TRUE(split_mirrors("").empty());
+    EXPECT_TRUE(split_mirrors(" , ").empty());
+}
+
+TEST_F(DataFetcherDownloadTest, OnlyGutenbergTextsAreKept) {
+    EXPECT_TRUE(looks_like_book("Title: X\n*** START OF THE PROJECT GUTENBERG EBOOK X ***\nText"));
+    EXPECT_TRUE(looks_like_book("\xEF\xBB\xBFThe Project Gutenberg EBook\n***START OF THIS EBOOK"));
+    EXPECT_FALSE(looks_like_book("<!DOCTYPE html><html>*** START OF</html>"));
+    EXPECT_FALSE(looks_like_book("  \n<html><body>Mirror maintenance</body></html>"));
+    EXPECT_FALSE(looks_like_book("A plain text file without the marker"));
+    EXPECT_FALSE(looks_like_book(""));
+}
 
 // TD-314: cache/epub/<id>/pg<id>.txt is tried after the two files/<id>/ names.
 TEST_F(DataFetcherDownloadTest, GutenbergUrlsEndWithTheEpubCache) {
@@ -876,6 +915,7 @@ TEST_F(DataFetcherDownloadTest, PlainHttpIsRefused) {
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <map>
 #include <mutex>
 #include <thread>
 #include "../src/ParquetReader.hpp"
@@ -1096,5 +1136,183 @@ TEST_F(HuggingFaceCacheTest, FetchHuggingfaceDownloadsOnce) {
     (void)fetcher.fetch_huggingface("org/ds", 3, "train");
     EXPECT_EQ(listing_hits_.load(), 1);
     EXPECT_TRUE(fs::exists(dataset_dir() / "full_dataset.complete"));
+}
+
+// ============================================================================
+// TD-579: a mirror is used when www.gutenberg.org is unavailable
+// ============================================================================
+
+namespace {
+
+std::string gutenberg_book(const std::string& source) {
+    std::string text = "Title: A Test\nLanguage: English\n*** START OF THE PROJECT GUTENBERG EBOOK ***\n";
+    for (int i = 0; i < 8; ++i)
+        text += "This is sentence number " + std::to_string(i) + " served by " + source + ". ";
+    return text + "\n*** END OF THE PROJECT GUTENBERG EBOOK ***\n";
+}
+
+// One local server plays the main site (/main) and two mirrors (/m1, /m2). A path with no
+// response set answers the source's default status (404 unless set).
+class GutenbergMirrorTest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        root_ = fs::temp_directory_path() /
+                ("adai_td579_" + std::to_string(::getpid()) + "_" +
+                 ::testing::UnitTest::GetInstance()->current_test_info()->name());
+        fs::remove_all(root_);
+        fs::create_directories(root_);
+        server_.Get(R"(/(main|m1|m2)/(.*))", [this](const httplib::Request& req,
+                                                     httplib::Response& res) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const std::string source = req.matches[1];
+            ++hits_[source];
+            const auto it = responses_.find(req.path);
+            if (it != responses_.end()) {
+                res.status = it->second.first;
+                res.set_content(it->second.second, "text/plain");
+                return;
+            }
+            const auto status = default_status_.find(source);
+            res.status = status == default_status_.end() ? 404 : status->second;
+        });
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        ASSERT_GT(port_, 0);
+        thread_ = std::thread([this] { server_.listen_after_bind(); });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!server_.is_running() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        ASSERT_TRUE(server_.is_running());
+    }
+    void TearDown() override {
+        server_.stop();
+        if (thread_.joinable())
+            thread_.join();
+        fs::remove_all(root_);
+    }
+    std::string base() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+    FetcherConfig config() const {
+        FetcherConfig cfg;
+        cfg.gutenberg_output_dir = root_.string();
+        cfg.gutenberg_site_url = base() + "/main";
+        cfg.gutenberg_mirrors = base() + "/m1," + base() + "/m2";
+        cfg.extra_download_hosts = {"127.0.0.1"};
+        cfg.allow_plain_http = true;
+        return cfg;
+    }
+    void respond(const std::string& path, int status, const std::string& body = "") {
+        std::lock_guard<std::mutex> lock(mutex_);
+        responses_[path] = {status, body};
+    }
+    void source_status(const std::string& source, int status) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        default_status_[source] = status;
+    }
+    int hits(const std::string& source) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return hits_[source];
+    }
+    std::string cached_book(int id) const {
+        std::ifstream in(root_ / ("gutenberg_" + std::to_string(id)) / "book.txt");
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+
+    httplib::Server server_;
+    std::thread thread_;
+    int port_ = 0;
+    fs::path root_;
+    std::mutex mutex_;
+    std::map<std::string, std::pair<int, std::string>> responses_;
+    std::map<std::string, int> default_status_;
+    std::map<std::string, int> hits_;
+};
+
+}  // namespace
+
+TEST_F(GutenbergMirrorTest, TheMainSiteIsUsedWhenItAnswers) {
+    respond("/main/files/1342/1342-0.txt", 200, gutenberg_book("main"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(cached_book(1342), gutenberg_book("main"));
+    EXPECT_EQ(hits("m1") + hits("m2"), 0);
+}
+
+// The case seen November 18-19, 2026: the main site answered 503 for days.
+TEST_F(GutenbergMirrorTest, AnUnavailableMainSiteFallsBackToAMirror) {
+    source_status("main", 503);
+    respond("/m1/1/3/4/1342/1342-0.txt", 200, gutenberg_book("m1"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(cached_book(1342), gutenberg_book("m1"));
+    EXPECT_EQ(hits("main"), 1) << "a 503 skips the main site's other names";
+    EXPECT_EQ(hits("m2"), 0);
+}
+
+TEST_F(GutenbergMirrorTest, TooManyRequestsFallsBackToo) {
+    source_status("main", 429);
+    respond("/m1/9/98/98-0.txt", 200, gutenberg_book("m1"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(98, 2).empty());
+    EXPECT_EQ(cached_book(98), gutenberg_book("m1"));
+}
+
+// A 404 for every main-site name means the book has no plain text: no mirror is asked.
+TEST_F(GutenbergMirrorTest, AMissingBookIsNotLookedForOnMirrors) {
+    DataFetcher fetcher(config());
+    EXPECT_TRUE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(hits("main"), 3);
+    EXPECT_EQ(hits("m1") + hits("m2"), 0);
+    EXPECT_FALSE(fs::exists(root_ / "gutenberg_1342" / "book.txt"));
+}
+
+// A mirror's 200 HTML page used to be cached as the book.
+TEST_F(GutenbergMirrorTest, AMirrorsHtmlPageIsRejectedAndTheNextMirrorUsed) {
+    source_status("main", 503);
+    respond("/m1/1/3/4/1342/1342-0.txt", 200, "<html><body>Down for maintenance</body></html>");
+    respond("/m2/1/3/4/1342/1342-0.txt", 200, gutenberg_book("m2"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(cached_book(1342), gutenberg_book("m2"));
+    EXPECT_FALSE(fs::exists(root_ / "gutenberg_1342" / "book.txt.download"));
+}
+
+// 29838 has only <id>.txt; a down mirror is skipped for the next one.
+TEST_F(GutenbergMirrorTest, TheSecondFileNameAndTheNextMirrorAreTried) {
+    source_status("main", 502);
+    source_status("m1", 503);
+    respond("/m2/2/9/8/3/29838/29838.txt", 200, gutenberg_book("m2"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(29838, 2).empty());
+    EXPECT_EQ(cached_book(29838), gutenberg_book("m2"));
+    EXPECT_EQ(hits("m1"), 1);
+    EXPECT_EQ(hits("m2"), 2);
+}
+
+TEST_F(GutenbergMirrorTest, OneDigitIdsUseTheZeroDirectory) {
+    source_status("main", 503);
+    respond("/m1/0/5/5.txt", 200, gutenberg_book("m1"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(5, 2).empty());
+    EXPECT_EQ(cached_book(5), gutenberg_book("m1"));
+}
+
+TEST_F(GutenbergMirrorTest, NoMirrorsMeansTheMainSiteOnly) {
+    source_status("main", 503);
+    respond("/m1/1/3/4/1342/1342-0.txt", 200, gutenberg_book("m1"));
+    FetcherConfig cfg = config();
+    cfg.gutenberg_mirrors = "";
+    DataFetcher fetcher(cfg);
+    EXPECT_TRUE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(hits("m1"), 0);
+}
+
+// The main site's own error page (a 200 that isn't a book) counts as unavailable.
+TEST_F(GutenbergMirrorTest, TheMainSitesHtmlPageFallsBackToo) {
+    respond("/main/files/1342/1342-0.txt", 200, "<!DOCTYPE html><html>Busy</html>");
+    respond("/m1/1/3/4/1342/1342-0.txt", 200, gutenberg_book("m1"));
+    DataFetcher fetcher(config());
+    EXPECT_FALSE(fetcher.fetch_gutenberg(1342, 2).empty());
+    EXPECT_EQ(cached_book(1342), gutenberg_book("m1"));
 }
 #endif

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.33.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.34.0
+// @adai-reviewed: 2026-11-19
 
 #include "Config.hpp"
 #include <algorithm>
@@ -528,6 +528,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.registry_max_upload_mb = parse_int(value);
             } else if (key == "REGISTRY_MAX_CONCURRENT_FETCHES") {
                 config.registry_max_concurrent_fetches = parse_int(value);
+            } else if (key == "GUTENBERG_MIRRORS") {  // TD-579
+                config.gutenberg_mirrors = value;
                 // FTP Dataset Transport configuration (Phase 10)
             } else if (key == "FTP_SERVER_ENABLED") {                     // TD-284
                 config.ftp_server_enabled = parse_file_bool(key, value);  // TD-286
@@ -1036,6 +1038,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("REGISTRY_MAX_CONCURRENT_FETCHES")) {
         config.registry_max_concurrent_fetches = *val;
+    }
+    if (auto val = get_env("GUTENBERG_MIRRORS")) {  // TD-579
+        config.gutenberg_mirrors = *val;
     }
 
     // FTP Dataset Transport (Phase 10)
@@ -1699,6 +1704,22 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     at_least(config.large_file_warn_threshold_mb, 0, "large_file_warn_threshold_mb");
     at_least(config.ftp_max_sessions_per_run, 0, "ftp_max_sessions_per_run");
     at_least(config.name_service_timeout_ms, 1, "name_service_timeout_ms");
+    // TD-579: each Gutenberg mirror is an https:// base URL.
+    {
+        std::stringstream mirrors(config.gutenberg_mirrors);
+        std::string mirror;
+        while (std::getline(mirrors, mirror, ',')) {
+            const size_t first = mirror.find_first_not_of(" \t");
+            if (first == std::string::npos)
+                continue;
+            mirror = mirror.substr(first, mirror.find_last_not_of(" \t") - first + 1);
+            if (mirror.rfind("https://", 0) != 0 || mirror.size() == 8) {
+                errors.push_back("Invalid gutenberg_mirrors entry: '" + mirror +
+                                 "' (must be an https:// URL)");
+                valid = false;
+            }
+        }
+    }
 
     // Checkpointing.
     at_least(config.auto_save_every_samples, 0, "auto_save_every_samples");
@@ -1876,6 +1897,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("REGISTRY_CLAIM_LEASE_MINUTES", num(c.registry_claim_lease_minutes));
     item("REGISTRY_MAX_UPLOAD_MB", num(c.registry_max_upload_mb));
     item("REGISTRY_MAX_CONCURRENT_FETCHES", num(c.registry_max_concurrent_fetches));
+    item("GUTENBERG_MIRRORS", c.gutenberg_mirrors);
     item("DOWNLOAD_DIR", c.download_dir);
     item("MAX_PARALLEL_DOWNLOADS", num(c.max_parallel_downloads));
     item("LARGE_FILE_WARN_THRESHOLD_MB", num(c.large_file_warn_threshold_mb));

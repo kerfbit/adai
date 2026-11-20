@@ -3,10 +3,10 @@
 - **Files:** [`src/DataFetcher.hpp`](../../../../src/DataFetcher.hpp), [`src/DataFetcher.cpp`](../../../../src/DataFetcher.cpp)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_core`, used by `registry_server` and `dataset_manager` (with `ParquetReader` and `HttpDownload`)
-- **Status tag:** `@adai-status: stable`; `DataFetcher.hpp` `@adai-version: 1.4.0`, `DataFetcher.cpp` `@adai-version: 1.7.0`, `@adai-reviewed: 2026-11-19`
-- **Tests:** [`tests/DataFetcherTests.cpp`](../../../../tests/DataFetcherTests.cpp) (51 tests; `HuggingFaceCacheTest` runs against a local httplib server, everything else is offline); the fetch endpoints' input validation in `dataset_registry_live_test.cpp`
+- **Status tag:** `@adai-status: stable`; `DataFetcher.hpp` `@adai-version: 1.5.0`, `DataFetcher.cpp` `@adai-version: 1.8.0`, `@adai-reviewed: 2026-11-19`
+- **Tests:** [`tests/DataFetcherTests.cpp`](../../../../tests/DataFetcherTests.cpp) (63 tests; `HuggingFaceCacheTest` and `GutenbergMirrorTest` run against a local httplib server, everything else is offline); the fetch endpoints' input validation in `dataset_registry_live_test.cpp`
 - **Origin:** split out of `IncrementalTrainer.cpp` by TD-028 (dataset manager separation); Phase 11 (server-side fetch), Phase 12/13 (cached rotating slices, Gutenberg cleaning); native Parquet via `ParquetReader`
-- **Last traced against the code:** 2026-11-19 (TD-314: §1–§8 rewritten to the current code; the addenda below record how it got there)
+- **Last traced against the code:** 2026-11-19 (TD-579: the Gutenberg mirror fallback in §3, §6, §7 and §8; TD-314 rewrote §1–§8 earlier the same day; the addenda below record how it got there)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real code.
 > Downloads in the tests go to a local server; nothing in the tests reaches Gutenberg or HuggingFace.
@@ -20,7 +20,7 @@ the JSONL `{"input","response",…}` files the dataset registry queues for train
 
 | Source | Download | Conversion |
 |---|---|---|
-| Project Gutenberg | One plain-text file per book through `adai::http_download()` (libcurl) | Strip boilerplate, split into sentences, make continuation pairs (two sentences in, the next two out; TD-311) |
+| Project Gutenberg | One plain-text file per book through `adai::http_download()` (libcurl), from a mirror when the main site is unavailable (TD-579) | Strip boilerplate, split into sentences, make continuation pairs (two sentences in, the next two out; TD-311) |
 | HuggingFace datasets | `datasets-server` `/parquet` listing, then each Parquet part, converted natively by `ParquetReader` | Parse each row as JSON; auto-detect input/output fields, dialog arrays, utterance-per-row dialogs, or split single-text rows in half |
 
 It has no dependency on the model, tokenizer or registry. It returns file paths, and the caller
@@ -56,6 +56,8 @@ Its crash and filesystem behaviour is therefore the registry daemon's behaviour 
 | `gutenberg_output_dir` | `gutenberg_data` | Book caches and local training files |
 | `huggingface_output_dir` | `huggingface_data` | Dataset caches and local training files |
 | `huggingface_api_url` | `https://datasets-server.huggingface.co` | Base of the `/parquet` listing (TD-313) |
+| `gutenberg_site_url` | `https://www.gutenberg.org` | Project Gutenberg's main site, tried first (TD-579) |
+| `gutenberg_mirrors` | `kDefaultGutenbergMirrors`: `https://gutenberg.pglaf.org`, `https://mirrors.xmission.com/gutenberg`, `https://mirror.csclub.uwaterloo.ca/gutenberg` | Comma-separated mirror base URLs, tried in order when the main site is unavailable; empty = the main site only (TD-579). `ServiceConfig::gutenberg_mirrors` (`GUTENBERG_MIRRORS`) sets it in `registry_server`'s `fetch/gutenberg` and `dataset_manager`'s local `gutenberg`/`gutenberg-batch` |
 | `extra_download_hosts`, `allow_plain_http` | empty, `false` | Tests against a local server only |
 
 Paths are relative to the working directory. `fetch_gutenberg()`, `ensure_*_cached()` and
@@ -70,15 +72,33 @@ Paths are relative to the working directory. `fetch_gutenberg()`, `ensure_*_cach
 | `ensure_gutenberg_cached(book_id)` | Returns `<dir>/gutenberg_<id>/sentences_v2.txt` if it exists and is non-empty. Otherwise gets `book.txt` the same way (cached or downloaded), cleans it, extracts sentences and writes them one per line |
 | `convert_gutenberg_slice(sentences, out, offset, n, &next)` | Builds up to `n` pairs starting at sentence `offset` (an out-of-range offset is clamped), then wraps to sentence 0 once if short. `n <= kAllPairs` (0): every pair to the end of the book, no wrap (TD-575). Returns pairs written and the next offset |
 
-**Download** (`download_gutenberg_book()`) tries `gutenberg_urls(id)` in order until one succeeds
+**Download** (`download_gutenberg_book()`) tries `gutenberg_urls(id, gutenberg_site_url)` in order
 (TD-314):
-1. `https://www.gutenberg.org/files/<id>/<id>-0.txt` (the UTF-8 edition);
-2. `https://www.gutenberg.org/files/<id>/<id>.txt`;
-3. `https://www.gutenberg.org/cache/epub/<id>/pg<id>.txt` (the generated text every book has).
+1. `<site>/files/<id>/<id>-0.txt` (the UTF-8 edition);
+2. `<site>/files/<id>/<id>.txt`;
+3. `<site>/cache/epub/<id>/pg<id>.txt` (the generated text every book has).
 
-Each attempt is `download_file()` → `adai::http_download()`: `https://` on an allowed host only,
-timeouts, and the body renamed into place only after a complete 2xx download (TD-312), so a cached
-`book.txt` is never partial. Only the main site is tried; mirrors are TD-579.
+Each attempt is `adai::http_download()`: `https://` on an allowed host only, timeouts, and the body
+renamed into place only after a complete 2xx download (TD-312). Its outcome is one of three
+(TD-579):
+
+| Outcome | Meaning | Next |
+|---|---|---|
+| A Gutenberg text | `looks_like_gutenberg_text()`: not an HTML page (the first non-blank character after any UTF-8 BOM isn't `<`) and `*** START OF` or `***START OF` within the first 256 KiB | Renamed from `book.txt.download` to `book.txt`; done |
+| Not there | Any other HTTP error, `404` above all | The source's next file name |
+| Unavailable | No answer (connection, TLS, timeout: status 0), `429`, `5xx`, or a 200 that isn't a Gutenberg text | Leave this source |
+
+When the main site is unavailable, each of `gutenberg_mirrors` (`split_gutenberg_mirrors()`: trimmed,
+trailing `/` dropped, empty entries skipped) is tried in turn with `gutenberg_mirror_urls(id, base)`:
+the digit-path layout, one directory per digit of the ID but the last, then the ID (`0/<id>/` for a
+one-digit ID), with `<id>-0.txt` then `<id>.txt` (mirrors don't all carry `cache/epub`). Each URL's own
+host is allowed for that request only. When every main-site name answered "not there", the book has
+no plain-text file and no mirror is asked. One warning per book names the main site's error when it
+falls back; each mirror's failure is logged at debug, and the last one is in the final error. A
+cached `book.txt` is therefore never partial and never an error page. **Verified** in
+`GutenbergMirrorTest` against a local server; the mirror layout and status codes by HEAD requests to
+the real mirrors on November 19, 2026 (`0/5/5.txt`, `1/3/4/1342/1342-0.txt` and
+`2/9/8/3/29838/29838.txt` 200 on pglaf; `0/1/1-0.txt` 404).
 
 **Cleaning** (`clean_gutenberg_text`), in this order:
 1. Cut everything before the line containing `*** START OF` and from `*** END OF` onwards.
@@ -179,11 +199,11 @@ Fixed, and kept here because they explain the current shape (details in the adde
   and unvalidated Parquet URLs (TD-312, now `adai::http_download()`).
 - Partial or concurrent HuggingFace downloads became the permanent cache (TD-313, now all-or-nothing
   under a per-dataset lock).
+- Every Gutenberg fetch failed while `www.gutenberg.org` was down, and whatever downloaded was cached
+  as the book, an error page included (TD-579, now mirrors and a content check).
 
 Open:
 
-- **Gutenberg has one host.** When `www.gutenberg.org` is down every Gutenberg fetch fails, though
-  its mirrors serve the same books (TD-579).
 - `ensure_gutenberg_cached()` takes no lock: two concurrent first fetches of one book both download
   it. Each download is renamed into place whole, so the result is a wasted download, not a corrupt
   cache.
@@ -194,7 +214,7 @@ Open:
 
 ## 7. Tests
 
-`DataFetcherTests.cpp` has 51 tests:
+`DataFetcherTests.cpp` has 63 tests:
 
 | Group | Tests |
 |---|---|
@@ -202,10 +222,11 @@ Open:
 | `GutenbergSliceTest` | 8: offsets, wraparound, `kAllPairs`, continuation pairs, language |
 | `HuggingfaceSliceTest` | 13: field detection, offsets, wraparound, `kAllPairs`, an instruction's `input` or `context`, utterance-per-row dialogs, JSON rows (`\uXXXX`, nested fields, a broken row) and string-only dialog arrays (TD-314) |
 | `HuggingFaceCacheTest` | 7, against a local server: a failed part caches nothing, an unmarked cache is downloaded again, concurrent requests download once, `fetch_huggingface()` downloads once, and config selection (TD-314: `default` among several, a dataset's only config, several needing one named) |
-| `DataFetcherDownloadTest` | 3: no shell, no plain HTTP, the Gutenberg URL order (TD-314) |
+| `GutenbergMirrorTest` | 9, against a local server playing the main site and two mirrors (TD-579): the main site used when it answers; a `503`, `429`, `502` or an HTML page falls back; a `404` asks no mirror; a mirror's HTML page is rejected for the next mirror; `<id>.txt` after `<id>-0.txt`; `0/<id>/`; an empty mirror list |
+| `DataFetcherDownloadTest` | 6: no shell, no plain HTTP, the Gutenberg URL order (TD-314), the mirrors' digit paths, the mirror list's trimming and the text check (TD-579) |
 | `DataFetcherTest`, `FetcherConfigTest` | 6, including `split` flattening (TD-310) and `fetch_gutenberg()` reading a cached book (TD-314) |
 
-**Not covered:** a real download from Gutenberg or HuggingFace (the tests never leave the machine).
+**Not covered:** a real download from Gutenberg, its mirrors or HuggingFace (the tests never leave the machine). `GUTENBERG_MIRRORS`'s parsing and validation are in `config_test.cpp` (`GutenbergMirrorsKey`).
 
 ---
 
@@ -221,7 +242,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) or, 
 | `std::system` curl commands from strings; `HF_TOKEN` on the command line; HF-supplied URLs unvalidated (§6) | Injection where callers don't validate; token visible in `ps` (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
 | No curl timeouts; synchronous in the registry handler (§6) | A stalled download holds a registry worker forever (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
 | Partial or interrupted HF downloads cached as complete; concurrent fetches share cache files (§6) | Silently incomplete or corrupt datasets served indefinitely (**fixed in code November 7, 2026**) | By inspection | [TD-313](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) |
-| Gutenberg books come only from `www.gutenberg.org`; no mirror fallback when it's down (§6) | Every Gutenberg fetch fails (`502 fetch_failed`) while the main site is unavailable, as on November 18-19, 2026 | **Verified** (main site 503, three mirrors 200) | [TD-579](../../guides/TECHNICAL_DEBT.md#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable) |
+| Gutenberg books come only from `www.gutenberg.org`; no mirror fallback when it's down; an error page would be cached as the book (§3) | Every Gutenberg fetch fails (`502 fetch_failed`) while the main site is unavailable, as on November 18-19, 2026 (**fixed November 19, 2026**) | **Verified** (main site 503, three mirrors 200; tests) | [TD-579](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable) |
 | `config=default` only; Gutenberg URL patterns limited; `fetch_gutenberg()`/`fetch_huggingface()` never cache; `std::cout` in library code; string-scanner JSON (§3, §5) | Some datasets/books unfetchable; nested fields could be read as a row's own (**fixed November 19, 2026**) | **Verified** (tests) | [TD-314](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-314-datafetcher-source-coverage-and-hygiene-gaps) |
 | `ensure_gutenberg_cached()` has no per-book lock (§6) | Two concurrent first fetches of a book download it twice; the cache stays whole | By inspection | — |
 
@@ -297,3 +318,18 @@ cache check and §6's partial/concurrent cache items are historical.
 - **Logging.** `fetch_huggingface()` and `download_hf_full_dataset()` printed with `std::cout`/`std::cerr`; they log through `Logger`.
 - Tests: `RowsAreParsedAsJson`, `DialogTurnsAreAnArrayOfStrings`, `FetchGutenbergUsesTheCachedBook`, `GutenbergUrlsEndWithTheEpubCache`,
   `WithoutAConfigTheDefaultOneIsUsed`, `ADatasetsOnlyConfigIsUsed`, `SeveralConfigsNeedOneNamed`, `FetchHuggingfaceDownloadsOnce`.
+
+## Addendum (November 19, 2026): Gutenberg mirrors (TD-579)
+
+- `www.gutenberg.org` answered 503 for days (November 18-19, 2026), so `bodacious-badger`'s world-model books (run group `bb01`)
+  couldn't be queued, while the official mirrors served them. `download_gutenberg_book()` now falls back to
+  `FetcherConfig::gutenberg_mirrors` when the main site is unavailable, using the mirrors' digit-path layout (§3).
+- It became a member (it reads the configuration); `download_file()` no longer serves Gutenberg. `gutenberg_urls()` takes the site
+  URL, and `FetcherConfig::gutenberg_site_url` lets the tests stand in for the main site.
+- A download now reaches `book.txt` only when it looks like a Gutenberg text, so a mirror's or the main site's 200 error page is
+  never cached (it was before, for `fetch_gutenberg()` too since TD-314).
+- `GUTENBERG_MIRRORS` (`ServiceConfig::gutenberg_mirrors`, `config.registry.conf`, environment) defaults to the same list; every
+  entry must be `https://` (`ConfigLoader::validate()`), and empty turns the fallback off. `registry_server` reads it at startup
+  (not admin-mutable), and `dataset_manager` passes it in local mode.
+- Tests: `GutenbergMirrorTest` (9), `MirrorUrlsUseTheDigitPath`, `MirrorListIsTrimmed`, `OnlyGutenbergTextsAreKept`,
+  `ConfigTest.GutenbergMirrorsKey`.

@@ -137,7 +137,11 @@ Download a single Project Gutenberg book, convert it to training pairs, and queu
 **What happens:**
 
 1. Uses the cached `gutenberg_data/gutenberg_<id>/book.txt`, or downloads it: `https://www.gutenberg.org/files/<id>/<id>-0.txt`, then
-   `files/<id>/<id>.txt`, then `cache/epub/<id>/pg<id>.txt` (TD-314). Only the main site is tried (mirrors are TD-579).
+   `files/<id>/<id>.txt`, then `cache/epub/<id>/pg<id>.txt` (TD-314). When `www.gutenberg.org` is unavailable (no answer, 429 or
+   5xx), each mirror in `GUTENBERG_MIRRORS` is tried in turn (TD-579; by default `gutenberg.pglaf.org`, `mirrors.xmission.com` and
+   `mirror.csclub.uwaterloo.ca`; empty = the main site only). A 404 from the main site means the book has no plain text, and no
+   mirror is asked. A download is kept only when it is a Gutenberg text, never an error page. In remote mode the registry server's
+   own `GUTENBERG_MIRRORS` applies.
 2. Strips the Gutenberg header and footer.
 3. Extracts sentences (20–500 characters each).
 4. Generates up to `num_pairs` continuation pairs (since November 7, 2026, TD-311): each input is two consecutive sentences and its
