@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-19
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -150,20 +150,22 @@ GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& ar
 // TD-325: the optional fields can be named (--split, --input-field, --output-field, --model), so
 // giving a model no longer means giving every field before it: `huggingface ds 500 my-model` used to
 // set split = "my-model" silently. The positional form still works; a field given both ways, an
-// extra positional argument or an unknown option is an error.
+// extra positional argument or an unknown option is an error. TD-314: --config (named only) picks
+// the dataset's configuration.
 HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
     static const char* usage =
         "Usage: dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] "
         "[output_field] [model]\n"
         "   or: dataset_manager huggingface <dataset_id> [num_pairs] [--split S] "
-        "[--input-field F] [--output-field F] [--model M]";
+        "[--input-field F] [--output-field F] [--model M] [--config C]";
     std::vector<std::string> positional;
     struct Named {
         const char* flag;
         std::string value;
         bool given = false;
     };
-    Named named[] = {{"--split"}, {"--input-field"}, {"--output-field"}, {"--model"}};
+    // The first four can also be positional, in this order; --config can't.
+    Named named[] = {{"--split"}, {"--input-field"}, {"--output-field"}, {"--model"}, {"--config"}};
     bool options = true;
     for (std::size_t i = 0; i < args.size(); ++i) {
         if (options && args[i] == "--") {
@@ -209,6 +211,7 @@ HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
         else if (named[k].given)
             *fields[k] = named[k].value;
     }
+    r.config = named[4].value;
     return r;
 }
 

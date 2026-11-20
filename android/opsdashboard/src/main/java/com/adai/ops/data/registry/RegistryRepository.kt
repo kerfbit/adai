@@ -1,8 +1,8 @@
 package com.adai.ops.data.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-19
 
 
 import com.adai.ops.network.ApiClientProvider
@@ -386,10 +386,11 @@ class RegistryRepository(
         outputField: String,
         modelName: String,
         kind: String? = null,
+        config: String = "",
     ): ApiResult<FetchResponseDto> = safeResponseCall {
         service().fetchHuggingface(
             groupPath(group, kind),
-            FetchHuggingfaceRequestDto(datasetId, numPairs, split, inputField, outputField, modelName),
+            FetchHuggingfaceRequestDto(datasetId, numPairs, split, inputField, outputField, modelName, config),
         )
     }
 

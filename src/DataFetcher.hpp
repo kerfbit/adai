@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-19
 
 #include <string>
 #include <utility>
@@ -63,6 +63,9 @@ class DataFetcher {
      * sentences, and creates continuation pairs (TD-311).  The resulting
      * INPUT:/RESPONSE: file is written to
      * `config.gutenberg_output_dir/gutenberg_<id>_training.jsonl`.
+     *
+     * TD-314: the book is kept at `gutenberg_<id>/book.txt`, the same file
+     * ensure_gutenberg_cached() uses, and downloaded only when it isn't there.
      *
      * @param book_id   Gutenberg numeric book ID (e.g. 1342 for Pride and Prejudice).
      * @param num_pairs Maximum number of training pairs to generate (default 500).
@@ -132,7 +135,8 @@ class DataFetcher {
      * conversion.
      *
      * Field names are auto-detected from the first row when @p input_field and
-     * @p output_field are empty.  Supported auto-detection patterns include
+     * @p output_field are empty. Rows are parsed as JSON (TD-314): only a
+     * top-level string field counts, and `\uXXXX` escapes are decoded.  Supported auto-detection patterns include
      * instruction/output, question/answer, prompt/completion, and dialog arrays.
      * Set the HF_TOKEN environment variable to access gated datasets.
      *
@@ -142,12 +146,17 @@ class DataFetcher {
      * @param split        Dataset split (default "train").
      * @param input_field  JSON field for input text; empty = auto-detect.
      * @param output_field JSON field for output text; empty = auto-detect.
+     * @param config       TD-314: the dataset's configuration (subset), e.g.
+     *                     "wikitext-2-raw-v1"; empty = "default" if the
+     *                     dataset has it, else its only one (several is an
+     *                     error that lists them).
      * @return Path to the produced training file, or "" on any failure.
      */
     std::string fetch_huggingface(const std::string& dataset_id, int num_pairs = 500,
                                   const std::string& split = "train",
                                   const std::string& input_field = "",
-                                  const std::string& output_field = "");
+                                  const std::string& output_field = "",
+                                  const std::string& config = "");
 
     // ── HuggingFace: cache + rotating-slice serving (registry_server use) ──
 
@@ -166,9 +175,14 @@ class DataFetcher {
      * downloaded again. Calls for the same dataset are serialized within the
      * process, so a concurrent one waits and then finds the finished cache.
      *
+     * TD-314: @p config selects the configuration as in fetch_huggingface().
+     * A named one is cached in `<safe_id>_<split>__<config>/`; an empty one
+     * keeps the `<safe_id>_<split>/` layout.
+     *
      * @return Path to the cached full-dataset JSONL file, or "" on failure.
      */
-    std::string ensure_huggingface_cached(const std::string& dataset_id, const std::string& split);
+    std::string ensure_huggingface_cached(const std::string& dataset_id, const std::string& split,
+                                          const std::string& config = "");
 
     /**
      * @brief Convert up to @p num_pairs pairs starting at row @p offset_rows
@@ -194,9 +208,14 @@ class DataFetcher {
 
     // ── Gutenberg private helpers ──────────────────────────────────────────
 
-    static std::string get_gutenberg_url(int book_id);
+    // TD-314: the main site's plain-text URLs for a book, in the order they're tried:
+    // files/<id>/<id>-0.txt (UTF-8), files/<id>/<id>.txt, cache/epub/<id>/pg<id>.txt.
+    static std::vector<std::string> gutenberg_urls(int book_id);
     static bool download_file(const std::string& url, const std::string& dest);
-    static bool download_gutenberg_book(int book_id, const std::string& output_dir);
+    // Tries gutenberg_urls() in order; true once one downloaded to @p dest.
+    static bool download_gutenberg_book(int book_id, const std::string& dest);
+    // TD-314: `gutenberg_<id>/book.txt`, downloaded only when missing or empty; "" on failure.
+    std::string ensure_gutenberg_book(int book_id) const;
     static std::string clean_gutenberg_text(const std::string& raw_text);
     // Cleaning sub-steps (Phase 13), applied by clean_gutenberg_text() before
     // whitespace normalization. Heuristic, best-effort on Gutenberg's loosely
@@ -229,6 +248,7 @@ class DataFetcher {
 
     // TD-313: all parts or nothing; see the definition.
     std::string download_hf_full_dataset(const std::string& dataset_id, const std::string& split,
+                                         const std::string& config,
                                          const std::string& output_dir) const;
     // offset_rows/append/out_rows_consumed/out_pairs_written are Phase 12 additions
     // (see convert_huggingface_slice) — all default so the existing call site in
@@ -240,8 +260,8 @@ class DataFetcher {
                                             int offset_rows = 0, bool append = false,
                                             int* out_rows_consumed = nullptr,
                                             int* out_pairs_written = nullptr);
-    // JSON helpers (hf_unescape, hf_extract_string, etc.) are file-local
-    // static functions in DataFetcher.cpp and not exposed here.
+    // TD-314: rows and the /parquet listing are parsed with nlohmann/json in file-local
+    // helpers in DataFetcher.cpp (the hand-written string scanners are gone).
 
     // Grants tests/DataFetcherTests.cpp direct access to the private Phase 13
     // Gutenberg-cleaning helpers (strip_toc, strip_chapter_markers, ...) so

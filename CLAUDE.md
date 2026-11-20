@@ -452,7 +452,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(94 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(93 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -480,7 +480,6 @@ reference doc that tracks it):
 | TD-296 (LOW) | ConversationContext Hygiene. Left: Check the stream and write via temp file + rename (and 1 more). See [ConversationContext.md](docs/development/reference/source/ConversationContext.md). |
 | TD-302 (LOW) | LoRA Adapters Aren't Persisted or Counted in Gradient Norms. Left: Persist adapters (e.g. extra SafeTensors entries) or document merge-before-save and enforce it (and 1 more). See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
 | TD-303 (LOW) | Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input. Left: Skip the cross-attention sub-layer in `DecoderBlock` when no encoder output is given (e.g. a null pointer), and fix the comment. See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
-| TD-314 (LOW) | `DataFetcher` Source Coverage and Hygiene Gaps. Left: Add an optional HF `config` parameter (CLI, endpoint, dashboard) (and 2 more). See [DataFetcher.md](docs/development/reference/source/DataFetcher.md). |
 | TD-331 (LOW) | `dataset_manager` Has No Tests for Its Commands. Left: Add a CLI-level test target that runs `dataset_manager` against a scratch `SESSION_DIR` (and a local `registry_server` for remote mode), covering… See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
 | TD-332 (LOW) | Operator Guide Covers Only 8 of 15 `dataset_manager` Commands. Left: Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences. See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
 | TD-335 (LOW) | `DatasetRegistry` Dead Code and Unused Integrity Data. Left: Use the checksum (warn when a queued/trained file changed) or drop it; ~~count pairs without storing them~~ (done with TD-543); delete the unused… See [DatasetRegistry.md](docs/development/reference/source/DatasetRegistry.md). |

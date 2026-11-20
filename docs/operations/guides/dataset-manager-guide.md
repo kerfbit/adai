@@ -39,7 +39,7 @@ The dataset manager maintains two lists in the session directory:
 **Key behaviors:**
 
 - `add` silently skips a file if it is already in the trained registry or already pending.
-- Downloaded Gutenberg and HuggingFace files are written to local cache directories (`gutenberg_data/`, `huggingface_data/`). Re-downloading the same book ID overwrites the cache.
+- Downloaded Gutenberg and HuggingFace files are written to local cache directories (`gutenberg_data/`, `huggingface_data/`). A book or dataset already in the cache isn't downloaded again (books since November 19, 2026, TD-314); the training file is rewritten each time.
 - `clear-pending` removes files from the pending queue only; it does not erase them from the trained registry.
 
 ---
@@ -136,7 +136,8 @@ Download a single Project Gutenberg book, convert it to training pairs, and queu
 
 **What happens:**
 
-1. Downloads `https://www.gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt` if unavailable).
+1. Uses the cached `gutenberg_data/gutenberg_<id>/book.txt`, or downloads it: `https://www.gutenberg.org/files/<id>/<id>-0.txt`, then
+   `files/<id>/<id>.txt`, then `cache/epub/<id>/pg<id>.txt` (TD-314). Only the main site is tried (mirrors are TD-579).
 2. Strips the Gutenberg header and footer.
 3. Extracts sentences (20–500 characters each).
 4. Generates up to `num_pairs` continuation pairs (since November 7, 2026, TD-311): each input is two consecutive sentences and its
@@ -242,6 +243,7 @@ Download a HuggingFace dataset, convert it to training pairs, and queue it.
 ```bash
 ./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field] [model]
 ./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] [--split S] [--input-field F] [--output-field F] [--model M]
+./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] … --config C
 ```
 
 Since November 7, 2026 (TD-325) the optional fields can be named, in any order, so `huggingface ds 500 --model chat-v2` no longer needs
@@ -257,8 +259,9 @@ option or an extra argument is an error.
 | `[split]` | `train` | Dataset split (`train`, `validation`, `test`) |
 | `[input_field]` | auto | JSON field name for the input/question text |
 | `[output_field]` | auto | JSON field name for the output/answer text |
+| `--config C` | the dataset's `default`, or its only config | The dataset's configuration (subset), named only. A dataset with several configs and none called `default` (e.g. `Salesforce/wikitext`) needs it; the error lists them (TD-314, November 19, 2026) |
 
-**No Python or `huggingface_hub` library required.** The fetcher uses the HuggingFace datasets-server REST API directly, downloading rows as JSON in chunks of 100.
+**No Python or `huggingface_hub` library required.** The fetcher reads the HuggingFace datasets-server's Parquet listing, downloads each Parquet part and converts it natively. Rows are parsed as JSON: only top-level fields are read, and `\uXXXX` escapes are decoded (TD-314).
 
 **Auto-detection:** When `input_field` and `output_field` are omitted, the fetcher inspects the first row and matches common patterns: `instruction`/`output`, `question`/`answer`, `prompt`/`completion`, and `dialog` arrays. Supply explicit field names if auto-detection fails.
 
@@ -269,7 +272,7 @@ export HF_TOKEN=hf_your_token_here
 ./build/bin/dataset_manager huggingface owner/gated-dataset 300
 ```
 
-**Output file:** `huggingface_data/<safe_id>_<split>_training.txt` (slashes in `dataset_id` become underscores in the filename).
+**Output file:** `huggingface_data/<safe_id>_<split>_training.jsonl`, or `<safe_id>_<split>__<config>_training.jsonl` with `--config` (slashes in `dataset_id` become underscores in the filename).
 
 **Examples:**
 
@@ -291,6 +294,9 @@ export HF_TOKEN=hf_your_token_here
 
 # Custom field names for a less common dataset structure
 ./build/bin/dataset_manager huggingface owner/dataset 400 train prompt completion
+
+# A dataset with several configs and no "default"
+./build/bin/dataset_manager huggingface Salesforce/wikitext 500 --config wikitext-2-raw-v1
 ```
 
 **Popular datasets:**
@@ -410,16 +416,16 @@ The output lists each file as `requeued`, `already_pending` or `not_found`. The 
 └── data_registry.txt                  # trained-file registry (JSON Lines, one record per line)
 
 gutenberg_data/                        # Gutenberg cache (relative to working dir)
-├── gutenberg_1342.txt                 # raw downloaded text
-├── gutenberg_1342_training.txt        # converted INPUT/RESPONSE pairs ← queued
-├── gutenberg_11.txt
-└── gutenberg_11_training.txt
+├── gutenberg_1342/book.txt            # downloaded text, reused (TD-314)
+├── gutenberg_1342_training.jsonl      # converted pairs ← queued
+├── gutenberg_11/book.txt
+└── gutenberg_11_training.jsonl
 
 huggingface_data/                      # HuggingFace cache
-├── daily_dialog_train/                # raw JSON row chunks (directory)
-├── daily_dialog_train_training.txt    # converted pairs ← queued
-├── tatsu-lab_alpaca_train/
-└── tatsu-lab_alpaca_train_training.txt
+├── daily_dialog_train/                # full_dataset.jsonl + full_dataset.complete
+├── daily_dialog_train_training.jsonl  # converted pairs ← queued
+├── Salesforce_wikitext_train__wikitext-2-raw-v1/   # a named --config
+└── Salesforce_wikitext_train__wikitext-2-raw-v1_training.jsonl
 ```
 
 `SESSION_DIR` is controlled by the `SESSION_DIR` key in `config.conf` (default: `training_sessions`).

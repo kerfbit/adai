@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-19
 
 
 import androidx.lifecycle.ViewModel
@@ -377,6 +377,7 @@ class GroupDetailViewModel(
         inputField: String,
         outputField: String,
         modelName: String,
+        config: String = "",
     ) {
         viewModelScope.launch {
             _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
@@ -384,6 +385,7 @@ class GroupDetailViewModel(
             when (
                 val result = registryRepository.fetchHuggingface(
                     group, datasetId, numPairs, split, inputField, outputField, modelName, kind = kind,
+                    config = config,
                 )
             ) {
                 is ApiResult.Success -> {

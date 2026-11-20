@@ -1,11 +1,11 @@
 # `DatasetManagerTool` — Source File Reference
 
-- **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,175 lines; `main()` of the `dataset_manager` binary)
+- **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,185 lines; `main()` of the `dataset_manager` binary)
 - **Built into:** `dataset_manager` (with `DatasetManagerArgs.cpp` and `Config.cpp`, linking `DataFetcher`, `DatasetRegistry` and `adai_core`; `ModelNameClient` when `BUILD_MNS_SERVER`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.11.0`, `@adai-reviewed: 2026-11-17`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.12.0`, `@adai-reviewed: 2026-11-19`
 - **Tests:** `registryFtpConfinementTests` runs the real binary against a `registry_server` it starts (11 cases, §5); the parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
 - **Operator guide:** [dataset-manager-guide.md](../../../operations/guides/dataset-manager-guide.md) (§6)
-- **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575)
+- **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575); `huggingface --config` 2026-11-19 (TD-314)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real
 > `dataset_manager` binary against scratch local pools and a local `registry_server`.
@@ -68,7 +68,7 @@ before TD-328). Remote paths are the server's and are used as given.
 | `add [--overwrite] <file>` | `add_file()`: the file must exist; skipped (with a warning) if already trained or queued. `--overwrite` is an error | `remote_upload(file, overwrite)`: uploads the bytes to the server's `uploads/` and prints `Uploaded as …` or `Replaced the queued file …`. A refusal is worded by reason (TD-552): already trained or queued (use `--overwrite`), claimed (wait or release), segmented (delete the segments) | add or upload fails or is refused |
 | `gutenberg <id> [n] [model]` | `DataFetcher::fetch_gutenberg()` then `add_file()` | `remote_fetch_gutenberg()` (server-side, per-model rotating slice) | fetch fails |
 | `gutenberg-batch <ids> [n] [model]` | `fetch_gutenberg_batch()`, each result `add_file()`d | One `remote_fetch_gutenberg()` per id | none added |
-| `huggingface <id> [n] …` | `fetch_huggingface()` then `add_file()` | `remote_fetch_huggingface()` | fetch fails |
+| `huggingface <id> [n] … [--config C]` | `fetch_huggingface()` then `add_file()` | `remote_fetch_huggingface()` | fetch fails |
 | `status` | Kind, pending/trained counts, total samples, `print_registry()`, then each pending entry with its segment range or pair count and model | same | — |
 | `list-pending` / `list-trained` | `# Kind: …`, then tab-separated `path`, `segment[a-b]` or `N pairs`, model | same | — |
 | `remove <file>` | Checks the file is queued, then `remove_pending()`; a failed save is reported separately | Refused (TD-327, `refuse_local_only_command()`): points at `delete` | not queued, save failed, or remote |
@@ -178,3 +178,9 @@ is their only full description.
   segments in the legacy pool and printed "Migrated 1/3"; training both pools trained every pair twice.
 - **TD-540 (October 18, 2026):** `requeue`.
 - **TD-321–TD-325 (November 2026):** parser fixes; see [DatasetManagerArgs.md](DatasetManagerArgs.md) §4.
+
+## Addendum (November 19, 2026): `huggingface --config` (TD-314)
+
+`huggingface` passes `--config` to `fetch_huggingface()` (local) or `remote_fetch_huggingface()` (remote), so a dataset without a
+`default` config can be fetched. The usage line and the error help show it, with `Salesforce/wikitext 500 --config wikitext-2-raw-v1`
+as the example.

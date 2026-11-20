@@ -1623,6 +1623,19 @@ TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeSplit) {
     EXPECT_EQ(res->status, 400);
 }
 
+// TD-314: config goes into the cache directory and cursor names, like split.
+TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeConfig) {
+    for (const char* config : {"../../x", "a b", ".."}) {
+        std::ostringstream body;
+        body << "{\"dataset_id\":\"daily_dialog\",\"num_pairs\":10,\"config\":\"" << config
+             << "\"}";
+        auto res = client().Post(("/registry/" + group() + "/fetch/huggingface").c_str(),
+                                 body.str(), "application/json");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << config;
+    }
+}
+
 TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeModelName) {
     // model_name flows into a cursor-file path (Phase 12) — '/' must be
     // rejected before it ever reaches the filesystem, unlike dataset_id/split

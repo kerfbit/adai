@@ -1,12 +1,12 @@
 # `RegistryTransport` — Source File Reference
 
-- **Files:** [`src/RegistryTransport.hpp`](../../../../src/RegistryTransport.hpp) (671 lines), [`src/RegistryTransport.cpp`](../../../../src/RegistryTransport.cpp) (1,745)
+- **Files:** [`src/RegistryTransport.hpp`](../../../../src/RegistryTransport.hpp) (676 lines), [`src/RegistryTransport.cpp`](../../../../src/RegistryTransport.cpp) (1,748)
 - **Namespace:** global (`DataVersion`, `PendingEntry`, `segment_matches()`, `trained_matches()`, `SegmentTarget`, `PendingFileRange`, `FileToken`, `AcquireResponse`, `download_file_name()`, `registry_path_problem()`, the result types, `RegistryTransport`, `LocalTransport`, `RemoteTransport`)
 - **Built into:** `adai_core`. `RemoteTransport`'s HTTP code is compiled only with `BUILD_METRICS_API_SERVER` (set alongside httplib); without it every remote method logs an error and fails
 - **Used by:** [`DatasetRegistry`](DatasetRegistry.md) (`build_transport()`: `RemoteTransport` when `REGISTRY_SERVER_URL` is set, else `LocalTransport`), hence `incremental_trainer` and `dataset_manager`; **`registry_server` stores every group's state through `LocalTransport`** ([RegistryServer.md](RegistryServer.md)); `DataTransport` and `StartupSweep` use `download_file_name()`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 2.0.0` (hpp and cpp), `@adai-reviewed: 2026-11-12`
-- **Tests:** [`tests/registry_transport_test.cpp`](../../../../tests/registry_transport_test.cpp) → `registryTransportTests` (10) and [`tests/RegistryTransportTests.cpp`](../../../../tests/RegistryTransportTests.cpp) → `registryTransportPhase9Tests` (65), all local; `RemoteTransport` against a real `registry_server` in `registryFtpConfinementTests` (which starts one) and `datasetRegistryLiveTests` (106, skipped unless one is running)
-- **Last traced against the code:** 2026-11-12
+- **Status tag:** `@adai-status: stable`, `RegistryTransport.hpp` `@adai-version: 3.0.0` (MAJOR, TD-314: `fetch_huggingface()` gained `config`), `RegistryTransport.cpp` `2.1.0`, `@adai-reviewed: 2026-11-19`
+- **Tests:** [`tests/registry_transport_test.cpp`](../../../../tests/registry_transport_test.cpp) → `registryTransportTests` (10) and [`tests/RegistryTransportTests.cpp`](../../../../tests/RegistryTransportTests.cpp) → `registryTransportPhase9Tests` (65), all local; `RemoteTransport` against a real `registry_server` in `registryFtpConfinementTests` (which starts one) and `datasetRegistryLiveTests` (107, skipped unless one is running)
+- **Last traced against the code:** 2026-11-12; `fetch_huggingface()`'s `config` 2026-11-19 (TD-314)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linking `libadai_core.a`, using a scratch directory for
 > `LocalTransport` and a local `registry_server` for `RemoteTransport`.
@@ -109,7 +109,7 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
 | `next_session` | `POST …/session/next {model_name, run_id}` | `session_id`; `session-01` on an HTTP error, `""` on an unreadable reply |
 | `assign` / `unassign` | `POST …/assign {model_name, paths, count, segments}`, `…/unassign {…, force, segments}` | Counts and `paths`; the reply's `segments` aren't read, so `result.segments` stays empty while the counts include them (TD-498) |
 | `delete_paths` | `POST …/delete {paths, force, delete_files, segments}` | Counts and per-target details (status, `file_deleted`, range) |
-| `fetch_gutenberg` / `fetch_huggingface` | `POST …/fetch/gutenberg {book_id, num_pairs, model_name}`, `…/fetch/huggingface {dataset_id, num_pairs, split, input_field, output_field, model_name}` | The queued path when the reply says `added`, else `""` |
+| `fetch_gutenberg` / `fetch_huggingface` | `POST …/fetch/gutenberg {book_id, num_pairs, model_name}`, `…/fetch/huggingface {dataset_id, num_pairs, split, input_field, output_field, model_name, config}` | The queued path when the reply says `added`, else `""` |
 | `upload_file(local_path, overwrite)` | Reads the whole file into memory (TD-498), then `POST …/upload?filename=<basename>` with the bytes, adding `&overwrite=true` when asked | TD-552: a 409 sets `refused` from the reply's `reason` (`conflict` when it has none) with a warning; another error is logged and returns an empty result. A 200 succeeds when the reply says `added` **or** `replaced`, since a replaced queued file answers `{"added":false,"replaced":true}` |
 | `requeue_trained` | `POST …/requeue {paths, all, model_name}` | Counts and details; `ok = false` on failure |
 
@@ -160,3 +160,10 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
   segment-aware requeue and delete.
 - **TD-337, TD-338, TD-523 (October 19, 2026):** `download_file_name()`, the checksum sidecar suffix, `AcquireResponse::failed`.
 - **TD-540 (October 18, 2026):** `requeue_trained()`.
+
+## Addendum (November 19, 2026): `fetch_huggingface()` takes a config (TD-314)
+
+`RegistryTransport::fetch_huggingface()` has a last parameter, `config`: the HuggingFace dataset's configuration (subset), empty for
+`registry_server` to pick `default` or the dataset's only one. `RemoteTransport` sends it as the body's `"config"`; `LocalTransport`
+ignores it, as it does the whole fetch. Adding a parameter to the pure virtual breaks every implementation, hence the header's MAJOR
+version; the only others are the tests' fakes.

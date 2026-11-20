@@ -510,6 +510,21 @@ TEST(ParseHuggingfaceArgs, ConflictsExtrasAndUnknownOptionsAreErrors) {
     EXPECT_TRUE(parse_huggingface_args({"--model", "m"}).error) << "no dataset_id";
 }
 
+// TD-314: --config names the dataset's configuration; it's never positional.
+TEST(ParseHuggingfaceArgs, ConfigIsNamedOnly) {
+    const auto r = parse_huggingface_args(
+        {"Salesforce/wikitext", "500", "train", "--config", "wikitext-2-raw-v1", "--model", "m"});
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.config, "wikitext-2-raw-v1");
+    EXPECT_EQ(r.split, "train");
+    EXPECT_EQ(r.model, "m");
+    EXPECT_TRUE(parse_huggingface_args({"ds"}).config.empty());
+    EXPECT_TRUE(parse_huggingface_args({"ds", "--config"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "--config", "a", "--config", "b"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "1", "s", "i", "o", "m", "c"}).error)
+        << "a seventh positional argument isn't the config";
+}
+
 TEST(DatasetManagerArgsExtras, ExtraArgumentsAreErrors) {
     EXPECT_TRUE(parse_add_args({"a.jsonl", "b.jsonl"}).error);
     EXPECT_TRUE(parse_remove_args({"a.jsonl", "b.jsonl"}).error);

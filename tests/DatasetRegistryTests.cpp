@@ -136,6 +136,7 @@ class FakeFetchTransport : public RegistryTransport {
     int last_book_id = -1;
     std::string last_dataset_id;
     std::string last_model_name;
+    std::string last_config;
     std::string last_upload_path;
     bool last_upload_overwrite = false;
 
@@ -149,10 +150,12 @@ class FakeFetchTransport : public RegistryTransport {
     std::string fetch_huggingface(const std::string& dataset_id, int /*num_pairs*/,
                                   const std::string& /*split*/, const std::string& /*input_field*/,
                                   const std::string& /*output_field*/,
-                                  const std::string& model_name) override {
+                                  const std::string& model_name,
+                                  const std::string& config) override {
         ++fetch_huggingface_calls;
         last_dataset_id = dataset_id;
         last_model_name = model_name;
+        last_config = config;
         return next_fetch_result;
     }
     UploadResult upload_file(const std::string& local_path, bool overwrite) override {
@@ -1323,6 +1326,18 @@ TEST_F(DatasetRegistryFetchTest, RemoteFetchHuggingfaceForwardsModelName) {
 
     reg->remote_fetch_huggingface("daily_dialog", 200, "train", "", "", "model-a");
     EXPECT_EQ(fake->last_model_name, "model-a");
+}
+
+// TD-314: the dataset's config reaches the transport.
+TEST_F(DatasetRegistryFetchTest, RemoteFetchHuggingfaceForwardsConfig) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "/reg/data/wikitext_train_row0_training.jsonl";
+
+    reg->remote_fetch_huggingface("wikitext", 200, "train", "", "", "", "wikitext-2-raw-v1");
+    EXPECT_EQ(fake->last_config, "wikitext-2-raw-v1");
+    reg->remote_fetch_huggingface("daily_dialog", 200, "train", "", "");
+    EXPECT_TRUE(fake->last_config.empty());
 }
 
 TEST_F(DatasetRegistryFetchTest, RemoteUploadReturnsPathAndUpdatesPending) {

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.11.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.12.0
+// @adai-reviewed: 2026-11-19
 
 #include <algorithm>
 #include <filesystem>
@@ -259,7 +259,8 @@ int main(int argc, char* argv[]) {
         std::cout << "  gutenberg <id> [pairs] [model]  Download & queue a Gutenberg book "
                      "(default: 500 pairs)\n";
         std::cout << "  gutenberg-batch <id1,id2...> [pairs] [model]  Download multiple books\n";
-        std::cout << "  huggingface <id> [pairs] [split] [in_field] [out_field] [model]\n";
+        std::cout << "  huggingface <id> [pairs] [split] [in_field] [out_field] [model] "
+                     "[--config C]\n";
         std::cout << "                               or name them: --split S --input-field F "
                      "--output-field F\n";
         std::cout << "                               --model M (any subset, in any order)\n";
@@ -526,6 +527,11 @@ int main(int argc, char* argv[]) {
             std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
             std::cerr << "Example: " << argv[0]
                       << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
+            std::cerr << "Example: " << argv[0]
+                      << " huggingface Salesforce/wikitext 500 --config wikitext-2-raw-v1\n";
+            std::cerr << "  --config picks the dataset's configuration (subset); without it, "
+                         "\"default\" or the\n";
+            std::cerr << "  dataset's only one.\n";
             std::cerr << "  [model] is only meaningful when REGISTRY_SERVER_URL is set: the "
                         "registry\n";
             std::cerr << "  serves a different rotating slice of the dataset per model name "
@@ -552,11 +558,11 @@ int main(int argc, char* argv[]) {
             std::cout << "🤖 Requesting registry server download HuggingFace dataset '"
                       << dataset_id << "'...\n";
             path = reg.remote_fetch_huggingface(dataset_id, num_pairs, split, input_field,
-                                                output_field, model);
+                                                output_field, model, parsed.config);
         } else {
             DataFetcher fetcher;
-            path =
-                fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
+            path = fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field,
+                                             output_field, parsed.config);
             if (!path.empty() && !reg.add_file(path))
                 path.clear();
         }

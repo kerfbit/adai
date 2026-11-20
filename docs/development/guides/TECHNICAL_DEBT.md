@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 19, 2026
-**Active Items:** 94 (7 high, 21 medium, 66 low)
+**Active Items:** 93 (7 high, 21 medium, 65 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 485 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 486 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 94 open items:
+**Where things stand.** Of the 93 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **73 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **72 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -150,7 +150,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (94 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429 and TD-576 to TD-578 moved and TD-575 to TD-579 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (93 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314 and TD-576 to TD-578 moved and TD-575 to TD-579 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -205,7 +205,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
   it blocks queueing `bb01`'s books.
 - Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
   error codes), [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW, `DatasetRegistry` dead code and checksum), [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
-  [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps) (LOW, `DataFetcher` coverage), [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
+  [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
 
@@ -295,7 +295,6 @@ as TD-426 and TD-467 were:
   - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
   - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
-  - [TD-314: `DataFetcher` Source Coverage and Hygiene Gaps](#td-314-datafetcher-source-coverage-and-hygiene-gaps)
   - [TD-331: `dataset_manager` Has No Tests for Its Commands](#td-331-dataset_manager-has-no-tests-for-its-commands)
   - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
   - [TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data](#td-335-datasetregistry-dead-code-and-unused-integrity-data)
@@ -2307,40 +2306,6 @@ Files to Modify:
 
 - `src/Decoder.cpp`
 - `src/DecoderBlock.{hpp,cpp}`
----
-
-### TD-314: `DataFetcher` Source Coverage and Hygiene Gaps
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / DataFetcher | October 11, 2026 | 2-4 hours |
-
-Description:
-Found alongside TD-309, by inspection:
-- Only `config=default` is ever requested, so multi-config HuggingFace datasets fail with "No parquet
-  files found" and there's no way to choose a config.
-- Only Gutenberg's `files/<id>/<id>-0.txt` and `<id>.txt` URLs are tried, not
-  `cache/epub/<id>/pg<id>.txt`; not checked against the live site.
-- `fetch_gutenberg()` re-downloads the book on every call.
-- `fetch_huggingface()`/`download_hf_full_dataset()` print with `std::cout`/`std::cerr` in library
-  code.
-- The JSON field scanners don't decode `\uXXXX` escapes and match the first `"key"` anywhere in a row,
-  including nested objects.
-
-Action Items:
-
-- [ ] Add an optional HF `config` parameter (CLI, endpoint, dashboard).
-- [ ] Add the `cache/epub` URL pattern; cache in `fetch_gutenberg()`; switch output to `Logger`.
-- [ ] Parse rows with the vendored nlohmann/json instead of the string scanners.
-
-Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `get_gutenberg_url()`, `fetch_gutenberg()`, `hf_extract_string()`); tagged `TODO: See TD-314`.
-
-Files to Modify:
-
-- `src/DataFetcher.{hpp,cpp}`
-- `src/RegistryServer.cpp`
-- `src/DatasetManagerTool.cpp`
-
 ---
 
 ### TD-331: `dataset_manager` Has No Tests for Its Commands
@@ -4416,7 +4381,7 @@ escape non-ASCII by default (Python `json.dumps` `ensure_ascii=True`, pandas `to
 `Cafu00e9 au lait?` and `"Oui \u2014 tr\u00e8s bon \ud83d\ude00"` as `Oui u2014 tru00e8s bon ud83dude00`. Any dataset prepared with standard tooling
 and queued through `dataset_manager add`/upload therefore trains (and builds vocabularies) on garbage wherever it has an accented letter, curly
 apostrophe (`don’t` → `donu2019t`), dash or emoji, silently. `\b`, `\f`, `\/` are mis-decoded too. (DataFetcher's own output is raw UTF-8; its
-HuggingFace input scanner has the same gap, TD-314.)
+HuggingFace input scanner had the same gap, fixed by TD-314 on November 19, 2026.)
 
 **Fix landed October 17, 2026:** `parse_jsonl_sample()` now uses `tsm_detail::parse_object_members()`, a small top-level JSON object reader. It
 decodes every escape, including `\uXXXX` and surrogate pairs (unpaired surrogates become U+FFFD), and also fixes TD-532.
@@ -4433,7 +4398,7 @@ The local TinyStories training file (2,119,719 lines, 0 with `\u` escapes) parse
 
 Action Items:
 
-- [x] Parse JSONL lines with full escape and surrogate-pair handling. Done with a hand-written top-level reader, cross-checked against `nlohmann/json`, for the reasons above; TD-314 and TD-453 remain open.
+- [x] Parse JSONL lines with full escape and surrogate-pair handling. Done with a hand-written top-level reader, cross-checked against `nlohmann/json`, for the reasons above; TD-453 remains open (TD-314 closed November 19, 2026).
 - [x] Add tests with `\u` escapes, surrogate pairs and every standard escape.
 - [ ] Scan queued datasets for `\u` before retraining, and drop tokenized caches built from affected files so they re-tokenize. A pending file needs nothing else; re-reading it decodes correctly. Check with: `grep -lE '\\u[0-9a-fA-F]{4}' <registry data dir>/**/*.jsonl`. The local TinyStories copy has none.
 
@@ -5072,9 +5037,9 @@ Related: TD-574 (archived), TD-563, TD-560.
 | MEDIUM | Open | Data / DataFetcher | November 19, 2026 | 4-6 hours |
 
 Description:
-`DataFetcher` downloads every Project Gutenberg book from one host: `get_gutenberg_url()` builds
-`https://www.gutenberg.org/files/<id>/<id>-0.txt`, and `download_file()` retries only `<id>.txt` on the same host. When
-`www.gutenberg.org` is down, every `fetch/gutenberg` request to `registry_server` (`dataset_manager gutenberg`/`gutenberg-batch`, the
+`DataFetcher` downloads every Project Gutenberg book from one host: `gutenberg_urls()` lists
+`https://www.gutenberg.org/files/<id>/<id>-0.txt`, `files/<id>/<id>.txt` and `cache/epub/<id>/pg<id>.txt` (the last added by
+TD-314), all on `www.gutenberg.org`. When `www.gutenberg.org` is down, every `fetch/gutenberg` request to `registry_server` (`dataset_manager gutenberg`/`gutenberg-batch`, the
 Android Registry tab's fetch dialog) fails with `502 fetch_failed`, though the same files are on Project Gutenberg's official
 mirrors. Gutenberg also asks automated downloaders to use a mirror rather than the main site.
 
@@ -5095,30 +5060,31 @@ then the ID: `1/3/4/1342/`, `1/11/` for book 11, `9/98/` for book 98. Each book 
 isn't on xmission.
 
 A mirror can also be stale or broken, so what it serves must be checked: a `200` HTML error page would otherwise be cached as the
-book (`ensure_gutenberg_cached()` keeps whatever downloaded) and split into training pairs.
+book (`ensure_gutenberg_book()` keeps whatever downloaded) and split into training pairs.
 
 Action Items:
 
 - [ ] Add `FetcherConfig::gutenberg_mirrors` (base URLs, tried in order after the main site) with a built-in default list of the
       mirrors that work over https (pglaf, xmission, csclub above); configurable in `config.registry.conf` as `GUTENBERG_MIRRORS`
       (comma-separated; empty = main site only) and passed by `registry_server`'s two `FetcherConfig` sites and `dataset_manager`.
-- [ ] Build the mirror URL from the digit-path layout (`<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`); add each
-      configured mirror's host to the download allow-list (`kDownloadHosts`), https only.
+- [ ] Build the mirror URL from the digit-path layout (`<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`) after
+      `gutenberg_urls()`'s main-site ones; add each configured mirror's host to the download allow-list (`kDownloadHosts`), https only.
 - [ ] Fall back only when the main site is unavailable: connection failure, timeout, TLS error, `429` or `5xx`
       (`HttpDownloadResult::http_status`). A `404` from the main site for both file names means the book has no plain-text file;
       don't try every mirror for it. Try the next mirror on the same failures.
 - [ ] Check a download before caching it: plain text (not HTML) containing Project Gutenberg's `*** START OF` marker; otherwise
-      discard it and try the next source.
+      discard it and try the next source. (`ensure_gutenberg_book()` keeps whatever downloaded, for `fetch_gutenberg()` too since
+      TD-314.)
 - [ ] Log which source served each book, and log one warning per request when the main site was skipped (not one per mirror).
 - [ ] Tests against a local server (`extra_download_hosts`/`allow_plain_http`, as the HuggingFace tests do): main site 503 → the
       mirror is used; main 404 → no mirror tried; a mirror's HTML page → rejected, next mirror used; digit-path URLs for 1-, 2-
       and 5-digit IDs.
 - [ ] Update `DataFetcher.md`, `config.registry.conf`'s comments and the `dataset_manager` operator guide.
 
-Overlaps [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps)'s `cache/epub` item: that pattern is the main site's, so the
-two can be done together.
+TD-314 (November 19, 2026) made `gutenberg_urls()` the list `download_gutenberg_book()` walks, so mirror URLs can be appended to
+it.
 
-Location in code: `src/DataFetcher.cpp` (`get_gutenberg_url()`, `download_file()`, `ensure_gutenberg_cached()`, `kDownloadHosts`).
+Location in code: `src/DataFetcher.cpp` (`gutenberg_urls()`, `download_gutenberg_book()`, `ensure_gutenberg_book()`, `kDownloadHosts`).
 
 Files to Modify:
 

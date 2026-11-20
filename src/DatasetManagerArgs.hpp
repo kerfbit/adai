@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-19
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -53,6 +53,7 @@ struct HuggingfaceArgs {
     std::string input_field;
     std::string output_field;
     std::string model;
+    std::string config;  ///< TD-314: --config only; empty = the dataset's "default" or only config
     bool error = false;
     std::string error_message;
 };

@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-11-19
 
 
 import kotlinx.serialization.Serializable
@@ -222,6 +222,8 @@ data class FetchHuggingfaceRequestDto(
     val input_field: String = "",
     val output_field: String = "",
     val model_name: String = "",
+    /** TD-314: the dataset's configuration (subset); empty = "default", or its only one. */
+    val config: String = "",
 )
 
 /**

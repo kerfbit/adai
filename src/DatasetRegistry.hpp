@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-19
 
 #include <memory>
 #include <set>
@@ -362,12 +362,15 @@ class DatasetRegistry {
      *        data_dir and enqueue it as pending.
      * @param model_name Identifies the caller for per-model rotating-slice
      *                    tracking; empty buckets into a shared cursor.
+     * @param config     TD-314: the dataset's configuration (subset); empty
+     *                    = "default" if it has one, else its only one.
      * @return Registry-relative path of the newly queued file, or "" on failure.
      */
     std::string remote_fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                          const std::string& split, const std::string& input_field,
                                          const std::string& output_field,
-                                         const std::string& model_name = "");
+                                         const std::string& model_name = "",
+                                         const std::string& config = "");
 
     /**
      * @brief Upload a local file's bytes to the registry's own data_dir and

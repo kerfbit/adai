@@ -285,6 +285,47 @@ TEST_F(HuggingfaceSliceTest, NumericFieldMatchingCandidateNameFallsBackToSingleT
                            "silently detecting the numeric 'label' field as free-text output";
 }
 
+// TD-314: rows are parsed as JSON. \uXXXX escapes (surrogate pairs too) used to stay escaped, and
+// the scanner took the first "output" anywhere in the row, here the nested one. A row that isn't
+// JSON still counts as a row and yields nothing.
+TEST_F(HuggingfaceSliceTest, RowsAreParsedAsJson) {
+    {
+        std::ofstream f(cached_jsonl_);
+        f << R"({"meta":{"output":"nested"},"instruction":"caf\u00e9 \ud83d\ude00","output":"top"})"
+          << "\n";
+        f << R"({"instruction":"broken)" << "\n";
+        f << R"({"instruction":"q2","output":"a2"})" << "\n";
+    }
+    int next_offset = -1;
+    EXPECT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 0,
+                                                     DataFetcher::kAllPairs, next_offset),
+              2);
+    EXPECT_EQ(next_offset, 3);
+    EXPECT_EQ(read_output_inputs(),
+              (std::vector<std::string>{"caf\xc3\xa9 \xf0\x9f\x98\x80", "q2"}));
+    std::ifstream in(output_file_);
+    std::string first;
+    std::getline(in, first);
+    EXPECT_NE(first.find("\"response\":\"top\""), std::string::npos) << first;
+}
+
+// TD-314: a dialog's turns must all be strings; an array of objects isn't read as turns.
+TEST_F(HuggingfaceSliceTest, DialogTurnsAreAnArrayOfStrings) {
+    {
+        std::ofstream f(cached_jsonl_);
+        f << R"({"dialog":["She said \"hi\".","And then?"]})" << "\n";
+        f << R"({"dialog":[{"from":"human","value":"x"},{"from":"gpt","value":"y"}]})" << "\n";
+    }
+    int next_offset = -1;
+    EXPECT_EQ(DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "", 0,
+                                                     DataFetcher::kAllPairs, next_offset),
+              1);
+    std::ifstream in(output_file_);
+    std::string first;
+    std::getline(in, first);
+    EXPECT_NE(first.find(R"("input":"She said \"hi\".")"), std::string::npos) << first;
+}
+
 }  // namespace
 
 // ============================================================================
@@ -669,6 +710,38 @@ TEST(DataFetcherTest, SplitIsFlattenedIntoTheOutputDirectory) {
     fs::remove_all(root);
 }
 
+// TD-314: fetch_gutenberg() downloaded the book again on every call. It now reads the cache
+// ensure_gutenberg_cached() uses, so a cached book makes no request.
+TEST(DataFetcherTest, FetchGutenbergUsesTheCachedBook) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / ("adai_td314_" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    const fs::path book = root / "gutenberg_1342" / "book.txt";
+    fs::create_directories(book.parent_path());
+    std::string text = "Title: A Test\nLanguage: English\n*** START OF THE PROJECT GUTENBERG EBOOK ***\n";
+    for (int i = 0; i < 8; ++i)
+        text += "This is sentence number " + std::to_string(i) + " of the cached test book. ";
+    text += "\n*** END OF THE PROJECT GUTENBERG EBOOK ***\n";
+    std::ofstream(book) << text;
+
+    FetcherConfig cfg;
+    cfg.gutenberg_output_dir = root.string();
+    DataFetcher fetcher(cfg);
+    const std::string path = fetcher.fetch_gutenberg(1342, 2);
+    ASSERT_FALSE(path.empty());
+    std::ifstream out(path);
+    std::string line;
+    int lines = 0;
+    while (std::getline(out, line))
+        ++lines;
+    EXPECT_EQ(lines, 2);
+    std::ifstream again(book);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(again)), std::istreambuf_iterator<char>()),
+              text);
+    EXPECT_FALSE(fs::exists(root / "gutenberg_1342.txt")) << "the old per-call download path";
+    fs::remove_all(root);
+}
+
 // ============================================================================
 // TD-309: long inputs can't crash the Gutenberg cleaning/splitting
 // ============================================================================
@@ -756,7 +829,18 @@ class DataFetcherDownloadTest : public ::testing::Test {
     static bool download_file(const std::string& url, const std::string& dest) {
         return DataFetcher::download_file(url, dest);
     }
+    static std::vector<std::string> gutenberg_urls(int book_id) {
+        return DataFetcher::gutenberg_urls(book_id);
+    }
 };
+
+// TD-314: cache/epub/<id>/pg<id>.txt is tried after the two files/<id>/ names.
+TEST_F(DataFetcherDownloadTest, GutenbergUrlsEndWithTheEpubCache) {
+    EXPECT_EQ(gutenberg_urls(1342),
+              (std::vector<std::string>{"https://www.gutenberg.org/files/1342/1342-0.txt",
+                                        "https://www.gutenberg.org/files/1342/1342.txt",
+                                        "https://www.gutenberg.org/cache/epub/1342/pg1342.txt"}));
+}
 
 // The old download_file() ran `curl … "<url>"` through std::system, so `$(…)` in the URL ran in a
 // shell. The URL here names a host DataFetcher may not use, so it is refused without any
@@ -789,8 +873,10 @@ TEST_F(DataFetcherDownloadTest, PlainHttpIsRefused) {
 
 #ifdef ADAI_HAVE_LIBCURL
 #include <httplib.h>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include "../src/ParquetReader.hpp"
 
@@ -823,9 +909,24 @@ class HuggingFaceCacheTest : public ::testing::Test {
                  ::testing::UnitTest::GetInstance()->current_test_info()->name());
         fs::remove_all(root_);
         fs::create_directories(root_);
-        server_.Get("/parquet", [this](const httplib::Request&, httplib::Response& res) {
+        server_.Get("/parquet", [this](const httplib::Request& req, httplib::Response& res) {
             ++listing_hits_;
             const std::string base = "http://127.0.0.1:" + std::to_string(port_);
+            std::lock_guard<std::mutex> lock(mutex_);
+            last_query_.clear();
+            for (const char* key : {"dataset", "config", "split"})
+                if (req.has_param(key))
+                    last_query_ += std::string(key) + "=" + req.get_param_value(key) + ";";
+            if (!listing_.empty()) {  // TD-314: entries as config/split/part triples
+                std::string body = R"({"parquet_files":[)";
+                for (size_t i = 0; i < listing_.size(); ++i) {
+                    body += (i ? "," : "") + std::string(R"({"config":")") + listing_[i][0] +
+                            R"(","split":")" + listing_[i][1] + R"(","url":")" + base + "/" +
+                            listing_[i][2] + R"(.parquet"})";
+                }
+                res.set_content(body + "]}", "application/json");
+                return;
+            }
             res.set_content(R"({"parquet_files":[{"url":")" + base + R"(/part0.parquet"},)" +
                                 R"({"url":")" + base + R"(/part1.parquet"}]})",
                             "application/json");
@@ -868,6 +969,15 @@ class HuggingFaceCacheTest : public ::testing::Test {
     fs::path dataset_dir() const {
         return root_ / "datasets" / "org_ds_train";
     }
+    size_t rows_of(const char* fixture) const {
+        const fs::path scratch = root_ / "rows_of.jsonl";
+        return static_cast<size_t>(
+            ParquetReader::convert_to_jsonl(parquet_fixture(fixture).string(), scratch.string(), false));
+    }
+    std::string last_query() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return last_query_;
+    }
     size_t expected_rows() const {
         const fs::path scratch = root_ / "expected.jsonl";
         long long rows = ParquetReader::convert_to_jsonl(
@@ -891,6 +1001,9 @@ class HuggingFaceCacheTest : public ::testing::Test {
     std::atomic<int> listing_hits_{0};
     std::atomic<bool> fail_part1_{false};
     std::atomic<int> part_delay_ms_{0};
+    std::vector<std::array<std::string, 3>> listing_;  // set before the first request
+    std::mutex mutex_;
+    std::string last_query_;
 };
 
 }  // namespace
@@ -941,5 +1054,47 @@ TEST_F(HuggingFaceCacheTest, ConcurrentRequestsDownloadOnce) {
     EXPECT_EQ(a, b);
     EXPECT_EQ(listing_hits_.load(), 1);
     EXPECT_EQ(count_lines(a), expected_rows());
+}
+// TD-314: only config=default was ever asked for. With no config named, the whole listing is asked
+// for and "default" chosen when there is one.
+TEST_F(HuggingFaceCacheTest, WithoutAConfigTheDefaultOneIsUsed) {
+    listing_ = {{"default", "train", "part0"}, {"other", "train", "part1"},
+                {"default", "test", "part1"}};
+    const std::string path = DataFetcher(config()).ensure_huggingface_cached("org/ds", "train");
+    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(last_query(), "dataset=org/ds;");
+    EXPECT_EQ(count_lines(path), rows_of("plain_uncompressed.parquet"));
+    EXPECT_EQ(fs::path(path).parent_path(), dataset_dir());
+}
+
+TEST_F(HuggingFaceCacheTest, ADatasetsOnlyConfigIsUsed) {
+    listing_ = {{"wikitext-2-raw-v1", "train", "part0"}, {"wikitext-2-raw-v1", "train", "part1"}};
+    const std::string path = DataFetcher(config()).ensure_huggingface_cached("org/ds", "train");
+    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(count_lines(path), expected_rows());
+}
+
+// Several configs and none named "default": an error until one is named, and a named one is
+// cached apart from the unnamed layout.
+TEST_F(HuggingFaceCacheTest, SeveralConfigsNeedOneNamed) {
+    listing_ = {{"a", "train", "part0"}, {"b", "train", "part1"}};
+    DataFetcher fetcher(config());
+    EXPECT_EQ(fetcher.ensure_huggingface_cached("org/ds", "train"), "");
+    EXPECT_FALSE(fs::exists(dataset_dir() / "full_dataset.complete"));
+
+    const std::string path = fetcher.ensure_huggingface_cached("org/ds", "train", "b");
+    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(last_query(), "dataset=org/ds;config=b;split=train;");
+    EXPECT_EQ(count_lines(path), rows_of("multi_column.parquet"));
+    EXPECT_EQ(fs::path(path).parent_path(), root_ / "datasets" / "org_ds_train__b");
+}
+// TD-314: fetch_huggingface() downloaded the whole dataset on every call; it uses the cache now.
+TEST_F(HuggingFaceCacheTest, FetchHuggingfaceDownloadsOnce) {
+    FetcherConfig cfg = config();
+    DataFetcher fetcher(cfg);
+    (void)fetcher.fetch_huggingface("org/ds", 3, "train");
+    (void)fetcher.fetch_huggingface("org/ds", 3, "train");
+    EXPECT_EQ(listing_hits_.load(), 1);
+    EXPECT_TRUE(fs::exists(dataset_dir() / "full_dataset.complete"));
 }
 #endif

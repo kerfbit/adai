@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-19
 
 #include "DataFetcher.hpp"
 #include <algorithm>
@@ -11,12 +11,12 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -26,6 +26,7 @@
 #include "ParquetReader.hpp"
 #include "SecureRandom.hpp"
 #include "TrainingSampleMeta.hpp"
+#include "nlohmann/json.hpp"
 
 using adai::Logger;
 namespace fs = std::filesystem;
@@ -40,20 +41,13 @@ DataFetcher::DataFetcher(FetcherConfig cfg) : config_(std::move(cfg)) {}
 // Public — Project Gutenberg
 // ============================================================================
 
-// TODO: See TD-314 in TECHNICAL_DEBT.md - re-downloads the book on every call (no cache)
+// TD-314: the book comes from the same cache as ensure_gutenberg_cached(); it was downloaded again
+// on every call.
 std::string DataFetcher::fetch_gutenberg(int book_id, int num_pairs) {
     if (num_pairs <= kAllPairs)  // TD-575: the whole book
         num_pairs = std::numeric_limits<int>::max();
-    if (!fs::exists(config_.gutenberg_output_dir)) {
-        fs::create_directories(config_.gutenberg_output_dir);
-    }
-
-    std::string url = get_gutenberg_url(book_id);
-    std::ostringstream text_path_oss;
-    text_path_oss << config_.gutenberg_output_dir << "/gutenberg_" << book_id << ".txt";
-    const std::string text_file = text_path_oss.str();
-
-    if (!download_file(url, text_file)) {
+    const std::string text_file = ensure_gutenberg_book(book_id);
+    if (text_file.empty()) {
         return "";
     }
 
@@ -102,6 +96,25 @@ std::string read_book_header(const fs::path& book) {
 }
 }  // namespace
 
+std::string DataFetcher::ensure_gutenberg_book(int book_id) const {
+    const std::string dataset_dir =
+        config_.gutenberg_output_dir + "/gutenberg_" + std::to_string(book_id);
+    const std::string text_file = dataset_dir + "/book.txt";
+    std::error_code ec;
+    if (fs::exists(text_file, ec) && fs::file_size(text_file, ec) > 0 && !ec) {
+        Logger::info("Using cached Gutenberg book #{} at '{}'", book_id, text_file);
+        return text_file;
+    }
+    fs::create_directories(dataset_dir, ec);
+    if (ec) {
+        Logger::error("Cannot create {}: {}", dataset_dir, ec.message());
+        return "";
+    }
+    Logger::info("Downloading Project Gutenberg book #{} to cache...", book_id);
+    // http_download() renames a complete download into place, so book.txt is never partial.
+    return download_gutenberg_book(book_id, text_file) ? text_file : "";
+}
+
 std::string DataFetcher::ensure_gutenberg_cached(int book_id) {
     const std::string dataset_dir =
         config_.gutenberg_output_dir + "/gutenberg_" + std::to_string(book_id);
@@ -115,19 +128,9 @@ std::string DataFetcher::ensure_gutenberg_cached(int book_id) {
         return sentences_path;
     }
 
-    if (!fs::exists(dataset_dir)) {
-        fs::create_directories(dataset_dir);
-    }
-
-    const std::string text_file = dataset_dir + "/book.txt";
-    std::error_code size_ec;
-    if (fs::exists(text_file) && fs::file_size(text_file, size_ec) > 0 && !size_ec) {
-        Logger::info("Re-splitting cached Gutenberg book #{} from '{}'", book_id, text_file);
-    } else {
-        Logger::info("Downloading Project Gutenberg book #{} to cache...", book_id);
-        if (!download_file(get_gutenberg_url(book_id), text_file)) {
-            return "";
-        }
+    const std::string text_file = ensure_gutenberg_book(book_id);  // TD-314: shared with fetch_gutenberg()
+    if (text_file.empty()) {
+        return "";
     }
 
     std::ifstream file(text_file);
@@ -247,8 +250,13 @@ namespace {
 // TD-310: the per-dataset directory name, `<dataset_id>_<split>` with every '/' and '\\' turned
 // into '_', so it is always one path component under the output directory. dataset_id was
 // flattened before, but split went in as-is, so a split like "x/../../ESCAPED" wrote outside it.
-std::string hf_dataset_dir_name(const std::string& dataset_id, const std::string& split) {
+// TD-314: a named config adds `__<config>`; without one the name is as before, so existing caches
+// stay valid.
+std::string hf_dataset_dir_name(const std::string& dataset_id, const std::string& split,
+                                const std::string& config) {
     std::string name = dataset_id + "_" + split;
+    if (!config.empty())
+        name += "__" + config;
     std::replace(name.begin(), name.end(), '/', '_');
     std::replace(name.begin(), name.end(), '\\', '_');
     return name;
@@ -258,42 +266,40 @@ std::string hf_dataset_dir_name(const std::string& dataset_id, const std::string
 
 std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                            const std::string& split, const std::string& input_field,
-                                           const std::string& output_field) {
+                                           const std::string& output_field,
+                                           const std::string& config) {
     if (num_pairs <= kAllPairs)  // TD-575: the whole dataset
         num_pairs = std::numeric_limits<int>::max();
-    const std::string dir_name = hf_dataset_dir_name(dataset_id, split);  // TD-310
-    const std::string dataset_dir = config_.huggingface_output_dir + "/" + dir_name;
+    const std::string dir_name = hf_dataset_dir_name(dataset_id, split, config);  // TD-310
     const std::string train_file =
         config_.huggingface_output_dir + "/" + dir_name + "_training.jsonl";
 
-    if (!fs::exists(config_.huggingface_output_dir)) {
-        fs::create_directories(config_.huggingface_output_dir);
-    }
-    if (!fs::exists(dataset_dir)) {
-        fs::create_directories(dataset_dir);
-    }
+    // TD-314: through the Logger; this printed to std::cout/std::cerr from library code.
+    Logger::info("Fetching HuggingFace dataset '{}' (split={}{}, target={} pairs)", dataset_id,
+                 split, config.empty() ? "" : ", config=" + config,
+                 num_pairs == std::numeric_limits<int>::max() ? std::string("all")
+                                                               : std::to_string(num_pairs));
 
-    std::cout << "🤖 Fetching HuggingFace dataset '" << dataset_id << "' (split=" << split
-              << ", target="
-              << (num_pairs == std::numeric_limits<int>::max() ? std::string("all")
-                                                                : std::to_string(num_pairs))
-              << " pairs)\n";
-
-    const std::string jsonl_path = download_hf_full_dataset(dataset_id, split, dataset_dir);
+    // TD-314: the cache ensure_huggingface_cached() keeps; every call downloaded the dataset again.
+    const std::string jsonl_path = ensure_huggingface_cached(dataset_id, split, config);
     if (jsonl_path.empty()) {
-        std::cerr << "❌ Failed to download dataset '" << dataset_id << "'.\n"
-                  << "   • Check the dataset ID at https://huggingface.co/datasets\n"
-                  << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
-                  << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
-                  << dataset_id << "\n";
+        Logger::error(
+            "Failed to download dataset '{}'. Check the dataset ID at "
+            "https://huggingface.co/datasets; gated datasets need HF_TOKEN; verify at "
+            "https://datasets-server.huggingface.co/is-valid?dataset={}",
+            dataset_id, dataset_id);
         return "";
     }
 
     if (!convert_hf_to_training_data(jsonl_path, train_file, input_field, output_field,
                                      num_pairs)) {
-        std::cerr << "❌ Could not extract training pairs from '" << dataset_id << "'.\n"
-                  << "   Provide explicit field names: huggingface " << dataset_id << " "
-                  << num_pairs << " " << split << " <input_field> <output_field>\n";
+        Logger::error(
+            "Could not extract training pairs from '{}'. Name the fields: huggingface {} {} "
+            "--split {} --input-field <field> --output-field <field>",
+            dataset_id, dataset_id,
+            num_pairs == std::numeric_limits<int>::max() ? std::string("all")
+                                                          : std::to_string(num_pairs),
+            split);
         return "";
     }
 
@@ -320,9 +326,10 @@ std::mutex& hf_dataset_mutex(const std::string& dataset_dir) {
 }  // namespace
 
 std::string DataFetcher::ensure_huggingface_cached(const std::string& dataset_id,
-                                                   const std::string& split) {
-    const std::string dataset_dir =
-        config_.huggingface_output_dir + "/" + hf_dataset_dir_name(dataset_id, split);  // TD-310
+                                                   const std::string& split,
+                                                   const std::string& config) {
+    const std::string dataset_dir = config_.huggingface_output_dir + "/" +
+                                    hf_dataset_dir_name(dataset_id, split, config);  // TD-310
     const std::string jsonl_path = dataset_dir + "/full_dataset.jsonl";
 
     // TD-313: one download per dataset at a time in this process; a second request for the same
@@ -344,9 +351,9 @@ std::string DataFetcher::ensure_huggingface_cached(const std::string& dataset_id
         fs::create_directories(dataset_dir);
     }
 
-    Logger::info("Downloading full HuggingFace dataset '{}' (split={}) to cache...", dataset_id,
-                 split);
-    return download_hf_full_dataset(dataset_id, split, dataset_dir);
+    Logger::info("Downloading full HuggingFace dataset '{}' (split={}{}) to cache...", dataset_id,
+                 split, config.empty() ? "" : ", config=" + config);
+    return download_hf_full_dataset(dataset_id, split, config, dataset_dir);
 }
 
 /*static*/
@@ -390,11 +397,13 @@ int DataFetcher::convert_huggingface_slice(const std::string& cached_jsonl,
 // ============================================================================
 
 /*static*/
-// TODO: See TD-314 in TECHNICAL_DEBT.md - cache/epub/<id>/pg<id>.txt is never tried
-std::string DataFetcher::get_gutenberg_url(int book_id) {
-    std::ostringstream oss;
-    oss << "https://www.gutenberg.org/files/" << book_id << "/" << book_id << "-0.txt";
-    return oss.str();
+// TD-314: cache/epub/<id>/pg<id>.txt is the generated plain text every book has; some books have no
+// files/<id>/ text at all.
+std::vector<std::string> DataFetcher::gutenberg_urls(int book_id) {
+    const std::string id = std::to_string(book_id);
+    const std::string site = "https://www.gutenberg.org/";
+    return {site + "files/" + id + "/" + id + "-0.txt", site + "files/" + id + "/" + id + ".txt",
+            site + "cache/epub/" + id + "/pg" + id + ".txt"};
 }
 
 namespace {
@@ -437,34 +446,19 @@ bool DataFetcher::download_file(const std::string& url, const std::string& outpu
         Logger::info("Downloaded to: {}", output_path);
         return true;
     }
-
-    if (url.find("-0.txt") != std::string::npos) {
-        std::string fallback_url = url;
-        size_t pos = fallback_url.find("-0.txt");
-        fallback_url.replace(pos, 6, ".txt");
-
-        Logger::info("Trying fallback URL: {}", fallback_url);
-        if (fetch_to(fallback_url, output_path)) {
-            Logger::info("Downloaded to: {}", output_path);
-            return true;
-        }
-    }
-
-    Logger::error("Failed to download: {}", url);
     return false;
 }
 
 /*static*/
-bool DataFetcher::download_gutenberg_book(int book_id, const std::string& output_dir) {
-    if (!fs::exists(output_dir)) {
-        fs::create_directories(output_dir);
+// The `-0.txt` -> `.txt` fallback used to live in download_file(); TD-314 moved it into
+// gutenberg_urls() with the cache/epub pattern.
+bool DataFetcher::download_gutenberg_book(int book_id, const std::string& dest) {
+    for (const std::string& url : gutenberg_urls(book_id)) {
+        if (download_file(url, dest))
+            return true;
     }
-
-    std::string url = get_gutenberg_url(book_id);
-    std::ostringstream output_path;
-    output_path << output_dir << "/gutenberg_" << book_id << ".txt";
-
-    return download_file(url, output_path.str());
+    Logger::error("Failed to download Gutenberg book #{} from any of its URLs", book_id);
+    return false;
 }
 
 /*static*/
@@ -905,7 +899,10 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
 // ============================================================================
 
 // Forward declaration — defined after the JSON helper block below.
-static std::vector<std::string> hf_extract_parquet_urls(const std::string& json);
+static std::vector<std::string> hf_parquet_urls(const std::string& listing,
+                                                const std::string& dataset_id,
+                                                const std::string& split,
+                                                const std::string& config);
 
 // TD-312: every request goes through adai::http_download(): no shell, HF_TOKEN in an in-process
 // header (never on a command line, never sent to a redirect's host), the query parameters
@@ -916,6 +913,7 @@ static std::vector<std::string> hf_extract_parquet_urls(const std::string& json)
 // part used to be skipped, and the rest cached as if complete.
 std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
                                                   const std::string& split,
+                                                  const std::string& config,
                                                   const std::string& output_dir) const {
     const std::string token = hf_token();
     const std::string jsonl_path = output_dir + "/full_dataset.jsonl";
@@ -946,14 +944,18 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         }
     } remove_work{work};
 
-    // 1. Fetch the parquet file list from the datasets-server /parquet endpoint
+    // 1. Fetch the parquet file list from the datasets-server /parquet endpoint. TD-314: with no
+    // config named, the whole dataset's list, and hf_parquet_urls() picks the config; only
+    // config=default was ever asked for, so a dataset without one had "no parquet files".
     const std::string info_path = (work / "parquet_info.json").string();
     {
         std::ostringstream url;
-        url << config_.huggingface_api_url << "/parquet?dataset="
-            << adai::url_encode_component(dataset_id)
-            // TODO: See TD-314 in TECHNICAL_DEBT.md - only config=default is ever requested
-            << "&config=default&split=" << adai::url_encode_component(split);
+        url << config_.huggingface_api_url
+            << "/parquet?dataset=" << adai::url_encode_component(dataset_id);
+        if (!config.empty()) {
+            url << "&config=" << adai::url_encode_component(config)
+                << "&split=" << adai::url_encode_component(split);
+        }
 
         if (!fetch_to(url.str(), info_path, token, &config_)) {
             Logger::error("Failed to fetch parquet info for '{}'", dataset_id);
@@ -966,15 +968,12 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         std::ifstream f(info_path);
         std::string info_json((std::istreambuf_iterator<char>(f)),
                               std::istreambuf_iterator<char>());
-        parquet_urls = hf_extract_parquet_urls(info_json);
+        parquet_urls = hf_parquet_urls(info_json, dataset_id, split, config);
     }
 
     if (parquet_urls.empty()) {
-        Logger::error("No parquet files found for dataset '{}' split '{}'", dataset_id, split);
-        return "";
+        return "";  // hf_parquet_urls() logged why
     }
-    Logger::info("Found {} parquet file(s) for '{}'", parquet_urls.size(), dataset_id);
-
     // 2. Download each parquet file and convert it natively to JSONL (ParquetReader), appending to
     // the folder's own JSONL. Each part is deleted once converted.
     const std::string work_jsonl = (work / "full_dataset.jsonl").string();
@@ -998,8 +997,8 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
             return "";
         }
         total_rows += rows;
-        std::cout << "  ✓ parquet part " << (i + 1) << "/" << parquet_urls.size() << " (" << rows
-                  << " rows)\n";
+        Logger::info("Parquet part {}/{} of '{}': {} rows", i + 1, parquet_urls.size(), dataset_id,
+                     rows);
     }
 
     if (total_rows <= 0 || fs::file_size(work_jsonl, ec) == 0 || ec) {
@@ -1016,7 +1015,8 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
     }
     // ...then the marker, last: until it exists, the cache is downloaded again.
     std::ostringstream marker;
-    marker << "dataset=" << dataset_id << "\nsplit=" << split << "\nparts=" << parquet_urls.size()
+    marker << "dataset=" << dataset_id << "\nsplit=" << split << "\nconfig=" << config
+           << "\nparts=" << parquet_urls.size()
            << "\nrows=" << total_rows << "\n";
     if (const std::string err = adai::write_file_atomically(marker_path, marker.str());
         !err.empty()) {
@@ -1033,198 +1033,45 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
 }
 
 // ============================================================================
-// JSON helpers — file-local statics (moved verbatim from IncrementalTrainer.cpp)
-// Not declared in the header; only used by convert_hf_to_training_data().
+// JSON helpers — file-local. TD-314: rows and the /parquet listing are parsed with nlohmann/json.
+// The hand-written scanners they replace didn't decode \uXXXX escapes and took the first "key"
+// anywhere in a row, including inside a nested object.
 // ============================================================================
 
-/// Unescape a JSON string value (\n, \t, \r, \", \\, \/).
-static std::string hf_unescape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.size()) {
-            ++i;
-            switch (s[i]) {
-                case 'n':
-                    out += '\n';
-                    break;
-                case 't':
-                    out += '\t';
-                    break;
-                case 'r':
-                    out += '\r';
-                    break;
-                case '"':
-                    out += '"';
-                    break;
-                case '\\':
-                    out += '\\';
-                    break;
-                case '/':
-                    out += '/';
-                    break;
-                case 'b':
-                    out += '\b';
-                    break;
-                case 'f':
-                    out += '\f';
-                    break;
-                default:
-                    out += '\\';
-                    out += s[i];
-                    break;
-            }
-        } else {
-            out += s[i];
-        }
-    }
-    return out;
+using nlohmann::json;
+
+/// A top-level string field of a row; "" when it's absent or not a string.
+static std::string hf_string(const json& row, const std::string& key) {
+    const auto it = row.find(key);
+    return it != row.end() && it->is_string() ? it->get<std::string>() : "";
 }
 
-/// Extract the first quoted string value for the given JSON key.
-// TODO: See TD-314 in TECHNICAL_DEBT.md - hand-rolled scanner: no \uXXXX decoding, matches the key anywhere (use nlohmann/json)
-static std::string hf_extract_string(const std::string& json, const std::string& key) {
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
-        return "";
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return "";
-
-    size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos])))
-        ++vpos;
-    if (vpos >= json.size() || json[vpos] != '"')
-        return "";
-
-    std::string raw;
-    ++vpos;
-    while (vpos < json.size() && json[vpos] != '"') {
-        if (json[vpos] == '\\' && vpos + 1 < json.size()) {
-            raw += '\\';
-            raw += json[vpos + 1];
-            vpos += 2;
-        } else {
-            raw += json[vpos++];
-        }
-    }
-    return hf_unescape(raw);
-}
-
-/// Extract an array of quoted strings for a given JSON key.
-static std::vector<std::string> hf_extract_string_array(const std::string& json,
-                                                        const std::string& key) {
+/// A top-level array of strings (a dialog's turns); empty when absent, not an array, or holding
+/// anything but strings.
+static std::vector<std::string> hf_string_array(const json& row, const std::string& key) {
     std::vector<std::string> result;
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
+    const auto it = row.find(key);
+    if (it == row.end() || !it->is_array())
         return result;
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return result;
-    size_t bracket = json.find('[', colon + 1);
-    if (bracket == std::string::npos)
-        return result;
-
-    int depth = 1;
-    size_t pos = bracket + 1;
-    size_t arr_end = std::string::npos;
-    while (pos < json.size() && depth > 0) {
-        char c = json[pos];
-        if (c == '[') {
-            ++depth;
-            ++pos;
-        } else if (c == ']') {
-            --depth;
-            if (depth == 0) {
-                arr_end = pos;
-                break;
-            }
-            ++pos;
-        } else if (c == '"') {
-            ++pos;
-            while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\')
-                    ++pos;
-                ++pos;
-            }
-            if (pos < json.size())
-                ++pos;
-        } else {
-            ++pos;
-        }
-    }
-    if (arr_end == std::string::npos)
-        return result;
-
-    std::string arr = json.substr(bracket + 1, arr_end - bracket - 1);
-    size_t p = 0;
-    while (p < arr.size()) {
-        if (arr[p] == '"') {
-            ++p;
-            std::string raw;
-            while (p < arr.size() && arr[p] != '"') {
-                if (arr[p] == '\\' && p + 1 < arr.size()) {
-                    raw += '\\';
-                    raw += arr[p + 1];
-                    p += 2;
-                } else {
-                    raw += arr[p++];
-                }
-            }
-            if (p < arr.size())
-                ++p;
-            result.push_back(hf_unescape(raw));
-        } else {
-            ++p;
-        }
+    for (const auto& turn : *it) {
+        if (!turn.is_string())
+            return {};
+        result.push_back(turn.get<std::string>());
     }
     return result;
 }
 
-/// Extract a JSON object ({ ... }) for the given key.
-static std::string hf_extract_object(const std::string& json, const std::string& key) {
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
+/// A top-level string or number as text ("dialog_id": 7 or "dialog_id": "7"); "" otherwise.
+static std::string hf_scalar(const json& row, const std::string& key) {
+    const auto it = row.find(key);
+    if (it == row.end())
         return "";
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return "";
-    size_t brace = json.find('{', colon + 1);
-    if (brace == std::string::npos)
-        return "";
-
-    int depth = 1;
-    size_t pos = brace + 1;
-    while (pos < json.size() && depth > 0) {
-        char c = json[pos];
-        if (c == '{') {
-            ++depth;
-            ++pos;
-        } else if (c == '}') {
-            --depth;
-            if (depth == 0)
-                break;
-            ++pos;
-        } else if (c == '"') {
-            ++pos;
-            while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\')
-                    ++pos;
-                ++pos;
-            }
-            if (pos < json.size())
-                ++pos;
-        } else {
-            ++pos;
-        }
-    }
-    return json.substr(brace, pos - brace + 1);
+    if (it->is_string())
+        return it->get<std::string>();
+    return it->is_number() ? it->dump() : "";
 }
 
-/// Try to infer input/output field names from the first row's JSON.
+/// Try to infer input/output field names from the first row.
 ///
 /// A candidate is only accepted if BOTH fields hold actual non-empty JSON
 /// *string* values in this row — not merely if the key names are present.
@@ -1236,7 +1083,7 @@ static std::string hf_extract_object(const std::string& json, const std::string&
 /// never revisited. Skipping such a candidate here lets the caller fall
 /// through to the dialog-array / single-text-field fallbacks instead, which
 /// correctly extract from just the "text" field in exactly this situation.
-static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
+static std::pair<std::string, std::string> hf_detect_fields(const json& row) {
     static const std::array<std::pair<const char*, const char*>, 10> candidates = {{
         {"instruction", "output"},
         {"instruction", "response"},
@@ -1250,66 +1097,75 @@ static std::pair<std::string, std::string> hf_detect_fields(const std::string& r
         {"text", "label"},
     }};
     for (const auto& [in_f, out_f] : candidates) {
-        if (!hf_extract_string(row_json, in_f).empty() && !hf_extract_string(row_json, out_f).empty())
+        if (!hf_string(row, in_f).empty() && !hf_string(row, out_f).empty())
             return {in_f, out_f};
     }
     return {"", ""};
 }
 
-/// Extract parquet file URLs from a datasets-server /parquet API response.
-static std::vector<std::string> hf_extract_parquet_urls(const std::string& json) {
-    std::vector<std::string> urls;
-    size_t arr_key = json.find("\"parquet_files\"");
-    if (arr_key == std::string::npos)
-        return urls;
-    size_t arr_start = json.find('[', arr_key);
-    if (arr_start == std::string::npos)
-        return urls;
-
-    size_t pos = arr_start + 1;
-    while (pos < json.size()) {
-        while (pos < json.size() &&
-               (std::isspace(static_cast<unsigned char>(json[pos])) || json[pos] == ','))
-            ++pos;
-        if (pos >= json.size() || json[pos] == ']')
-            break;
-        if (json[pos] != '{') {
-            ++pos;
-            continue;
-        }
-
-        int depth = 1;
-        size_t obj_start = pos++;
-        while (pos < json.size() && depth > 0) {
-            char c = json[pos];
-            if (c == '{') {
-                ++depth;
-                ++pos;
-            } else if (c == '}') {
-                if (--depth == 0)
-                    break;
-                ++pos;
-            } else if (c == '"') {
-                ++pos;
-                while (pos < json.size() && json[pos] != '"') {
-                    if (json[pos] == '\\')
-                        ++pos;
-                    ++pos;
-                }
-                if (pos < json.size())
-                    ++pos;
-            } else {
-                ++pos;
-            }
-        }
-        if (pos < json.size())
-            ++pos;
-
-        std::string obj = json.substr(obj_start, pos - obj_start);
-        std::string url = hf_extract_string(obj, "url");
-        if (!url.empty())
-            urls.push_back(url);
+/// The Parquet URLs for one split and config from a datasets-server /parquet reply. TD-314: with no
+/// config named, "default" when the dataset has it, else its only config; several others are an
+/// error that names them. An entry without a "config" or "split" field matches any.
+static std::vector<std::string> hf_parquet_urls(const std::string& listing,
+                                                const std::string& dataset_id,
+                                                const std::string& split,
+                                                const std::string& config) {
+    const json reply = json::parse(listing, nullptr, /*allow_exceptions=*/false);
+    if (!reply.is_object() || !reply.contains("parquet_files") ||
+        !reply["parquet_files"].is_array()) {
+        Logger::error("No parquet file list in the reply for dataset '{}'", dataset_id);
+        return {};
     }
+    struct Part {
+        std::string config;
+        std::string url;
+    };
+    std::vector<Part> parts;
+    std::set<std::string> configs;
+    for (const auto& entry : reply["parquet_files"]) {
+        if (!entry.is_object())
+            continue;
+        const std::string url = hf_string(entry, "url");
+        const std::string entry_split = hf_string(entry, "split");
+        if (url.empty() || (!entry_split.empty() && entry_split != split))
+            continue;
+        parts.push_back({hf_string(entry, "config"), url});
+        if (!parts.back().config.empty())
+            configs.insert(parts.back().config);
+    }
+
+    auto names = [&configs] {
+        std::string list;
+        for (const auto& c : configs)
+            list += (list.empty() ? "" : ", ") + c;
+        return list;
+    };
+    std::string chosen = config;
+    if (chosen.empty() && !configs.empty()) {
+        if (configs.count("default")) {
+            chosen = "default";
+        } else if (configs.size() == 1) {
+            chosen = *configs.begin();
+            Logger::info("Dataset '{}' has one config, '{}'; using it", dataset_id, chosen);
+        } else {
+            Logger::error("Dataset '{}' has {} configs with a '{}' split ({}); name one", dataset_id,
+                          configs.size(), split, names());
+            return {};
+        }
+    }
+
+    std::vector<std::string> urls;
+    for (const auto& part : parts) {
+        if (part.config.empty() || part.config == chosen)
+            urls.push_back(part.url);
+    }
+    if (urls.empty()) {
+        Logger::error("No parquet files found for dataset '{}' split '{}'{}{}", dataset_id, split,
+                      chosen.empty() ? "" : " config '" + chosen + "'",
+                      configs.empty() ? "" : " (its configs: " + names() + ")");
+        return {};
+    }
+    Logger::info("Found {} parquet file(s) for '{}'", urls.size(), dataset_id);
     return urls;
 }
 
@@ -1391,26 +1247,6 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
     bool utterance_rows = false;
     std::string dialog_id;
     std::vector<std::string> dialog_turns;
-    // The value of a key, quoted or not ("dialog_id": 7 or "dialog_id": "7"); empty when absent.
-    auto scalar_value = [](const std::string& json, const std::string& key) -> std::string {
-        const std::string needle = "\"" + key + "\"";
-        const size_t kpos = json.find(needle);
-        if (kpos == std::string::npos)
-            return "";
-        size_t v = json.find(':', kpos + needle.size());
-        if (v == std::string::npos)
-            return "";
-        ++v;
-        while (v < json.size() && std::isspace(static_cast<unsigned char>(json[v])))
-            ++v;
-        if (v < json.size() && json[v] == '"')
-            return hf_extract_string(json, key);
-        size_t end = v;
-        while (end < json.size() && json[end] != ',' && json[end] != '}' &&
-               !std::isspace(static_cast<unsigned char>(json[end])))
-            ++end;
-        return json.substr(v, end - v);
-    };
     auto flush_dialog = [&]() {
         SampleMeta chat_meta;
         chat_meta.task_type = "chat";
@@ -1434,23 +1270,26 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
         }
         ++row_index;
         ++rows_consumed;
-        const std::string& row_json = line;
+        // TD-314: parsed once per row; a row that isn't a JSON object counts but yields nothing.
+        const json row_json = json::parse(line, nullptr, /*allow_exceptions=*/false);
+        if (!row_json.is_object())
+            continue;
 
         if (!utterance_rows_checked) {
             utterance_rows_checked = true;
             utterance_rows = det_in.empty() && det_out.empty() &&
-                             !hf_extract_string(row_json, "utterance").empty() &&
-                             !scalar_value(row_json, "dialog_id").empty();
+                             !hf_string(row_json, "utterance").empty() &&
+                             !hf_scalar(row_json, "dialog_id").empty();
             if (utterance_rows)
                 Logger::info("Detected one utterance per row, grouped by dialog_id");
         }
         if (utterance_rows) {
-            const std::string id = scalar_value(row_json, "dialog_id");
+            const std::string id = hf_scalar(row_json, "dialog_id");
             if (id != dialog_id) {
                 flush_dialog();
                 dialog_id = id;
             }
-            std::string utterance = hf_extract_string(row_json, "utterance");
+            std::string utterance = hf_string(row_json, "utterance");
             const size_t first = utterance.find_first_not_of(" \t\r\n");
             const size_t last = utterance.find_last_not_of(" \t\r\n");
             if (first != std::string::npos)
@@ -1474,7 +1313,7 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
 
         if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
             // Single-text-field datasets — split at sentence boundary near middle
-            std::string full_text = hf_extract_string(row_json, det_in);
+            std::string full_text = hf_string(row_json, det_in);
             std::string left, right;
             if (mid_split(full_text, left, right)) {
                 meta.task_type = "completion";
@@ -1483,17 +1322,17 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
             }
         } else if (!det_in.empty() && !det_out.empty()) {
             // Key-value datasets (alpaca, dolly, OpenHermes, …)
-            std::string input_text = hf_extract_string(row_json, det_in);
+            std::string input_text = hf_string(row_json, det_in);
             if (det_in == "instruction") {
                 // The instruction's material: Alpaca calls it "input", Dolly "context" (TD-575: Dolly's
                 // closed QA, information extraction and summarization rows lost their passage).
-                std::string sub = hf_extract_string(row_json, "input");
+                std::string sub = hf_string(row_json, "input");
                 if (sub.empty())
-                    sub = hf_extract_string(row_json, "context");
+                    sub = hf_string(row_json, "context");
                 if (!sub.empty())
                     input_text += "\n" + sub;
             }
-            std::string output_text = hf_extract_string(row_json, det_out);
+            std::string output_text = hf_string(row_json, det_out);
             if (!input_text.empty() && !output_text.empty()) {
                 out << sample_to_jsonl(input_text, output_text, meta) << "\n";
                 ++pair_count;
@@ -1506,7 +1345,7 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
             for (const char* dk : dialog_keys) {
                 if (dk == nullptr || pair_count >= max_pairs)
                     break;
-                auto turns = hf_extract_string_array(row_json, dk);
+                auto turns = hf_string_array(row_json, dk);
                 if (turns.empty())
                     continue;
                 SampleMeta chat_meta;
@@ -1528,7 +1367,7 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
                 for (const char* tk : text_keys) {
                     if (tk == nullptr)
                         break;
-                    std::string full_text = hf_extract_string(row_json, tk);
+                    std::string full_text = hf_string(row_json, tk);
                     if (full_text.size() < 40)
                         continue;
                     det_in = tk;

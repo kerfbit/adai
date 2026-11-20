@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-19
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -667,9 +667,10 @@ std::string DatasetRegistry::remote_fetch_huggingface(const std::string& dataset
                                                        int num_pairs, const std::string& split,
                                                        const std::string& input_field,
                                                        const std::string& output_field,
-                                                       const std::string& model_name) {
-    const std::string path = transport_->fetch_huggingface(dataset_id, num_pairs, split,
-                                                            input_field, output_field, model_name);
+                                                       const std::string& model_name,
+                                                       const std::string& config) {
+    const std::string path = transport_->fetch_huggingface(
+        dataset_id, num_pairs, split, input_field, output_field, model_name, config);
     if (!path.empty()) {
         pending_.push_back({path, {}, {}});
     }

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 3.0.0
+// @adai-reviewed: 2026-11-19
 
 #include <cstddef>
 #include <cstdint>
@@ -489,13 +489,16 @@ class RegistryTransport {
      *                    different slice of the dataset to each distinct
      *                    model_name rather than always the same rows. Empty
      *                    is valid and buckets into a shared cursor.
+     * @param config     TD-314: the dataset's configuration (subset); empty
+     *                    = "default" if it has one, else its only one.
      * @return Registry-relative path of the newly queued file, or "" on failure.
      */
     virtual std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                           const std::string& split,
                                           const std::string& input_field,
                                           const std::string& output_field,
-                                          const std::string& model_name) = 0;
+                                          const std::string& model_name,
+                                          const std::string& config) = 0;
 
     /**
      * @brief Upload a local file's bytes to the registry's own data_dir and
@@ -576,7 +579,8 @@ class LocalTransport : public RegistryTransport {
     std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                   const std::string& split, const std::string& input_field,
                                   const std::string& output_field,
-                                  const std::string& model_name) override;
+                                  const std::string& model_name,
+                                  const std::string& config) override;
     UploadResult upload_file(const std::string& local_path, bool overwrite) override;
     RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                   const std::string& model_name = "") override;
@@ -657,7 +661,8 @@ class RemoteTransport final : public RegistryTransport {
     std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                   const std::string& split, const std::string& input_field,
                                   const std::string& output_field,
-                                  const std::string& model_name) override;
+                                  const std::string& model_name,
+                                  const std::string& config) override;
     UploadResult upload_file(const std::string& local_path, bool overwrite) override;
     RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                   const std::string& model_name = "") override;

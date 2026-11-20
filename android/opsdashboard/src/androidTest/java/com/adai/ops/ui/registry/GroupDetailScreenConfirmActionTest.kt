@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-19
 
 
 import androidx.compose.runtime.CompositionLocalProvider
@@ -106,6 +106,28 @@ class GroupDetailScreenConfirmActionTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.fetchGutenbergCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.fetchGutenbergCalls.single()
         assert(group == "group-x" && body.book_id == 42) { "unexpected fetch call: group=$group body=$body" }
+    }
+
+    // TD-314: the dialog's config reaches the request, and the confirmation shows it.
+    @Test
+    fun confirmingFetchHuggingface_sendsTheConfig() {
+        val fakeRegistryService = FakeRegistryApiService()
+        setContentWithAuth(viewModelWith(fakeRegistryService))
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
+        composeTestRule.onNodeWithText("Fetch HuggingFace dataset").performClick()
+        composeTestRule.onNodeWithText("Dataset ID (e.g. tatsu-lab/alpaca)").performTextInput("Salesforce/wikitext")
+        composeTestRule.onNodeWithText("Config (blank = default)").performTextInput("wikitext-2-raw-v1")
+        composeTestRule.onNodeWithText("Fetch").performClick()
+        composeTestRule.onNodeWithText("\"config\":\"wikitext-2-raw-v1\"", substring = true).assertExists()
+
+        composeTestRule.onNodeWithText("Fetch").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.fetchHuggingfaceCalls.isNotEmpty() }
+        val (group, body) = fakeRegistryService.fetchHuggingfaceCalls.single()
+        assert(group == "group-x" && body.dataset_id == "Salesforce/wikitext" && body.config == "wikitext-2-raw-v1") {
+            "unexpected fetch call: group=$group body=$body"
+        }
     }
 
     @Test

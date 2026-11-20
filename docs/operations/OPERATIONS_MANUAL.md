@@ -423,7 +423,7 @@ For a live metrics dashboard see [Section 5.3](#53-training-metrics-service).
 | `add [--overwrite] <data_file>` | Add a local training file to the pending queue (uploaded with a registry server; `--overwrite` replaces a trained or queued file of that name, TD-552) |
 | `gutenberg <id> [pairs]` | Download & queue a Gutenberg book (default: 500 pairs) |
 | `gutenberg-batch <id1,id2,...> [pairs]` | Batch-download multiple Gutenberg books |
-| `huggingface <id> [pairs] [split] [in_field] [out_field]` | Download a HuggingFace dataset (default: 500 pairs, `train` split) |
+| `huggingface <id> [pairs] [split] [in_field] [out_field] [--config C]` | Download a HuggingFace dataset (default: 500 pairs, `train` split, the dataset's `default` or only config) |
 | `status` | Show pending/trained file counts and registry |
 | `list-pending` | List all pending files |
 | `list-trained` | List all trained files |

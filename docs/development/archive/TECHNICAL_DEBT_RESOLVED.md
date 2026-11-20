@@ -1,10 +1,68 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (485 on November 19, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (486 on November 19, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-314: `DataFetcher` Source Coverage and Hygiene Gaps
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 19, 2026 | Data / DataFetcher | Code fix (LOW, filed October 11, 2026) |
+
+Description:
+Found alongside TD-309, by inspection:
+- Only `config=default` is ever requested, so multi-config HuggingFace datasets fail with "No parquet
+  files found" and there's no way to choose a config.
+- Only Gutenberg's `files/<id>/<id>-0.txt` and `<id>.txt` URLs are tried, not
+  `cache/epub/<id>/pg<id>.txt`; not checked against the live site.
+- `fetch_gutenberg()` re-downloads the book on every call.
+- `fetch_huggingface()`/`download_hf_full_dataset()` print with `std::cout`/`std::cerr` in library
+  code.
+- The JSON field scanners don't decode `\uXXXX` escapes and match the first `"key"` anywhere in a row,
+  including nested objects.
+
+Action Items:
+
+- [x] Add an optional HF `config` parameter (CLI, endpoint, dashboard).
+- [x] Add the `cache/epub` URL pattern; cache in `fetch_gutenberg()`; switch output to `Logger`.
+- [x] Parse rows with the vendored nlohmann/json instead of the string scanners.
+
+**Fix (November 19, 2026):**
+- **HuggingFace configs.** `fetch_huggingface()`/`ensure_huggingface_cached()` take a `config`, carried by `registry_server`'s
+  `fetch/huggingface` (`"config"`, allow-listed like `split`), `RegistryTransport::fetch_huggingface()` (MAJOR: a new parameter on the
+  pure virtual), `DatasetRegistry::remote_fetch_huggingface()`, `dataset_manager huggingface --config C` and the Android dashboard's
+  fetch dialog. With none named, the whole `/parquet` listing is read and `default` used when the dataset has it, else its only config;
+  several others are an error that names them (`Salesforce/wikitext` needs `--config`). A named config is cached in `<id>_<split>__<config>/` and has its own registry cursor; an unnamed one keeps the old names.
+- **Gutenberg.** `gutenberg_urls()` lists `files/<id>/<id>-0.txt`, `files/<id>/<id>.txt` and `cache/epub/<id>/pg<id>.txt`, tried in
+  order by `download_gutenberg_book()`. Not checked against the live site, which answered 503 throughout (TD-579).
+- **Caching.** `fetch_gutenberg()` shares `ensure_gutenberg_book()`'s `gutenberg_<id>/book.txt` with `ensure_gutenberg_cached()`, and
+  `fetch_huggingface()` goes through `ensure_huggingface_cached()`; both downloaded on every call.
+- **Logging.** `fetch_huggingface()`/`download_hf_full_dataset()` log through `Logger` instead of `std::cout`/`std::cerr`.
+- **JSON.** Rows and the listing are parsed with the vendored nlohmann/json; the five hand-written scanners are gone. Only top-level
+  fields count, `\uXXXX` escapes are decoded, a dialog array must hold only strings, and a row that isn't valid JSON (invalid UTF-8
+  included) yields nothing. In practice the escape gap touched only control characters: `ParquetReader` writes non-ASCII as raw UTF-8.
+
+Tests: 8 in `dataFetcherTests` (51 pass, including 7 against a local datasets-server stand-in), `ParseHuggingfaceArgs.ConfigIsNamedOnly`,
+`DatasetRegistryFetchTest.RemoteFetchHuggingfaceForwardsConfig`, `LiveRegistryTest.FetchHuggingfaceRejectsUnsafeConfig` (107 live tests
+pass against a scratch `registry_server`), and the Android `fetchHuggingface sends the config` unit test. The Android instrumented test
+`confirmingFetchHuggingface_sendsTheConfig` compiles but wasn't run: the app doesn't install on the emulator without `wear-sdk` (TD-573).
+`DataFetcher.hpp` 1.4.0, `.cpp` 1.7.0; `DataFetcher.md`'s §1–§8 were rewritten to the current code (they still described the `curl`
+downloads TD-312 replaced).
+
+Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `get_gutenberg_url()`, `fetch_gutenberg()`, `hf_extract_string()`), all changed or removed.
+
+Files to Modify:
+
+- `src/DataFetcher.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `src/RegistryTransport.{hpp,cpp}`, `src/DatasetRegistry.{hpp,cpp}`
+- `src/DatasetManagerArgs.{hpp,cpp}`, `src/DatasetManagerTool.cpp`
+- `android/opsdashboard` (`RegistryDtos.kt`, `RegistryRepository.kt`, `GroupDetailViewModel.kt`, `GroupDetailScreen.kt`)
+
+---
 
 ### TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads
 

@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; real-device run still unverified, see TD-048)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-19
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +82,7 @@ private sealed interface PendingAction {
         val inputField: String,
         val outputField: String,
         val modelName: String,
+        val config: String = "",
     ) : PendingAction
     data class Segment(val path: String, val ranges: List<Pair<Int, Int>>) : PendingAction
 }
@@ -198,9 +199,9 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
     if (showHuggingfaceDialog) {
         FetchHuggingfaceDialog(
             models = state.models,
-            onFetch = { datasetId, numPairs, split, inputField, outputField, modelName ->
+            onFetch = { datasetId, numPairs, split, inputField, outputField, modelName, config ->
                 showHuggingfaceDialog = false
-                pending = PendingAction.FetchHuggingface(datasetId, numPairs, split, inputField, outputField, modelName)
+                pending = PendingAction.FetchHuggingface(datasetId, numPairs, split, inputField, outputField, modelName, config)
             },
             onDismiss = { showHuggingfaceDialog = false },
         )
@@ -384,12 +385,13 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
         is PendingAction.FetchHuggingface -> ConfirmActionDialog(
             title = "Fetch HuggingFace dataset?",
             httpCallDescription = "POST /registry/$group/fetch/huggingface\n" +
-                "{\"dataset_id\":\"${p.datasetId}\",\"num_pairs\":${p.numPairs},\"split\":\"${p.split}\"}",
+                "{\"dataset_id\":\"${p.datasetId}\",\"num_pairs\":${p.numPairs},\"split\":\"${p.split}\"" +
+                (if (p.config.isEmpty()) "" else ",\"config\":\"${p.config}\"") + "}",
             effectDescription = "Downloads/caches '${p.datasetId}' server-side and enqueues a slice as pending.",
             confirmLabel = "Fetch",
             onConfirm = {
                 pending = PendingAction.None
-                viewModel.fetchHuggingface(p.datasetId, p.numPairs, p.split, p.inputField, p.outputField, p.modelName)
+                viewModel.fetchHuggingface(p.datasetId, p.numPairs, p.split, p.inputField, p.outputField, p.modelName, p.config)
             },
             onDismiss = { pending = PendingAction.None },
         )
@@ -715,6 +717,7 @@ private fun FetchHuggingfaceDialog(
         inputField: String,
         outputField: String,
         modelName: String,
+        config: String,
     ) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -724,6 +727,7 @@ private fun FetchHuggingfaceDialog(
     var inputField by remember { mutableStateOf("") }
     var outputField by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("") }
+    var config by remember { mutableStateOf("") }
     val numPairs = numPairsText.toIntOrNull()
 
     AlertDialog(
@@ -751,6 +755,13 @@ private fun FetchHuggingfaceDialog(
                     label = { Text("Split") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // TD-314: blank lets registry_server pick "default", or the dataset's only config.
+                OutlinedTextField(
+                    value = config,
+                    onValueChange = { config = it },
+                    label = { Text("Config (blank = default)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedTextField(
                     value = inputField,
                     onValueChange = { inputField = it },
@@ -774,7 +785,7 @@ private fun FetchHuggingfaceDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onFetch(datasetId, numPairs ?: 500, split.ifEmpty { "train" }, inputField, outputField, modelName)
+                    onFetch(datasetId, numPairs ?: 500, split.ifEmpty { "train" }, inputField, outputField, modelName, config.trim())
                 },
                 enabled = datasetId.isNotBlank(),
             ) { Text("Fetch") }

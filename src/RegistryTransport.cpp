@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-19
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -930,7 +930,8 @@ std::string LocalTransport::fetch_huggingface(const std::string& /*dataset_id*/,
                                               int /*num_pairs*/, const std::string& /*split*/,
                                               const std::string& /*input_field*/,
                                               const std::string& /*output_field*/,
-                                              const std::string& /*model_name*/) {
+                                              const std::string& /*model_name*/,
+                                              const std::string& /*config*/) {
     Logger::warn(
         "LocalTransport::fetch_huggingface — not supported in local mode; use DataFetcher "
         "directly and DatasetRegistry::add_file()");
@@ -1597,7 +1598,8 @@ std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, in
                                                const std::string& split,
                                                const std::string& input_field,
                                                const std::string& output_field,
-                                               const std::string& model_name) {
+                                               const std::string& model_name,
+                                               const std::string& config) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
@@ -1609,7 +1611,8 @@ std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, in
                                       {"split", split},
                                       {"input_field", input_field},
                                       {"output_field", output_field},
-                                      {"model_name", model_name}});
+                                      {"model_name", model_name},
+                                      {"config", config}});  // TD-314
     const auto res =
         cli.Post((group_prefix_ + "/fetch/huggingface").c_str(), body, "application/json");
     if (!res || res->status != 200) {

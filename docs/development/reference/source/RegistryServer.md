@@ -1,12 +1,12 @@
 # `RegistryServer` — Source File Reference
 
-- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,021 lines; `main()` and every handler, file-scope globals)
+- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,415 lines; `main()` and every handler, file-scope globals)
 - **Binary:** `registry_server` (port 8082), built from `RegistryServer.cpp`, `Config.cpp` and `RegistryServerArgs.cpp`
 - **Clients:** `RemoteTransport` ([DatasetRegistry.md](DatasetRegistry.md)) in `incremental_trainer` and `dataset_manager`; the Android ops dashboard's Registry tab; `mns_server`'s dataset proxy
-- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.12.1`, `@adai-reviewed: 2026-10-19`
-- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (87 tests against a running server; **all pass** against a local instance), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
+- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.33.0`, `@adai-reviewed: 2026-11-19`
+- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (107 tests against a running server; **all pass** against a local instance, November 19, 2026), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
 - **Related:** [FtpDataServer.md](FtpDataServer.md), [DataFetcher.md](DataFetcher.md), [ParquetReader.md](ParquetReader.md), [DaemonConfigStore.md](DaemonConfigStore.md), [DataTransport.md](DataTransport.md)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against the real `registry_server` binary (`build/debug/bin`), started with
 > `--config /dev/null` and a scratch `--data-dir`, using `curl`.
@@ -61,7 +61,7 @@ Every `/registry/<group>/…` route also accepts `/registry/<group>/<encoder|dec
 | `GET …/registry`, `…/runs`, `…/history[?model_id=]` | The trained registry; claimed files per run; registry filtered by model |
 | `POST …/pending/add {path, segment_start, segment_count}` | Queues any path (warns if outside `data_dir`); returns `added:false` if the same path/segment is already pending |
 | `POST …/session/next {model_name, run_id}` | `session-NN`, incrementing per `(model_name, run_id)`; group-agnostic |
-| `POST …/fetch/gutenberg {book_id, num_pairs, model_name}`, `…/fetch/huggingface {dataset_id, split, num_pairs, input_field, output_field, model_name}` | Download and cache the source once ([DataFetcher.md](DataFetcher.md)), then write the next `num_pairs` from a per-(source, model) cursor to `<group_dir>/datasets/…_row<offset>_training.jsonl` and queue it. Runs synchronously in the request thread |
+| `POST …/fetch/gutenberg {book_id, num_pairs, model_name}`, `…/fetch/huggingface {dataset_id, split, num_pairs, input_field, output_field, model_name, config}` | Download and cache the source once ([DataFetcher.md](DataFetcher.md)), then write the next `num_pairs` from a per-(source, model) cursor to `<group_dir>/datasets/…_row<offset>_training.jsonl` and queue it. Runs synchronously in the request thread |
 | `POST …/upload?filename=` | Writes the raw body to `<group_dir>/uploads/<filename>` (basename only) and queues it |
 | `GET`/`PUT /admin/config` | The two FTP settings above (PUT gated by `--admin-enabled`; immutable keys rejected with 400); persisted to `daemon_config.db` |
 | `GET /health` | Always `{"status":"ok"}` |
@@ -343,3 +343,11 @@ A queued file's `num_entries` (uploads, `pending/add`, `overwrite` uploads) is n
 trainer reads, instead of the non-blank line count; fetches already recorded their pairs written. `dataset_manager segment` and the Android
 `createSegments()` split a server path by it, and segments are indexed by parsed pair, so a file with a non-pair line used to get segments past
 its end that load nothing. It is still -1 for a file the server can't open.
+
+## Addendum (November 19, 2026): `fetch/huggingface` takes a config (TD-314)
+
+The body's `"config"` names the HuggingFace dataset's configuration (subset); empty lets `DataFetcher` pick `default` or the dataset's
+only one. A non-empty config must pass `is_safe_hf_component()`, like `split`, or the reply is 400. It goes to
+`ensure_huggingface_cached(dataset_id, split, config)` and into the names of the cursor (`hf_<id>__<split>__cfg-<config>__<model>.txt`)
+and the slice file (`<id>_<split>_<config>_<model>_row<offset>…`); without one both names are as before, so existing cursors keep their
+place. Test: `LiveRegistryTest.FetchHuggingfaceRejectsUnsafeConfig`.

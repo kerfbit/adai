@@ -114,6 +114,21 @@ class RegistryRepositoryTest {
     }
 
     @Test
+    fun `fetchHuggingface sends the config, empty by default`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            fetchHuggingfaceResponse = { _, _ ->
+                Response.success(FetchResponseDto(added = true, path = "hf.jsonl", pairs_written = 10))
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        repository.fetchHuggingface("g", "Salesforce/wikitext", 10, "train", "", "", "", config = "wikitext-2-raw-v1")
+        repository.fetchHuggingface("g", "daily_dialog", 10, "train", "", "", "")
+
+        assertEquals(listOf("wikitext-2-raw-v1", ""), fakeService.fetchHuggingfaceCalls.map { it.second.config })
+    }
+
+    @Test
     fun `queue maps Phase 15 dataset metadata fields through unchanged`() = runTest {
         val fakeService = FakeRegistryApiService(
             queueResponse = {

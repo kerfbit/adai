@@ -396,7 +396,7 @@ TEST_F(LocalTransportPhase9Test, FetchGutenbergUnsupportedInLocalMode) {
 
 TEST_F(LocalTransportPhase9Test, FetchHuggingfaceUnsupportedInLocalMode) {
     LocalTransport t(reg_path_, pend_path_);
-    EXPECT_EQ(t.fetch_huggingface("daily_dialog", 100, "train", "", "", ""), "");
+    EXPECT_EQ(t.fetch_huggingface("daily_dialog", 100, "train", "", "", "", ""), "");
 }
 
 TEST_F(LocalTransportPhase9Test, UploadFileUnsupportedInLocalMode) {

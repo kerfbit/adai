@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.32.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.33.0
+// @adai-reviewed: 2026-11-19
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -1588,12 +1588,15 @@ static std::string flatten_for_path(std::string s) {
     return s;
 }
 
+// TD-314: a named config gets its own cursor (`__cfg-<config>` before the model); without one the
+// path is as before, so existing cursors keep their place.
 static std::string hf_cursor_path(const std::string& group, const std::string& kind,
                                   const std::string& dataset_id, const std::string& split,
-                                  const std::string& model_name) {
+                                  const std::string& config, const std::string& model_name) {
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
+    const std::string cfg = config.empty() ? "" : "__cfg-" + config;
     return group_dir(group, kind) + "/fetch_cursors/hf_" + flatten_for_path(dataset_id) + "__" +
-          flatten_for_path(split) + "__" + safe_model + ".txt";
+           flatten_for_path(split) + cfg + "__" + safe_model + ".txt";
 }
 
 static std::string gutenberg_cursor_path(const std::string& group, const std::string& kind,
@@ -1732,7 +1735,10 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
 
 // POST /registry/<group>/fetch/huggingface
 // {"dataset_id":"...","num_pairs":N,"split":"...","input_field":"...",
-//  "output_field":"...","model_name":"..."}
+//  "output_field":"...","model_name":"...","config":"..."}
+//
+// TD-314: "config" names the dataset's configuration (subset); empty = "default" if the dataset
+// has it, else its only one.
 //
 // Phase 12: the full dataset is downloaded once and cached (DataFetcher::
 // ensure_huggingface_cached); each call serves the next num_pairs rows from a
@@ -1748,14 +1754,16 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
     const std::string input_field = json_string(req.body, "input_field");
     const std::string output_field = json_string(req.body, "output_field");
     const std::string model_name = json_string(req.body, "model_name");
+    const std::string config = json_string(req.body, "config");  // TD-314
 
-    if (!is_safe_hf_dataset_id(dataset_id) || !is_safe_hf_component(split)) {
+    if (!is_safe_hf_dataset_id(dataset_id) || !is_safe_hf_component(split) ||
+        (!config.empty() && !is_safe_hf_component(config))) {
         res.status = 400;
-        res.set_content("{\"error\":\"dataset_id must be name or org/name and split one name, each "
-                        "[A-Za-z0-9._-]+ and never . or ..\"}",
+        res.set_content("{\"error\":\"dataset_id must be name or org/name, and split and config one "
+                        "name, each [A-Za-z0-9._-]+ and never . or ..\"}",
                         "application/json");
-        Logger::warn("[{}] fetch/huggingface: rejected unsafe dataset_id='{}' split='{}'", group,
-                     dataset_id, split);
+        Logger::warn("[{}] fetch/huggingface: rejected unsafe dataset_id='{}' split='{}' config='{}'",
+                     group, dataset_id, split, config);
         return;
     }
     if (!is_safe_model_name(model_name)) {
@@ -1771,9 +1779,9 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
     fcfg.huggingface_output_dir = out_dir;
     DataFetcher fetcher(fcfg);
 
-    Logger::info("[{}] fetch/huggingface: ensuring '{}' (split={}) is cached...", group, dataset_id,
-                 split);
-    const std::string cached_jsonl = fetcher.ensure_huggingface_cached(dataset_id, split);
+    Logger::info("[{}] fetch/huggingface: ensuring '{}' (split={}{}) is cached...", group,
+                 dataset_id, split, config.empty() ? "" : ", config=" + config);
+    const std::string cached_jsonl = fetcher.ensure_huggingface_cached(dataset_id, split, config);
     if (cached_jsonl.empty()) {
         res.status = 502;
         res.set_content("{\"added\":false,\"reason\":\"fetch_failed\"}", "application/json");
@@ -1781,15 +1789,17 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
         return;
     }
 
-    const std::string cursor_path = hf_cursor_path(group, kind, dataset_id, split, model_name);
+    const std::string cursor_path =
+        hf_cursor_path(group, kind, dataset_id, split, config, model_name);
     std::lock_guard<std::mutex> cursor_lock(fetch_cursor_mutex(cursor_path));  // TD-491
     const int offset = read_cursor(cursor_path);
 
     const std::string safe_id = flatten_for_path(dataset_id);
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    const std::string path = unique_slice_path(out_dir + "/" + safe_id + "_" +
-                                               flatten_for_path(split) + "_" + safe_model + "_row" +
-                                               std::to_string(offset));
+    const std::string safe_split =
+        flatten_for_path(split) + (config.empty() ? "" : "_" + config);  // TD-314
+    const std::string path = unique_slice_path(out_dir + "/" + safe_id + "_" + safe_split + "_" +
+                                               safe_model + "_row" + std::to_string(offset));
 
     int next_offset = offset;
     const int pairs_written = DataFetcher::convert_huggingface_slice(
@@ -2124,7 +2134,7 @@ static void print_usage(const char* prog) {
         << "  POST /registry/<group>/fetch/gutenberg   "
            "{\"book_id\":N,\"num_pairs\":N}\n"
         << "  POST /registry/<group>/fetch/huggingface "
-           "{\"dataset_id\":\"...\",\"num_pairs\":N,\"split\":\"...\"}\n"
+           "{\"dataset_id\":\"...\",\"num_pairs\":N,\"split\":\"...\",\"config\":\"...\"}\n"
         << "  POST /registry/<group>/upload?filename=<name>  (raw body = file bytes)\n"
         << "  GET  /admin/config\n"
         << "  PUT  /admin/config\n"
