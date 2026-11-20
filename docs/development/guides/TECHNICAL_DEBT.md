@@ -6,7 +6,7 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 19, 2026
-**Active Items:** 93 (7 high, 20 medium, 66 low)
+**Active Items:** 94 (7 high, 21 medium, 66 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
 **Resolved Items:** 485 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
@@ -17,17 +17,20 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 93 open items:
+**Where things stand.** Of the 94 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **72 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **73 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
+
+**November 19, 2026:** Filed [TD-579](#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable) (MEDIUM): `www.gutenberg.org` answered 503 for days, so
+`bodacious-badger`'s world-model books (run group `bb01`) couldn't be queued, while the official mirrors served the same files.
 
 **November 18, 2026:** Filed [TD-575](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) (MEDIUM, the deployed trainer's startup abort in `load_vocab`) and
 [TD-576](../archive/TECHNICAL_DEBT_RESOLVED.md#td-576-feedforwardgradienttestclipgradients-uses-an-absolute-tolerance) (LOW, a test tolerance, fixed the same day), both split from TD-574 when it closed.
@@ -147,7 +150,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (93 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429 and TD-576 to TD-578 moved and TD-575 to TD-578 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (94 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429 and TD-576 to TD-578 moved and TD-575 to TD-579 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -198,6 +201,8 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 - [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) (MEDIUM): show the run's `global_step` in the MNS record.
 - [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): re-queue in the Android ops dashboard's Registry tab (CLI parity).
+- [TD-579](#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable) (MEDIUM): fall back to Project Gutenberg's mirrors when `www.gutenberg.org` is unavailable; first in this group, since
+  it blocks queueing `bb01`'s books.
 - Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
   error codes), [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW, `DatasetRegistry` dead code and checksum), [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
   [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps) (LOW, `DataFetcher` coverage), [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
@@ -360,6 +365,7 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
+  - [TD-579: Gutenberg Downloads Don't Fall Back to a Mirror When gutenberg.org Is Unavailable](#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5056,6 +5062,72 @@ Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokeni
 `src/IncrementalTrainingTool.cpp`.
 
 Related: TD-574 (archived), TD-563, TD-560.
+
+---
+
+### TD-579: Gutenberg Downloads Don't Fall Back to a Mirror When gutenberg.org Is Unavailable
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataFetcher | November 19, 2026 | 4-6 hours |
+
+Description:
+`DataFetcher` downloads every Project Gutenberg book from one host: `get_gutenberg_url()` builds
+`https://www.gutenberg.org/files/<id>/<id>-0.txt`, and `download_file()` retries only `<id>.txt` on the same host. When
+`www.gutenberg.org` is down, every `fetch/gutenberg` request to `registry_server` (`dataset_manager gutenberg`/`gutenberg-batch`, the
+Android Registry tab's fetch dialog) fails with `502 fetch_failed`, though the same files are on Project Gutenberg's official
+mirrors. Gutenberg also asks automated downloaders to use a mirror rather than the main site.
+
+Seen November 18-19, 2026: queueing `bodacious-badger`'s world-model books (run group `bb01`, kind `world_model`, 14 books) failed
+for days. A check on November 19 (HEAD requests for book 1342):
+
+| URL | Status |
+|---|---|
+| `https://www.gutenberg.org/cache/epub/1342/pg1342.txt` | 503 |
+| `https://gutenberg.pglaf.org/1/3/4/1342/1342-0.txt` | 200 |
+| `https://mirrors.xmission.com/gutenberg/1/3/4/1342/1342-0.txt` | 200 |
+| `https://mirror.csclub.uwaterloo.ca/gutenberg/1/3/4/1342/1342-0.txt` | 200 |
+| `https://aleph.gutenberg.org/…`, `https://gutenberg.readingroo.ms/…` | TLS certificate failure (curl exit 60) |
+
+The mirrors don't use the main site's `files/<id>/` layout. A book's directory is one level per digit of its ID except the last,
+then the ID: `1/3/4/1342/`, `1/11/` for book 11, `9/98/` for book 98. Each book still has `<id>-0.txt` (UTF-8) or only `<id>.txt`
+(29838 has only the latter), so the existing `-0.txt` → `.txt` fallback is needed on mirrors too. `cache/epub/<id>/pg<id>.txt`
+isn't on xmission.
+
+A mirror can also be stale or broken, so what it serves must be checked: a `200` HTML error page would otherwise be cached as the
+book (`ensure_gutenberg_cached()` keeps whatever downloaded) and split into training pairs.
+
+Action Items:
+
+- [ ] Add `FetcherConfig::gutenberg_mirrors` (base URLs, tried in order after the main site) with a built-in default list of the
+      mirrors that work over https (pglaf, xmission, csclub above); configurable in `config.registry.conf` as `GUTENBERG_MIRRORS`
+      (comma-separated; empty = main site only) and passed by `registry_server`'s two `FetcherConfig` sites and `dataset_manager`.
+- [ ] Build the mirror URL from the digit-path layout (`<base>/<d1>/…/<dn-1>/<id>/<id>-0.txt`, then `<id>.txt`); add each
+      configured mirror's host to the download allow-list (`kDownloadHosts`), https only.
+- [ ] Fall back only when the main site is unavailable: connection failure, timeout, TLS error, `429` or `5xx`
+      (`HttpDownloadResult::http_status`). A `404` from the main site for both file names means the book has no plain-text file;
+      don't try every mirror for it. Try the next mirror on the same failures.
+- [ ] Check a download before caching it: plain text (not HTML) containing Project Gutenberg's `*** START OF` marker; otherwise
+      discard it and try the next source.
+- [ ] Log which source served each book, and log one warning per request when the main site was skipped (not one per mirror).
+- [ ] Tests against a local server (`extra_download_hosts`/`allow_plain_http`, as the HuggingFace tests do): main site 503 → the
+      mirror is used; main 404 → no mirror tried; a mirror's HTML page → rejected, next mirror used; digit-path URLs for 1-, 2-
+      and 5-digit IDs.
+- [ ] Update `DataFetcher.md`, `config.registry.conf`'s comments and the `dataset_manager` operator guide.
+
+Overlaps [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps)'s `cache/epub` item: that pattern is the main site's, so the
+two can be done together.
+
+Location in code: `src/DataFetcher.cpp` (`get_gutenberg_url()`, `download_file()`, `ensure_gutenberg_cached()`, `kDownloadHosts`).
+
+Files to Modify:
+
+- `src/DataFetcher.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `src/DatasetManagerTool.cpp`
+- `src/Config.{hpp,cpp}`
+- `config.registry.conf`
+- `tests/DataFetcherTests.cpp`
 
 ---
 
