@@ -1,10 +1,98 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (488 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (489 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Training / ChatbotTrainer, MNS | Code fix (MEDIUM, created October 9, 2026; code fix October 19, last item November 21) |
+
+Description:
+Found alongside TD-267. `IncrementalTrainer` constructs a **fresh `ChatbotTrainer` per pass**,
+and `ChatbotTrainer::set_model()` creates a **new `Optimizer`**. So every pass:
+
+- restarts AdamW with zero first and second moments (and bias correction from step 1);
+- restarts `global_step` at 0 and computes `total_training_steps` for just this pass, so the default
+  `WARMUP_COSINE` schedule warms up from LR 0 and decays to `min_learning_rate` **within each pass**.
+
+A long run made of many short passes never follows one coherent schedule; it repeats warmup and
+decay, and loses optimizer state each time. Optimizer state isn't saved in checkpoints, so a
+process restart loses it as well.
+
+Action Items:
+
+**Owner decisions (October 18, 2026):**
+- **Schedule:** warm up once per MNS run, then hold the base learning rate.
+- **Optimizer state:** save AdamW's moments and step counts with every checkpoint. This was accepted knowing it makes checkpoints about 3× larger.
+
+**Fix landed October 19, 2026:**
+- `Optimizer::save_state()`/`load_state()` write and read the type, the global step and, per parameter group, its shape, step count and moments.
+  A loaded state must match the registered groups' shapes; otherwise nothing changes.
+- `ChatbotTrainer::save_training_state()`/`load_training_state()` wrap that with the run-level `global_step`, the run's warmup length (fixed on
+  its first `train()` call), the adaptive-clip state (TD-270) and the MNS run id. State from another run isn't loaded, so a new run (`retrain`)
+  starts fresh.
+- The state is written as `<checkpoint>.optimizer`, through a temp file and rename. That name follows the checkpoint prefix, so TD-407's deletion
+  and TD-408's links include it.
+- It is saved with the end-of-pass checkpoint, and with auto-saves and best snapshots through `save_to()`.
+- `IncrementalTrainer` records which checkpoint the weights came from (`loaded_checkpoint_path_`) and restores its state into the next pass's
+  trainer. `retrain` starts fresh.
+- The incremental trainer's schedule is now `LINEAR_WARMUP` rather than `WARMUP_COSINE`, which decayed to the minimum inside every pass.
+
+New tests:
+- `OptimizerStateTest.SaveLoadContinuesIdentically` and `MismatchedStateIsRejectedAndLeavesStateUntouched`;
+- `ChatbotTrainerCacheTest.TrainingStateRoundTripsWithinARunOnly`;
+- `IncrementalTrainerTest.TrainingStateContinuesIntoTheNextPass`: two separate trainers, where pass 2's saved step is twice pass 1's. It fails on
+  the old code, which writes no state.
+
+The full test run also surfaced a latent bug in `calculate_learning_rate()`. `WARMUP_COSINE` divided by `total − warmup`, so a run whose warmup
+equalled its step count (now common: a 1-step pass gets a 1-step warmup) got a NaN learning rate and NaN weights. `STEP_DECAY` and
+`EXPONENTIAL_DECAY` could divide by zero when a pass had fewer steps than epochs. All denominators are now guarded, and the decay progress is
+clamped to [0, 1]. New test `LearningRateIsFiniteForTinyAndContinuedRuns` covers every schedule.
+
+- [x] Owner decision: make the schedule run-wide (pass a global step offset and the run's planned total steps from `IncrementalTrainer`), or document per-pass schedules as intended. (Run-wide warmup, then constant.)
+- [x] Persist optimizer state (moments and step count) with the checkpoint and restore it in `set_model()` (or a new `set_optimizer_state()`).
+- [x] Track run-level `global_step` in the MNS/session record. (Done November 21, 2026; see below.)
+
+Location in code: `src/Optimizer.{hpp,cpp}` (`save_state()`, `load_state()`), `src/ChatbotTrainer.{hpp,cpp}` (`save_training_state()`, `load_training_state()`, `calculate_learning_rate()`), `src/IncrementalTrainer.cpp` (per-pass trainer setup, end-of-pass save), `src/IncrementalTrainingTool.cpp` (schedule); the `TODO: See TD-269` tags are now fix comments.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `src/IncrementalTrainer.{hpp,cpp}`
+- `src/Optimizer.{hpp,cpp}` (state save/load)
+- `src/EncoderDecoderModel.cpp` (checkpoint sidecar)
+
+**Windows follow-up (October 19, 2026).** The atomic save added by this fix moved its temp file into place with `std::rename()`, which fails on Windows
+when the target exists, so every save after the first would have failed there. It now uses `std::filesystem::rename()`, which replaces the target
+on every platform.
+
+**Fix (November 21, 2026): the run's step in MNS.**
+- **Progress.** `IncrementalTrainer`'s per-epoch `push_progress()` sends `ChatbotTrainer::get_global_step()` (the run-level step
+  restored into each pass) as `"global_step"`; `ModelNameClient::push_progress()` gained a trailing `std::int64_t global_step = -1`
+  (not sent when negative). `mns_server` keeps it as `progress.global_step` (`int64`; a request without it keeps the last value)
+  and zeroes it for a new run.
+- **History.** The candidate transition clears `progress`, which between passes is most of the time, so each pass's
+  `training_history` entry records its step too: `set_candidate()`'s summary carries `"global_step"`, and an unfinished run
+  archived as `incomplete` keeps its last reported step.
+- **Storage.** SQLite gains `models.progress_global_step` (the table's last column, added last by `add_column_if_missing()` so a
+  migrated database keeps the layout the positional `INSERT` binds) and `training_history.global_step`.
+- **Found on the way: history entries stored 0 epochs and loss 0.** `set_candidate()` sends every `training_summary` value as a
+  JSON string (`"epochs":"3"`), and MNS's number readers (`json_int()`, `json_double()`, `json_loss()`) accepted only bare numbers,
+  so every trainer- or `mns_cli`-written history entry had 0 epochs and loss 0 (192.168.1.16's `chatbot-v1` history shows it). They
+  now skip an opening quote. Entries already stored keep their zeros.
+- **Tests.** `tests/mns_progress_test.cpp` (new, in-process `mns_server`): the step in progress, kept across a restart and when a
+  request omits it, zeroed for a new run; an older `models.db` gains the columns and still binds correctly; history entries written
+  through the real client keep epochs, loss and step (fails on the old readers: 0, 0 and the progress step). `ModelNameClientTest.
+  PushProgressSendsTheGlobalStepWhenKnown`. `IncrementalTrainerTest.PassRecordsTheRunsGlobalStepInMns`: a real pass against an
+  in-process `mns_server` records the step saved with its checkpoint (`incrementaltrainerTests` now links `adai_mns`). The 70 MNS live
+  tests pass against a local `mns_server`.
+
+---
 
 ### TD-580: The Ops Dashboard's Registry Tab Lists Only the Groups Typed Into Settings
 
@@ -27076,7 +27164,7 @@ and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are in
 **Tier 20 — Newly filed (October 9, 2026): `ChatbotTrainer`.** [TD-267](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) is HIGH and small: fix
 it first, and treat validation losses (and best-epoch choices) from runs on data containing
 empty/invalid pairs as optimistic until then. [TD-268](#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data), [TD-270](#td-270-adaptive-gradient-clipping-resets-every-epoch) and [TD-275](#td-275-chatbottrainer-drops-eos-from-long-training-responses) are small,
-independent fixes. [TD-269](../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) needs an owner decision (run-wide vs. per-pass schedule) and checkpoint
+independent fixes. [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) needs an owner decision (run-wide vs. per-pass schedule) and checkpoint
 format work, so scope it alongside the `IncrementalTrainer` reference. [TD-271](#td-271-chatbottrainers-tokenized-cache-can-pair-with-a-different-random-split) and [TD-272](#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window)
 touch the data/accumulation paths and should get tests first. [TD-273](#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read), [TD-274](#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory) and [TD-276](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) are
 cleanup.

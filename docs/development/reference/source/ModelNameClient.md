@@ -1,13 +1,13 @@
 # `ModelNameClient` — Source File Reference
 
-- **Files:** [`src/ModelNameClient.hpp`](../../../../src/ModelNameClient.hpp), [`src/ModelNameClient.cpp`](../../../../src/ModelNameClient.cpp) (780 lines together)
+- **Files:** [`src/ModelNameClient.hpp`](../../../../src/ModelNameClient.hpp), [`src/ModelNameClient.cpp`](../../../../src/ModelNameClient.cpp) (845 lines together)
 - **Namespace:** `adai` (`ModelNameClient`, `ResolvedModel`, `ModelSummary`, `ClientModelConnection`)
 - **Built into:** `adai_mns`; HTTP only with `BUILD_MNS_SERVER` (otherwise every call returns status 0)
 - **Used by:** `IncrementalTrainer` (run lifecycle), `IncrementalTrainingTool` (model and architecture resolution), `ChatbotAPIServer` (model, architecture and world-model resolution), `DatasetManagerTool` (`run_group` for `assign`)
 - **Server:** `ModelNameService` (`mns_server`); companion CLI [MnsCliCommands](MnsCliCommands.md)
-- **Status tag:** `@adai-status: stable` ("TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added"), `@adai-version: 1.1.0`, `@adai-reviewed: 2026-09-18` (both files)
-- **Tests:** [`tests/modelnameclient_test.cpp`](../../../../tests/modelnameclient_test.cpp) (21 tests, against a local mock server)
-- **Last traced against the code:** 2026-10-14
+- **Status tag:** `@adai-status: stable` ("TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added"), `.hpp` `@adai-version: 1.3.0`, `.cpp` `1.4.0`, both `@adai-reviewed: 2026-11-21`
+- **Tests:** [`tests/modelnameclient_test.cpp`](../../../../tests/modelnameclient_test.cpp) (28 tests, against a local mock server; the real client also drives an in-process `mns_server` in [`tests/mns_progress_test.cpp`](../../../../tests/mns_progress_test.cpp))
+- **Last traced against the code:** 2026-10-14; `push_progress()` re-traced 2026-11-21 (TD-269)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linked against the real
 > client, talking to a mock server or to a real `mns_server`.
@@ -24,7 +24,7 @@ artifact and world-model connection, and how the trainer reports its run lifecyc
 |---|---|---|
 | `register_model(name, role, cfg, tags)` | `POST /models` | No production caller (registration is `mns_cli`'s job) |
 | `set_training(name, new_run, session_key)` | `PUT /models/{n}/state` `{"state":"training","new_run":…}` | `IncrementalTrainer::begin_run()`: returns the **server-allocated** `run_id` used for MNS and the dataset registry |
-| `push_progress(name, run_id, session, epoch, loss, best)` | `PUT /models/{n}/progress` | `IncrementalTrainer` after every epoch (failures logged, non-fatal) |
+| `push_progress(name, run_id, session, epoch, loss, best, global_step = -1)` | `PUT /models/{n}/progress` | `IncrementalTrainer` after every epoch, with the run's optimizer step (failures logged, non-fatal); a negative step isn't sent |
 | `set_candidate(name, run_id, artifact, summary)` | `PUT /models/{n}/state` `{"state":"candidate",…}` | `IncrementalTrainer` after a successful pass |
 | `resolve_model(name)`, `resolve_role(role)` | `GET /models/{n}/resolve`, `GET /roles/{r}/production` | `ChatbotAPIServer` (artifact path), `IncrementalTrainingTool` |
 | `lookup_model(name)` (TD-329) | `GET /models/{n}` | `dataset_manager` (`run_group`, `assign`'s check) |
@@ -120,3 +120,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 state, `run_group`, artifact). Unlike `resolve_model()`, it works while the model is `initializing` (MNS answers `/resolve` with 409
 then). It returns `std::nullopt` for 404 and throws on any other failure, so a caller can tell an unregistered model from an MNS that
 didn't answer. `dataset_manager` uses it to pick every command's `run_group`.
+
+## Addendum (November 21, 2026): `push_progress()` sends the run's step (TD-269)
+
+`push_progress()` takes a trailing `std::int64_t global_step` (default -1). A value of 0 or more is sent as `"global_step"`;
+-1 leaves the field out, and `mns_server` then keeps the step it had. `IncrementalTrainer` passes `ChatbotTrainer::get_global_step()`
+after every epoch, and sends the same step in `set_candidate()`'s `training_summary`. `set_candidate()` still sends every summary
+value as a JSON string; `mns_server` now reads a quoted number as the number (before, every such history entry stored 0 epochs and
+loss 0; see [ModelNameService.md](ModelNameService.md)'s addendum).

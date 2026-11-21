@@ -308,6 +308,27 @@ TEST(ModelNameClientTest, PushProgressSendsEpochAndLossFields) {
     EXPECT_NE(captured_body.find("\"session_id\":\"session-01\""), std::string::npos);
 }
 
+// TD-269: the run-level step goes with the progress; a negative one (not known) isn't sent.
+TEST(ModelNameClientTest, PushProgressSendsTheGlobalStepWhenKnown) {
+    httplib::Server svr;
+    std::string captured_body;
+    svr.Put("/models/m/progress", [&](const httplib::Request& req, httplib::Response& res) {
+        captured_body = req.body;
+        res.status = 200;
+        res.set_content("{}", "application/json");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port));
+    client.push_progress("m", "run-01", "s", 5, 1.0, 0.9, 123456);
+    EXPECT_NE(captured_body.find("\"global_step\":123456"), std::string::npos) << captured_body;
+    client.push_progress("m", "run-01", "s", 5, 1.0, 0.9);
+    EXPECT_EQ(captured_body.find("global_step"), std::string::npos) << captured_body;
+
+    stop_server(svr, t);
+}
+
 // TD-458: JSON has no NaN or infinity, so a diverged epoch is sent as null.
 TEST(ModelNameClientTest, PushProgressSendsNonFiniteLossAsNull) {
     httplib::Server svr;

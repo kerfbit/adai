@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 92 (7 high, 20 medium, 65 low)
+**Active Items:** 92 (7 high, 19 medium, 66 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 488 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 489 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -29,7 +29,12 @@ The order to take them in is in [Recommended Execution Order](#recommended-execu
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Filed [TD-580](../archive/TECHNICAL_DEBT_RESOLVED.md#td-580-the-ops-dashboards-registry-tab-lists-only-the-groups-typed-into-settings) (LOW): the ops
+**November 21, 2026:** Filed [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
+drops every model, since TD-196 added columns its positional insert doesn't supply, and still imports the roles; verified with a real
+server. Closed [TD-269](../archive/TECHNICAL_DEBT_RESOLVED.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
+(MEDIUM): MNS now shows the run's optimizer step (`progress.global_step`, and each pass's history entry). Found on the way: every
+trainer-written history entry had stored 0 epochs and loss 0, because MNS didn't read the summary's numbers sent as strings; fixed.
+Filed [TD-580](../archive/TECHNICAL_DEBT_RESOLVED.md#td-580-the-ops-dashboards-registry-tab-lists-only-the-groups-typed-into-settings) (LOW): the ops
 dashboard's Registry tab listed only the group names typed into Settings, so `bb01` didn't show on the tablet. Fixed the same day: it
 also lists the `run_group` of every non-retired model in MNS. The same day the Wear OS modules were removed and `opsdashboard`'s
 instrumented tests ran on an emulator for the first time (TD-048, TD-573).
@@ -156,7 +161,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (92 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-580 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (92 since TD-269, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -205,13 +210,14 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) (MEDIUM): show the run's `global_step` in the MNS record.
 - [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): re-queue in the Android ops dashboard's Registry tab (CLI parity).
 - Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
   error codes), [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW, `DatasetRegistry` dead code and checksum), [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
   [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
+- [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
+  with too few values) while still importing `roles.json`.
 
 ### 5. Code work: GPU
 
@@ -295,7 +301,6 @@ as TD-426 and TD-467 were:
   - [TD-233: ChatbotAPI Session IDs Come From a Non-Cryptographic Generator](#td-233-chatbotapi-session-ids-come-from-a-non-cryptographic-generator)
   - [TD-247: RAG Retrieval in `chatbot_api_server` Uses an Untrained Encoder](#td-247-rag-retrieval-in-chatbot_api_server-uses-an-untrained-encoder)
   - [TD-263: `chatbot_gui` Freezes While Generating](#td-263-chatbot_gui-freezes-while-generating)
-  - [TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
   - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
   - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
@@ -368,6 +373,7 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
+  - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -2193,73 +2199,6 @@ Files to Modify:
 
 - `src/ChatbotGUI.{hpp,cpp}`
 - `src/CMakeLists.txt` (if `Qt::Concurrent` is added)
-
----
-
-### TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — code fix landed October 19, 2026 | Training / ChatbotTrainer | October 9, 2026 | 4-8 hours |
-
-Description:
-Found alongside TD-267. `IncrementalTrainer` constructs a **fresh `ChatbotTrainer` per pass**,
-and `ChatbotTrainer::set_model()` creates a **new `Optimizer`**. So every pass:
-
-- restarts AdamW with zero first and second moments (and bias correction from step 1);
-- restarts `global_step` at 0 and computes `total_training_steps` for just this pass, so the default
-  `WARMUP_COSINE` schedule warms up from LR 0 and decays to `min_learning_rate` **within each pass**.
-
-A long run made of many short passes never follows one coherent schedule; it repeats warmup and
-decay, and loses optimizer state each time. Optimizer state isn't saved in checkpoints, so a
-process restart loses it as well.
-
-Action Items:
-
-**Owner decisions (October 18, 2026):**
-- **Schedule:** warm up once per MNS run, then hold the base learning rate.
-- **Optimizer state:** save AdamW's moments and step counts with every checkpoint. This was accepted knowing it makes checkpoints about 3× larger.
-
-**Fix landed October 19, 2026:**
-- `Optimizer::save_state()`/`load_state()` write and read the type, the global step and, per parameter group, its shape, step count and moments.
-  A loaded state must match the registered groups' shapes; otherwise nothing changes.
-- `ChatbotTrainer::save_training_state()`/`load_training_state()` wrap that with the run-level `global_step`, the run's warmup length (fixed on
-  its first `train()` call), the adaptive-clip state (TD-270) and the MNS run id. State from another run isn't loaded, so a new run (`retrain`)
-  starts fresh.
-- The state is written as `<checkpoint>.optimizer`, through a temp file and rename. That name follows the checkpoint prefix, so TD-407's deletion
-  and TD-408's links include it.
-- It is saved with the end-of-pass checkpoint, and with auto-saves and best snapshots through `save_to()`.
-- `IncrementalTrainer` records which checkpoint the weights came from (`loaded_checkpoint_path_`) and restores its state into the next pass's
-  trainer. `retrain` starts fresh.
-- The incremental trainer's schedule is now `LINEAR_WARMUP` rather than `WARMUP_COSINE`, which decayed to the minimum inside every pass.
-
-New tests:
-- `OptimizerStateTest.SaveLoadContinuesIdentically` and `MismatchedStateIsRejectedAndLeavesStateUntouched`;
-- `ChatbotTrainerCacheTest.TrainingStateRoundTripsWithinARunOnly`;
-- `IncrementalTrainerTest.TrainingStateContinuesIntoTheNextPass`: two separate trainers, where pass 2's saved step is twice pass 1's. It fails on
-  the old code, which writes no state.
-
-The full test run also surfaced a latent bug in `calculate_learning_rate()`. `WARMUP_COSINE` divided by `total − warmup`, so a run whose warmup
-equalled its step count (now common: a 1-step pass gets a 1-step warmup) got a NaN learning rate and NaN weights. `STEP_DECAY` and
-`EXPONENTIAL_DECAY` could divide by zero when a pass had fewer steps than epochs. All denominators are now guarded, and the decay progress is
-clamped to [0, 1]. New test `LearningRateIsFiniteForTinyAndContinuedRuns` covers every schedule.
-
-- [x] Owner decision: make the schedule run-wide (pass a global step offset and the run's planned total steps from `IncrementalTrainer`), or document per-pass schedules as intended. (Run-wide warmup, then constant.)
-- [x] Persist optimizer state (moments and step count) with the checkpoint and restore it in `set_model()` (or a new `set_optimizer_state()`).
-- [ ] Track run-level `global_step` in the MNS/session record. (The step is in the checkpoint's training state; MNS doesn't show it yet.)
-
-Location in code: `src/Optimizer.{hpp,cpp}` (`save_state()`, `load_state()`), `src/ChatbotTrainer.{hpp,cpp}` (`save_training_state()`, `load_training_state()`, `calculate_learning_rate()`), `src/IncrementalTrainer.cpp` (per-pass trainer setup, end-of-pass save), `src/IncrementalTrainingTool.cpp` (schedule); the `TODO: See TD-269` tags are now fix comments.
-
-Files to Modify:
-
-- `src/ChatbotTrainer.{hpp,cpp}`
-- `src/IncrementalTrainer.{hpp,cpp}`
-- `src/Optimizer.{hpp,cpp}` (state save/load)
-- `src/EncoderDecoderModel.cpp` (checkpoint sidecar)
-
-**Windows follow-up (October 19, 2026).** The atomic save added by this fix moved its temp file into place with `std::rename()`, which fails on Windows
-when the target exists, so every save after the first would have failed there. It now uses `std::filesystem::rename()`, which replaces the target
-on every platform.
 
 ---
 
@@ -5060,6 +4999,46 @@ Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokeni
 `src/IncrementalTrainingTool.cpp`.
 
 Related: TD-574 (archived), TD-563, TD-560.
+
+---
+
+### TD-581: MNS's Legacy JSONL Import Drops Every Model
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / ModelNameService | November 21, 2026 | 1-2 hours |
+
+Description:
+`mns_server` imports a data directory's pre-SQLite files (`models.jsonl`, `roles.json`) once, when `models.db` has no rows
+(`ModelNameService::migrate_from_jsonl()`). Its model insert is positional, `INSERT OR REPLACE INTO models VALUES (?,…)` with 26
+placeholders, but the `models` table has had 28 columns since TD-196 (`kind`, `connection_json`) and 29 since TD-269
+(`progress_global_step`). So `sqlite3_prepare_v2()` fails for every record, and the `continue` that follows skips it, with its history,
+without logging anything. TD-054 fixed the same mismatch once; the comment it left still says the table has 26 columns.
+
+**Verified November 21, 2026** with `mns_server` built from this tree, on a scratch data directory holding one `models.jsonl` record
+(a `candidate` chatbot with a history entry) and a `roles.json` naming it as `chatbot`'s production model:
+- the log says only "migrating …/models.jsonl to SQLite" and "migrated 0 records from JSONL to SQLite";
+- `GET /models/legacy-model` answers 404;
+- `roles.json` is imported anyway, so `GET /roles/chatbot/production` answers 404 "production model record not found": a role
+  pointing at a model that doesn't exist;
+- with still no rows in `models`, the import runs again on every start.
+
+It only matters for a data directory from before the SQLite store (MNS Phase 1). 192.168.1.16's MNS is already on SQLite, so no
+deployment is losing data today; the risk is an old backup or host being restored. The task chip suggested for this on November 9,
+2026 was never started.
+
+Action Items:
+
+- [ ] Insert with named columns (as `training_history`'s inserts do), binding `kind`, `connection_json`, `run_group` and the progress
+      fields too, so a later column can't break it again; or build the record with `parse_record()` and reuse `persist_model()`.
+- [ ] Log a failed prepare or step with the model's name, and count only the records actually imported.
+- [ ] Import `roles.json` only for models that were imported (or log the ones skipped).
+- [ ] Test: an in-process `mns_server` (as `tests/mns_progress_test.cpp` does) on a directory holding `models.jsonl` and `roles.json`
+      imports the model with its kind, connection, run group and history, and resolves the role; a second start doesn't import again.
+- [ ] Correct the TD-054 comment, and update [ModelNameService.md](../reference/source/ModelNameService.md) (its TD-269 addendum
+      mentions this).
+
+Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `init_db()`'s "no rows yet" check).
 
 ---
 

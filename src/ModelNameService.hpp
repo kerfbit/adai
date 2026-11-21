@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
-// @adai-version: 1.3.1
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-21
 
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -80,6 +81,7 @@ struct TrainingHistoryEntry {
     std::string dataset_group;
     int epochs = 0;
     double final_loss = 0.0;
+    std::int64_t global_step = 0;  // TD-269: the run's optimizer step when this pass ended
     std::string started_utc;
     std::string finished_utc;
     /// True when synthesized from a crashed/killed/superseded run's last-known
@@ -156,6 +158,9 @@ struct ModelRecord {
     int progress_epoch = 0;
     double progress_loss = 0.0;
     double progress_best_loss = 0.0;
+    // TD-269: the run-level optimizer step (ChatbotTrainer's global_step, which continues across
+    // passes of one run); 0 until a trainer that sends it reports.
+    std::int64_t progress_global_step = 0;
     std::string progress_updated_utc;
 
     std::vector<TrainingHistoryEntry> training_history;

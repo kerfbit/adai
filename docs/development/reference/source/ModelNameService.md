@@ -1,12 +1,12 @@
 # `ModelNameService` — Source File Reference
 
-- **Files:** [`src/ModelNameService.hpp`](../../../../src/ModelNameService.hpp), [`src/ModelNameService.cpp`](../../../../src/ModelNameService.cpp) (2,233 lines together)
+- **Files:** [`src/ModelNameService.hpp`](../../../../src/ModelNameService.hpp), [`src/ModelNameService.cpp`](../../../../src/ModelNameService.cpp) (2,488 lines together)
 - **Namespace:** `adai` (`ModelNameService`, `ModelRecord`, `ModelConnection`, `ArtifactLocation`, `TrainingHistoryEntry`)
 - **Built into:** `adai_mns`; hosted by `mns_server` ([`ModelNameServiceServer.cpp`](../../../../src/ModelNameServiceServer.cpp), args in [MnsServerArgs.md](MnsServerArgs.md))
-- **Status tags:** `.hpp` `stable` 1.1.1, `.cpp` `stable` 1.0.2, both reviewed 2026-09-19
-- **Tests:** [`tests/model_name_service_live_test.cpp`](../../../../tests/model_name_service_live_test.cpp) (62 tests against a running server; **all 62 pass** against a local `mns_server` started for this trace, and all skip in a plain `ctest` run without one)
+- **Status tags:** `.hpp` `stable` 1.4.0, `.cpp` `stable` 1.6.0, both reviewed 2026-11-21
+- **Tests:** [`tests/model_name_service_live_test.cpp`](../../../../tests/model_name_service_live_test.cpp) (70 tests against a running server; **all 70 pass** against a local `mns_server`, November 21, 2026, and all skip in a plain `ctest` run without one); [`tests/mns_progress_test.cpp`](../../../../tests/mns_progress_test.cpp) (3 tests, in-process: the run's step in progress and history, a restart, an older `models.db`); [`tests/model_name_service_start_test.cpp`](../../../../tests/model_name_service_start_test.cpp) (start-up refusals)
 - **Clients:** [ModelNameClient](ModelNameClient.md) (trainer, chat server, `dataset_manager`), [MnsCliCommands](MnsCliCommands.md) (`mns_cli`), [MnsManagerGUI](MnsManagerGUI.md), the Android ops dashboard
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-10-14; progress, history and the number readers re-traced 2026-11-21 (TD-269)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against a real `mns_server` built from this tree.
 
@@ -27,7 +27,7 @@ world-model connection, lifecycle state, run numbering, training progress and ro
 | `GET /models[?state=&role=&kind=&limit=]` | `handle_list` | Full records |
 | `GET /models/{n}`, `GET /models/{n}/resolve` | `handle_get`, `handle_resolve` | `resolve` is compact; 409 while `initializing` |
 | `PUT /models/{n}/state` | `handle_state_transition` | §2 |
-| `PUT /models/{n}/progress` | `handle_progress_update` | Only while `training` and only for the active `run_id` (else 409) |
+| `PUT /models/{n}/progress` | `handle_progress_update` | Only while `training` and only for the active `run_id` (else 409). Stores `session_id`, `epoch`, `loss`, `best_loss` and `global_step` (the run's optimizer step; an absent one keeps the last value) |
 | `PUT /models/{n}/run_group` | `handle_update_run_group` | Any state |
 | `POST /models/{n}/link-world-model` | `handle_link_world_model` | Chatbot only; replaces the whole world-model/hippocampal connection; d_model check when injecting |
 | `DELETE /models/{n}` | `handle_delete` | Only `initializing`/`retired`; removes history and role mappings |
@@ -52,9 +52,10 @@ initializing ──training──► training ──candidate──► candidate
 
 - **`training`** (from `initializing`, `candidate`, `training`): the server **allocates** `run-NN`: `run-01` the first time,
   incrementing only for `new_run: true`. A client `run_id` is ignored. Re-entering `training` archives the previous run's
-  progress snapshot as an `incomplete` history entry.
+  progress snapshot (epoch, loss, `global_step`) as an `incomplete` history entry, then zeroes the progress.
 - **`candidate`** (from `training`, `initializing`, `retired`): from `training` it requires the active `run_id` (else
-  409 "superseded"); attaches the artifact and appends a history entry; clears progress.
+  409 "superseded"); attaches the artifact and appends a history entry from `training_summary` (`epochs`,
+  `final_loss`, `global_step`, falling back to the last progress report's step); clears progress.
 - **`retired`** from any state; **`production`** only via promote. A `production` model can't re-enter `training`, so the
   always-on trainer's `set_training()` gets 409 for a promoted model and carries on without MNS run tracking (it logs a
   warning and skips `set_candidate()`).
@@ -132,6 +133,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No architecture validation for legacy chatbots; no divisibility check for any kind (§3) | Permanently unusable registrations (all zeros, or `d_model % num_heads ≠ 0`) | **Verified** | [TD-461](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-461-mns-accepts-unbuildable-architectures-at-registration) |
 | Only compact JSON accepted (§3) | Standard JSON from scripts/tools rejected with misleading errors | **Verified** | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
 | Dead datasets proxy (no `model_id` ever recorded; wrong group; no kind); admin-settings data race; swallowed persistence errors; promote leaves stale role; `\u` escapes (§4) | Dead endpoint; rare crash; silent memory/disk divergence | By inspection | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
+| The legacy `models.jsonl` import drops every model (positional insert with 26 values for 29 columns) and still imports `roles.json` (addendum below) | An old pre-SQLite data directory comes up with no models and roles pointing at nothing | **Verified** | [TD-581](../../guides/TECHNICAL_DEBT.md#td-581-mnss-legacy-jsonl-import-drops-every-model) |
 | Non-finite numbers; duplicated JSON code | Already tracked | — | TD-458, TD-453 |
 
 ---
@@ -156,3 +158,20 @@ omits default values from its body.
 `DaemonConfigStore::set_many()` transaction while holding `admin_config_mutex_`, and assigns the members only after the save
 worked. A failed save answers 500 (`could not save the admin config (<reason>); nothing was changed`) and keeps the old
 values. The unlocked read in `handle_datasets()` is still TD-462.
+
+## Addendum (November 21, 2026): the run's step, and summary numbers sent as strings (TD-269)
+
+- **`global_step`.** `ModelRecord::progress_global_step` and `TrainingHistoryEntry::global_step` (`int64`) hold the run-level
+  optimizer step `ChatbotTrainer` keeps across a run's passes. The record's `progress` object and every `training_history` entry
+  have a `"global_step"`. `PUT …/progress` reads it with `json_int64()` and keeps the last value when a trainer sends none; a new run
+  and the candidate transition zero it (the history entry keeps it). SQLite: `models.progress_global_step` is the last column (added
+  last by `add_column_if_missing()`, so a migrated database has the layout `persist_model()`'s positional `INSERT` expects) and
+  `training_history.global_step` (named inserts).
+- **Numbers sent as strings.** `ModelNameClient::set_candidate()` (and so `incremental_trainer` and `mns_cli candidate
+  --summary`) sends every `training_summary` value as a JSON string (`"epochs":"3"`). `json_int()`, `json_int64()`,
+  `json_double()` and `json_loss()` read only a bare number, so each such history entry was stored with **0 epochs and loss 0**
+  (seen on 192.168.1.16's `chatbot-v1` history). They now skip an opening quote (`number_start()`), so a quoted number reads
+  as the number. Entries already stored keep their zeros.
+- **Not changed:** the one-time JSONL migration's `INSERT` into `models` still has 26 placeholders for a table that now has 29
+  columns (it had 28), so that import fails for every model; it only matters for a data directory that still has the pre-SQLite
+  JSONL files. Tracked as [TD-581](../../guides/TECHNICAL_DEBT.md#td-581-mnss-legacy-jsonl-import-drops-every-model).

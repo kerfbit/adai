@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.1
-// @adai-reviewed: 2026-11-11
+// @adai-version: 0.25.0
+// @adai-reviewed: 2026-11-21
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -761,7 +761,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     auto epoch_start = std::chrono::steady_clock::now();
     int epochs_fully_completed = 0;
     float session_best_val_loss = std::numeric_limits<float>::max();
-    trainer.set_epoch_callback([this, &epoch_start, &epochs_fully_completed,
+    trainer.set_epoch_callback([this, &trainer, &epoch_start, &epochs_fully_completed,
                                 &session_best_val_loss](int epoch, int total, float loss,
                                                         float val_loss, float lr) {
         auto now = std::chrono::steady_clock::now();
@@ -792,7 +792,9 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
                 mns_client_->push_progress(config.mns_model_name, current_run_id_,
                                            current_mns_session_id_, epoch,
                                            static_cast<double>(loss),
-                                           static_cast<double>(session_best_val_loss));
+                                           static_cast<double>(session_best_val_loss),
+                                           // TD-269: the run-level step, continued across passes
+                                           trainer.get_global_step());
             } catch (const std::exception& e) {
                 Logger::warn("MNS push_progress failed: {}", e.what());
             }
@@ -970,7 +972,8 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             artifact.format = "adai-native";
             std::map<std::string, std::string> summary = {
                 {"final_loss", std::to_string(static_cast<double>(final_loss))},
-                {"epochs", std::to_string(epochs_run)}};
+                {"epochs", std::to_string(epochs_run)},
+                {"global_step", std::to_string(trainer.get_global_step())}};  // TD-269
             if (final_val_loss != TrainingSession::kNoValidationLoss) {
                 summary["final_val_loss"] = std::to_string(static_cast<double>(final_val_loss));
             }

@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-21
 
 #include "ModelNameClient.hpp"
 #include "SecureRandom.hpp"
@@ -400,7 +400,7 @@ void adai::ModelNameClient::set_candidate(
 
 void adai::ModelNameClient::push_progress(const std::string& model_name, const std::string& run_id,
                                           const std::string& session_id, int epoch, double loss,
-                                          double best_loss) {
+                                          double best_loss, std::int64_t global_step) {
     // TD-458: JSON has no NaN or infinity, so a diverged epoch is null.
     const auto number = [](double value) {
         if (!std::isfinite(value))
@@ -412,7 +412,10 @@ void adai::ModelNameClient::push_progress(const std::string& model_name, const s
     std::ostringstream body;
     body << "{\"run_id\":\"" << json_escape_client(run_id) << "\"" << ",\"session_id\":\""
          << json_escape_client(session_id) << "\"" << ",\"epoch\":" << epoch
-         << ",\"loss\":" << number(loss) << ",\"best_loss\":" << number(best_loss) << "}";
+         << ",\"loss\":" << number(loss) << ",\"best_loss\":" << number(best_loss);
+    if (global_step >= 0)
+        body << ",\"global_step\":" << global_step;  // TD-269
+    body << "}";
 
     std::string out;
     const int status = http_put("/models/" + model_name + "/progress", body.str(), out);

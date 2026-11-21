@@ -1,9 +1,10 @@
 #pragma once
 
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-21
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -96,8 +97,11 @@ class ModelNameClient {
     // epoch so a killed/crashed trainer still leaves an accurate last-known
     // state in MNS. Throws on a stale/superseded run_id (409) or network
     // failure; callers should treat failures as non-fatal (log and continue).
+    // TD-269: global_step is the run-level optimizer step; a negative value isn't sent, and MNS
+    // then keeps the last one it had.
     void push_progress(const std::string& model_name, const std::string& run_id,
-                       const std::string& session_id, int epoch, double loss, double best_loss);
+                       const std::string& session_id, int epoch, double loss, double best_loss,
+                       std::int64_t global_step = -1);
 
     // Resolve a model by name; throws if not found or in initializing state.
     ResolvedModel resolve_model(const std::string& model_name);

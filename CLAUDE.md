@@ -181,9 +181,11 @@ swapping data sources mid-run risks duplicate/inconsistent training across a dis
   pair — a run_id never seen before naturally starts its session counter at 1, so a new MNS-allocated run
   resets it for free.
 - **Crash-safe progress**: after every epoch, `IncrementalTrainer` calls
-  `ModelNameClient::push_progress(model_name, run_id, session_id, epoch, loss, best_loss)` →
+  `ModelNameClient::push_progress(model_name, run_id, session_id, epoch, loss, best_loss, global_step)` →
   `PUT /models/{name}/progress`, so a `SIGKILL`'d or crashed trainer still leaves an accurate last-known
-  state on the MNS record (`progress.epoch`/`progress.loss`/`progress.best_loss`). If a new
+  state on the MNS record (`progress.epoch`/`progress.loss`/`progress.best_loss`/`progress.global_step`, the
+  last being the run-level optimizer step, which continues across passes; TD-269). Each pass's
+  `training_history` entry keeps its `global_step` too, since the candidate transition clears `progress`. If a new
   `set_training` call finds the record still `"training"` under a previous (never-completed) run, MNS
   archives that snapshot into `training_history` tagged `"incomplete":true` before allocating the new run
   — see `ModelNameService::handle_state_transition`'s `"training"` branch.
@@ -452,7 +454,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(92 on November 19, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(92 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -476,7 +478,6 @@ reference doc that tracks it):
 | TD-233 (MEDIUM) | ChatbotAPI Session IDs Come From a Non-Cryptographic Generator. Code fix landed October 27, 2026. Left: Consider requiring an auth token for export/import if the server is reachable beyond localhost. See [ChatbotAPI.md](docs/development/reference/source/ChatbotAPI.md). |
 | **TD-247** (HIGH) | RAG Retrieval in `chatbot_api_server` Uses an Untrained Encoder. Code fix landed October 26, 2026. Left: Test: retrieval ranks a document containing the query's content above unrelated ones with a trained checkpoint. (Not done: needs a trained… See [ChatbotAPIServer.md](docs/development/reference/source/ChatbotAPIServer.md). |
 | TD-263 (MEDIUM) | `chatbot_gui` Freezes While Generating. Code fix landed November 4, 2026 (with TD-260). Left: Add a cancel/stop control if the generator can support it. Still open: `chatbot_api_server` can't stop a generation, so a Stop button would only stop… See [ChatbotGUI.md](docs/development/reference/source/ChatbotGUI.md). |
-| TD-269 (MEDIUM) | Optimizer State and LR Schedule Restart Every Incremental Training Pass. Code fix landed October 19, 2026. Left: Track run-level `global_step` in the MNS/session record. (The step is in the checkpoint's training state; MNS doesn't show it yet.). See [Optimizer.md](docs/development/reference/source/Optimizer.md). |
 | TD-296 (LOW) | ConversationContext Hygiene. Left: Check the stream and write via temp file + rename (and 1 more). See [ConversationContext.md](docs/development/reference/source/ConversationContext.md). |
 | TD-302 (LOW) | LoRA Adapters Aren't Persisted or Counted in Gradient Norms. Left: Persist adapters (e.g. extra SafeTensors entries) or document merge-before-save and enforce it (and 1 more). See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
 | TD-303 (LOW) | Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input. Left: Skip the cross-attention sub-layer in `DecoderBlock` when no encoder output is given (e.g. a null pointer), and fix the comment. See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
@@ -549,3 +550,4 @@ reference doc that tracks it):
 | TD-563 (MEDIUM) | Rebuild Vocabularies and Retrain With Case, and Deploy in Order. Format refusal landed November 4, 2026; rebuild, retrain and rollout pending (TD-358). Left: Deploy binaries with TD-560 everywhere (`incremental_trainer`/`trainer_service` hosts, `chatbot_api_server`, `vocab_builder`, any tool reading… (and 4 more). |
 | TD-573 (LOW) | What the Android Apps Need to Reach `stable`. Left: Setup 2: add `espresso-intents` for the file picker (and 5 more). |
 | TD-575 (MEDIUM) | Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`. Split from TD-574, November 18, 2026. The abort is a September 23 binary (pre-TD-414; current ones exit 1, a failed pass) reading the legacy `/opt/adai/config/config.conf`, whose `VOCAB_PATH` is a development-machine path; it restarts every 47 s and has trained nothing. Stopped and disabled November 18; the server host (192.168.1.16: MNS, registry, metrics) upgraded in place the same day (`redeploy_server_bundle.sh`). `bodacious-badger` (768/12/3072, 8+24, 1024, run group `bb01`) registered with `world-model-v1` linked every 8 decoder layers; `ambitious-aardvark` and `chatbot-v1` retired. Left: queue `bb01`'s data, then deploy current binaries and `trainer_service` (TD-172's cutover) with per-service configs and the vocabulary, in TD-563's order. |
+| TD-581 (LOW) | MNS's Legacy JSONL Import Drops Every Model. Left: Insert with named columns (as `training_history`'s inserts do), binding `kind`, `connection_json`, `run_group` and the progress… (and 4 more). See [ModelNameService.md](docs/development/reference/source/ModelNameService.md). |

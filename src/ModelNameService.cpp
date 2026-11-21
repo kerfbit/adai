@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.1
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-21
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -134,13 +134,33 @@ std::string zero_pad2(int n) {
     return s.size() < 2 ? "0" + s : s;
 }
 
+// Where a number's text starts after "key": — past an opening quote too, since ModelNameClient's
+// set_candidate() sends every training_summary value as a JSON string ("epochs":"3"), which the
+// readers below used to reject, so every trainer-written history entry had 0 epochs and loss 0.
+std::size_t number_start(const std::string& body, std::size_t value_pos) {
+    return (value_pos < body.size() && body[value_pos] == '"') ? value_pos + 1 : value_pos;
+}
+
 int json_int(const std::string& body, const std::string& key, int def = 0) {
     const std::string needle = "\"" + key + "\":";
     const auto pos = body.find(needle);
     if (pos == std::string::npos)
         return def;
     try {
-        return std::stoi(body.substr(pos + needle.size()));
+        return std::stoi(body.substr(number_start(body, pos + needle.size())));
+    } catch (...) {
+        return def;
+    }
+}
+
+// TD-269: a 64-bit integer (a run's optimizer step can outgrow int over a long run).
+std::int64_t json_int64(const std::string& body, const std::string& key, std::int64_t def = 0) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    try {
+        return std::stoll(body.substr(number_start(body, pos + needle.size())));
     } catch (...) {
         return def;
     }
@@ -152,7 +172,7 @@ double json_double(const std::string& body, const std::string& key, double def =
     if (pos == std::string::npos)
         return def;
     try {
-        const double value = std::stod(body.substr(pos + needle.size()));
+        const double value = std::stod(body.substr(number_start(body, pos + needle.size())));
         return std::isfinite(value) ? value : def;  // TD-458: stod reads "nan" and "inf"
     } catch (...) {
         return def;
@@ -169,7 +189,7 @@ double json_loss(const std::string& body, const std::string& key, double def = 0
     if (body.compare(pos + needle.size(), 4, "null") == 0)
         return std::nan("");
     try {
-        const double value = std::stod(body.substr(pos + needle.size()));
+        const double value = std::stod(body.substr(number_start(body, pos + needle.size())));
         return std::isfinite(value) ? value : std::nan("");
     } catch (...) {
         return def;
@@ -518,6 +538,7 @@ static std::string serialize_record(const ModelRecord& r) {
       << json_escape(r.progress_session_id) << "\"" << ",\"epoch\":" << r.progress_epoch
       << ",\"loss\":" << loss_json(r.progress_loss)
       << ",\"best_loss\":" << loss_json(r.progress_best_loss)
+      << ",\"global_step\":" << r.progress_global_step
       << ",\"updated_utc\":\"" << json_escape(r.progress_updated_utc) << "\"}"
       << ",\"training_history\":[";
     for (size_t i = 0; i < r.training_history.size(); ++i) {
@@ -527,7 +548,8 @@ static std::string serialize_record(const ModelRecord& r) {
         j << "{\"run_id\":\"" << json_escape(h.run_id) << "\"" << ",\"metrics_session_key\":\""
           << json_escape(h.metrics_session_key) << "\"" << ",\"dataset_group\":\""
           << json_escape(h.dataset_group) << "\"" << ",\"epochs\":" << h.epochs
-          << ",\"final_loss\":" << loss_json(h.final_loss) << ",\"started_utc\":\""
+          << ",\"final_loss\":" << loss_json(h.final_loss)
+          << ",\"global_step\":" << h.global_step << ",\"started_utc\":\""
           << json_escape(h.started_utc) << "\"" << ",\"finished_utc\":\""
           << json_escape(h.finished_utc) << "\"" << ",\"incomplete\":"
           << (h.incomplete ? "true" : "false") << "}";
@@ -574,6 +596,7 @@ static ModelRecord parse_record(const std::string& line) {
     r.progress_epoch = json_int(progress, "epoch");
     r.progress_loss = json_loss(progress, "loss");
     r.progress_best_loss = json_loss(progress, "best_loss");
+    r.progress_global_step = json_int64(progress, "global_step");
     r.progress_updated_utc = json_string(progress, "updated_utc");
 
     for (const auto& obj : split_array_objects(extract_array(line, "training_history"))) {
@@ -583,6 +606,7 @@ static ModelRecord parse_record(const std::string& line) {
         h.dataset_group = json_string(obj, "dataset_group");
         h.epochs = json_int(obj, "epochs");
         h.final_loss = json_loss(obj, "final_loss");
+        h.global_step = json_int64(obj, "global_step");
         h.started_utc = json_string(obj, "started_utc");
         h.finished_utc = json_string(obj, "finished_utc");
         h.incomplete = json_bool(obj, "incomplete", false);
@@ -869,7 +893,8 @@ CREATE TABLE IF NOT EXISTS models (
     progress_updated_utc TEXT DEFAULT '',
     run_group            TEXT DEFAULT '',
     kind                 TEXT DEFAULT 'chatbot',
-    connection_json      TEXT DEFAULT '{}'
+    connection_json      TEXT DEFAULT '{}',
+    progress_global_step INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS training_history (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -881,7 +906,8 @@ CREATE TABLE IF NOT EXISTS training_history (
     final_loss         REAL DEFAULT 0.0,
     started_utc        TEXT DEFAULT '',
     finished_utc       TEXT DEFAULT '',
-    incomplete         INTEGER DEFAULT 0
+    incomplete         INTEGER DEFAULT 0,
+    global_step        INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS request_ids (
     model_name TEXT PRIMARY KEY,
@@ -942,7 +968,10 @@ CREATE TABLE IF NOT EXISTS roles (
     // two columns in the CREATE TABLE literal above, so they're the last two added here too.
     add_column_if_missing("models", "kind", "TEXT DEFAULT 'chatbot'");
     add_column_if_missing("models", "connection_json", "TEXT DEFAULT '{}'");
+    // TD-269: same rule again, progress_global_step is now the last column.
+    add_column_if_missing("models", "progress_global_step", "INTEGER DEFAULT 0");
     add_column_if_missing("training_history", "incomplete", "INTEGER DEFAULT 0");
+    add_column_if_missing("training_history", "global_step", "INTEGER DEFAULT 0");  // TD-269
 
     // Migrate legacy JSONL files on first run (no rows yet).
     int count = 0;
@@ -1028,8 +1057,8 @@ void adai::ModelNameService::migrate_from_jsonl() {
                 const char* hsql =
                     "INSERT INTO training_history "
                     "(model_name,run_id,metrics_session_key,dataset_group,epochs,final_loss,"
-                    "started_utc,finished_utc,incomplete) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)";
+                    "started_utc,finished_utc,incomplete,global_step) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)";
                 sqlite3_stmt* hs = nullptr;
                 if (sqlite3_prepare_v2(db, hsql, -1, &hs, nullptr) == SQLITE_OK) {
                     sqlite3_bind_text(hs, 1, r.model_name.c_str(), -1, SQLITE_TRANSIENT);
@@ -1041,6 +1070,7 @@ void adai::ModelNameService::migrate_from_jsonl() {
                     sqlite3_bind_text(hs, 7, h.started_utc.c_str(), -1, SQLITE_TRANSIENT);
                     sqlite3_bind_text(hs, 8, h.finished_utc.c_str(), -1, SQLITE_TRANSIENT);
                     sqlite3_bind_int(hs, 9, h.incomplete ? 1 : 0);
+                    sqlite3_bind_int64(hs, 10, static_cast<sqlite3_int64>(h.global_step));
                     sqlite3_step(hs);
                     sqlite3_finalize(hs);
                 }
@@ -1087,7 +1117,8 @@ void adai::ModelNameService::load_from_disk() {
         "artifact_host,artifact_path,artifact_checksum,artifact_format,"
         "d_model,num_heads,d_ff,num_encoder_layers,num_decoder_layers,max_seq_length,tags_json,"
         "current_run_number,run_started_utc,progress_session_id,progress_epoch,progress_loss,"
-        "progress_best_loss,progress_updated_utc,run_group,kind,connection_json "
+        "progress_best_loss,progress_updated_utc,run_group,kind,connection_json,"
+        "progress_global_step "
         "FROM models";
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::error("ModelNameService: load query failed: {}", sqlite3_errmsg(db));
@@ -1130,6 +1161,7 @@ void adai::ModelNameService::load_from_disk() {
         r.run_group = col_text(25);
         r.kind = col_text(26);
         r.connection = parse_connection(col_text(27));
+        r.progress_global_step = sqlite3_column_int64(st, 28);
         if (r.state.empty())
             r.state = "initializing";
         if (r.artifact.format.empty())
@@ -1161,7 +1193,7 @@ void adai::ModelNameService::load_from_disk() {
     const char* hsql =
         "SELECT "
         "model_name,run_id,metrics_session_key,dataset_group,epochs,final_loss,started_utc,"
-        "finished_utc,incomplete "
+        "finished_utc,incomplete,global_step "
         "FROM training_history ORDER BY id ASC";
     sqlite3_stmt* hs = nullptr;
     if (sqlite3_prepare_v2(db, hsql, -1, &hs, nullptr) == SQLITE_OK) {
@@ -1183,6 +1215,7 @@ void adai::ModelNameService::load_from_disk() {
             h.started_utc = col_text(6);
             h.finished_utc = col_text(7);
             h.incomplete = sqlite3_column_int(hs, 8) != 0;
+            h.global_step = sqlite3_column_int64(hs, 9);
             it->second.training_history.push_back(std::move(h));
         }
         sqlite3_finalize(hs);
@@ -1215,7 +1248,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
 
     const char* sql =
         "INSERT OR REPLACE INTO models VALUES "
-        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::warn("ModelNameService: persist_model prepare failed: {}", sqlite3_errmsg(db));
@@ -1251,6 +1284,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     sqlite3_bind_text(st, 27, rec.kind.c_str(), -1, SQLITE_TRANSIENT);
     const std::string connection_j = serialize_connection(rec.connection);
     sqlite3_bind_text(st, 28, connection_j.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 29, static_cast<sqlite3_int64>(rec.progress_global_step));
     if (sqlite3_step(st) != SQLITE_DONE) {
         // TODO: See TD-462 in TECHNICAL_DEBT.md - failure only logged; the request still reports success
         Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
@@ -1279,8 +1313,8 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     const char* hsql =
         "INSERT INTO training_history "
         "(model_name,run_id,metrics_session_key,dataset_group,epochs,final_loss,started_utc,"
-        "finished_utc,incomplete) "
-        "VALUES (?,?,?,?,?,?,?,?,?)";
+        "finished_utc,incomplete,global_step) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)";
     for (const auto& h : rec.training_history) {
         sqlite3_stmt* hs = nullptr;
         if (sqlite3_prepare_v2(db, hsql, -1, &hs, nullptr) == SQLITE_OK) {
@@ -1293,6 +1327,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
             sqlite3_bind_text(hs, 7, h.started_utc.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(hs, 8, h.finished_utc.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_int(hs, 9, h.incomplete ? 1 : 0);
+            sqlite3_bind_int64(hs, 10, static_cast<sqlite3_int64>(h.global_step));
             sqlite3_step(hs);
             sqlite3_finalize(hs);
         }
@@ -1646,6 +1681,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
             h.metrics_session_key = r.progress_session_id;
             h.epochs = r.progress_epoch;
             h.final_loss = r.progress_loss;
+            h.global_step = r.progress_global_step;
             h.started_utc = r.run_started_utc;
             h.finished_utc = utc_now();
             h.incomplete = true;
@@ -1655,6 +1691,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         r.progress_epoch = 0;
         r.progress_loss = 0.0;
         r.progress_best_loss = 0.0;
+        r.progress_global_step = 0;
         r.progress_updated_utc.clear();
 
         if (!request_id.empty())
@@ -1696,6 +1733,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         h.dataset_group = json_string(summary, "dataset_group");
         h.epochs = json_int(summary, "epochs");
         h.final_loss = json_loss(summary, "final_loss");
+        // TD-269: the run's step at the end of the pass; else the last progress report's.
+        h.global_step = json_int64(summary, "global_step", r.progress_global_step);
         h.started_utc = json_string(summary, "started_utc");
         h.finished_utc = json_string(summary, "finished_utc");
         if (h.finished_utc.empty())
@@ -1711,6 +1750,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         r.progress_epoch = 0;
         r.progress_loss = 0.0;
         r.progress_best_loss = 0.0;
+        r.progress_global_step = 0;
         r.progress_updated_utc.clear();
     } else if (new_state == "retired") {
         // TD-460: the role has no production model now. It kept resolving to this one.
@@ -1765,6 +1805,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_progress_update(
     r.progress_epoch = json_int(body, "epoch", r.progress_epoch);
     r.progress_loss = json_loss(body, "loss", r.progress_loss);
     r.progress_best_loss = json_loss(body, "best_loss", r.progress_best_loss);
+    // TD-269: a trainer from before this field sends none; keep the last value then.
+    r.progress_global_step = json_int64(body, "global_step", r.progress_global_step);
     r.progress_updated_utc = utc_now();
     r.updated_utc = r.progress_updated_utc;
     persist_model(r);

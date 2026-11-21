@@ -384,6 +384,10 @@ if(HTTPLIB_INCLUDE_DIR)
     target_link_libraries(incrementaltrainerTests adai_metrics_api)
     target_include_directories(incrementaltrainerTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
 endif()
+# TD-269: the trainer's MNS code (BUILD_MNS_SERVER, from adai_mns) against an in-process mns_server
+if(TARGET adai_mns)
+    target_link_libraries(incrementaltrainerTests adai_mns)
+endif()
 add_test(NAME IncrementalTrainerTests COMMAND incrementaltrainerTests)
 
 # TD-566: the LeJEPA world-model pass (moved out of IncrementalTrainingTool.cpp to be testable) against a
@@ -868,6 +872,15 @@ if(TARGET adai_mns)
     target_include_directories(modelNameServiceStartTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(modelNameServiceStartTests adai_mns adai_core GTest::gtest_main)
     add_test(NAME ModelNameServiceStartTests COMMAND modelNameServiceStartTests)
+
+    # TD-269: progress.global_step, kept across a restart and added to an older models.db
+    if(HTTPLIB_INCLUDE_DIR)
+        add_executable(mnsProgressTests mns_progress_test.cpp)
+        target_include_directories(mnsProgressTests PRIVATE ${CMAKE_SOURCE_DIR}/src
+                                   ${CMAKE_SOURCE_DIR}/external ${HTTPLIB_INCLUDE_DIR})
+        target_link_libraries(mnsProgressTests adai_mns adai_core GTest::gtest_main)
+        add_test(NAME MnsProgressTests COMMAND mnsProgressTests)
+    endif()
 
     add_executable(mnsLiveTests model_name_service_live_test.cpp)
     target_include_directories(mnsLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src

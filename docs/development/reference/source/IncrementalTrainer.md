@@ -1,12 +1,12 @@
 # `IncrementalTrainer` — Source File Reference
 
-- **Files:** [`src/IncrementalTrainer.hpp`](../../../../src/IncrementalTrainer.hpp) (541 lines), [`src/IncrementalTrainer.cpp`](../../../../src/IncrementalTrainer.cpp) (2,507 lines)
+- **Files:** [`src/IncrementalTrainer.hpp`](../../../../src/IncrementalTrainer.hpp) (541 lines), [`src/IncrementalTrainer.cpp`](../../../../src/IncrementalTrainer.cpp) (2,510 lines)
 - **Namespace:** global (`IncrementalConfig`, `TrainingSession`, `IncrementalTrainer`)
 - **Built into:** the `incremental_trainer` executable (with `ChatbotTrainer.cpp` and the core libraries), not a library
-- **Status tags:** `@adai-status: beta` ("capped by TD-039"); `IncrementalTrainer.cpp` `@adai-version: 0.24.1` (reviewed 2026-11-11), `.hpp` `0.21.0` (2026-11-10)
-- **Tests:** `incrementaltrainerTests` (66), `incrementalTrainerDecouplingTests` (14, `incremental_trainer_registry_test.cpp`), `incrementalTrainerBackgroundTests` (8), `incrementalTrainerControlTests` (7)
+- **Status tags:** `@adai-status: beta` ("capped by TD-039"); `IncrementalTrainer.cpp` `@adai-version: 0.25.0` (reviewed 2026-11-21), `.hpp` `0.21.0` (2026-11-10)
+- **Tests:** `incrementaltrainerTests` (67; links `adai_mns` since TD-269, so the MNS calls are compiled in), `incrementalTrainerDecouplingTests` (14, `incremental_trainer_registry_test.cpp`), `incrementalTrainerBackgroundTests` (8), `incrementalTrainerControlTests` (7)
 - **Operator guide:** [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md)
-- **Last traced against the code:** 2026-11-11
+- **Last traced against the code:** 2026-11-11; the MNS progress and candidate calls re-traced 2026-11-21 (TD-269)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by constructing the real class against scratch session directories holding
 > real checkpoints, or by running `incremental_trainer`.
@@ -50,7 +50,7 @@ train_on_files / retrain_on_files / resume_last_session
   ├─ train_on_files: load_training_state(<loaded checkpoint>.optimizer) (TD-269)
   └─ run_training()
        ├─ metrics push session (409 → retry with a suffix ×3; otherwise NullMetricsReporter)
-       ├─ callbacks: per epoch (session history, MNS push_progress, admin epoch), per sample (admin progress, forced
+       ├─ callbacks: per epoch (session history, MNS push_progress with the run's global_step, admin epoch), per sample (admin progress, forced
        │             checkpoint, auto-save), best model (session_<id>_best.bin + .optimizer)
        ├─ trainer.train(); model = trainer.release_model()
        ├─ paused (/admin/pause or SIGTERM, TD-416) → perform_auto_save(); return false (the caller releases the files)
@@ -158,3 +158,12 @@ keyword tokens end to end (the tokenizer's own tests cover the reader).
 - **November 9, 2026:** epochs run, policy settings, `retrain` archive (TD-410).
 - **November 11, 2026:** progress per checkpoint attempt (TD-569). This document was re-traced against the code, replacing its October sections,
   its merge notes and its addenda; its two findings were fixed the same day (TD-570, TD-571).
+
+## Addendum (November 21, 2026): the run's step in MNS (TD-269)
+
+The per-epoch callback captures the pass's `ChatbotTrainer` and sends `trainer.get_global_step()` with `push_progress()`, and the
+end-of-pass `set_candidate()` adds `"global_step"` to its `training_summary` next to `final_loss` and `epochs`. The step is the
+run-level one TD-269 restores from `<checkpoint>.optimizer` into each new pass, so MNS's record shows how far the run has trained:
+`progress.global_step` during a pass, and each pass's `training_history` entry afterwards (the candidate transition clears
+`progress`). `IncrementalTrainerTest.PassRecordsTheRunsGlobalStepInMns` runs a pass against an in-process `mns_server` and checks
+the history entry's step equals the one saved with the checkpoint.

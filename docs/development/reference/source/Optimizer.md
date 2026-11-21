@@ -105,7 +105,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | One global weight decay, applied to norms, biases and embeddings (§2) | Slow drift of norm gains under AdamW; no per-group control | By inspection | [TD-469](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
 | Unused `amsgrad`; no duplicate-registration check; raw pointers; float norm accumulation (§2) | Hygiene; double updates if a layer registers twice | By inspection | [TD-469](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
 | Shared-optimizer stepping; accessor cost | Already tracked | — | TD-297, TD-435 |
-| Optimizer state not persisted across passes | Every pass restarted AdamW from zero moments | **Fixed October 19, 2026** (`save_state()`/`load_state()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
+| Optimizer state not persisted across passes | Every pass restarted AdamW from zero moments | **Fixed October 19, 2026** (`save_state()`/`load_state()`) | [TD-269](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
 
 ---
 

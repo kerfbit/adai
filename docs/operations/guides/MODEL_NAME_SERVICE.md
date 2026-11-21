@@ -340,8 +340,10 @@ curl http://localhost:8083/models/adai-chatbot-v3
       "dataset_group":       "gutenberg-en",
       "epochs":              10,
       "final_loss":          1.432,
+      "global_step":         48000,
       "started_utc":         "2026-06-20T10:00:00Z",
-      "finished_utc":        "2026-06-20T14:20:00Z"
+      "finished_utc":        "2026-06-20T14:20:00Z",
+      "incomplete":          false
     }
   ],
   "tags": {
@@ -725,7 +727,20 @@ CREATE TABLE models (
     num_encoder_layers INTEGER DEFAULT 0,
     num_decoder_layers INTEGER DEFAULT 0,
     max_seq_length     INTEGER DEFAULT 0,
-    tags_json          TEXT DEFAULT '{}'
+    tags_json          TEXT DEFAULT '{}',
+    current_run_number INTEGER DEFAULT 0,
+    run_started_utc    TEXT DEFAULT '',
+    -- The active run's last progress report (PUT /models/{name}/progress)
+    progress_session_id  TEXT DEFAULT '',
+    progress_epoch       INTEGER DEFAULT 0,
+    progress_loss        REAL DEFAULT 0.0,
+    progress_best_loss   REAL DEFAULT 0.0,
+    progress_updated_utc TEXT DEFAULT '',
+    run_group          TEXT DEFAULT '',
+    kind               TEXT DEFAULT 'chatbot',
+    connection_json    TEXT DEFAULT '{}',
+    -- TD-269: the run's optimizer step, continued across passes
+    progress_global_step INTEGER DEFAULT 0
 );
 
 -- Append-only training history; one row per training run
@@ -738,7 +753,9 @@ CREATE TABLE training_history (
     epochs              INTEGER DEFAULT 0,
     final_loss          REAL DEFAULT 0.0,
     started_utc         TEXT DEFAULT '',
-    finished_utc        TEXT DEFAULT ''
+    finished_utc        TEXT DEFAULT '',
+    incomplete          INTEGER DEFAULT 0,  -- archived from a run that never reached candidate
+    global_step         INTEGER DEFAULT 0   -- TD-269: the run's optimizer step when this pass ended
 );
 
 -- Current production model per role

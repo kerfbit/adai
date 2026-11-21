@@ -23,6 +23,14 @@
 #include "EncoderDecoderModel.hpp"
 #include "HippocampalMemory.hpp"
 #include "LeJEPAEncoder.hpp"
+#if defined(BUILD_MNS_SERVER) && __has_include(<httplib.h>)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <future>
+#include <httplib.h>
+#include "ModelNameService.hpp"
+#endif
 
 namespace fs = std::filesystem;
 
@@ -359,6 +367,64 @@ TEST_F(IncrementalTrainerTest, TrainingStateContinuesIntoTheNextPass) {
     EXPECT_EQ(saved_global_step(second_cp + ".optimizer"), 2 * step1)
         << "pass 2 continued the step count (and optimizer) instead of restarting at 0";
 }
+
+#if defined(BUILD_MNS_SERVER) && __has_include(<httplib.h>)
+// TD-269: the run's step reaches MNS: in the progress pushed after each epoch (cleared when the pass
+// ends in candidate) and in the pass's training-history entry, matching the step saved with the
+// checkpoint. Runs a real ModelNameService in-process.
+TEST_F(IncrementalTrainerTest, PassRecordsTheRunsGlobalStepInMns) {
+    const fs::path mns_dir = test_dir / "mns";
+    fs::create_directories(mns_dir);
+    int port = 0;
+    {
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        socklen_t len = sizeof(addr);
+        ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+        ::close(fd);
+        port = ntohs(addr.sin_port);
+    }
+    adai::ModelNameService mns(mns_dir.string(), port);
+    auto serving = std::async(std::launch::async, [&] { return mns.start(); });
+    httplib::Client c("127.0.0.1", port);
+    for (int i = 0; i < 100 && !c.Get("/health"); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_EQ(c.Post("/models",
+                     "{\"model_name\":\"step-model\",\"arch\":{\"d_model\":32,\"num_heads\":2,"
+                     "\"d_ff\":64,\"num_encoder_layers\":1,\"num_decoder_layers\":1,"
+                     "\"max_seq_length\":16}}",
+                     "application/json")
+                  ->status,
+              201);
+
+    IncrementalConfig config = tiny_local_config(session_dir);
+    config.mns_server_url = "http://127.0.0.1:" + std::to_string(port);
+    config.mns_model_name = "step-model";
+    PendingFileRange file;
+    file.path = write_pairs(test_dir);
+    std::string checkpoint;
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_FALSE(trainer.begin_run(false).empty());
+        ASSERT_TRUE(trainer.train_on_files({file}, 1));
+        checkpoint = trainer.get_session_history().back().checkpoint_path;
+    }
+    const std::int64_t step = saved_global_step(checkpoint + ".optimizer");
+    ASSERT_GT(step, 0);
+
+    const auto res = c.Get("/models/step-model");
+    mns.stop();
+    serving.wait();
+    ASSERT_TRUE(res);
+    const std::string body = res->body;
+    const std::string entry = "\"global_step\":" + std::to_string(step) + ",";
+    EXPECT_NE(body.find("\"training_history\":[{"), std::string::npos) << body;
+    EXPECT_NE(body.find(entry), std::string::npos) << "history entry records step " << step << ": " << body;
+}
+#endif
 
 // TD-412: a pass that loads no samples (missing or empty file) fails, so its caller releases the
 // files instead of marking them trained, and it leaves no zero-sample session behind.
