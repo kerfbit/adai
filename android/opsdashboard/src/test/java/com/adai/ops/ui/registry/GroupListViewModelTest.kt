@@ -1,10 +1,14 @@
 package com.adai.ops.ui.registry
 
+import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
+import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.settings.OpsSettings
 import com.adai.ops.testutil.FakeApiClientProvider
+import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
 import java.io.IOException
@@ -18,9 +22,28 @@ import org.junit.Test
 /**
  * TD-048: GroupListViewModel had zero test coverage. Mirrors GroupDetailViewModelTest's own
  * "one fetch failing must not affect the others" pattern (TD-128) — here across multiple
- * groups instead of multiple endpoints for one group.
+ * groups instead of multiple endpoints for one group. TD-580: groups also come from MNS, each
+ * non-retired model's run_group.
  */
 class GroupListViewModelTest {
+
+    private fun models(service: FakeMnsApiService = FakeMnsApiService()) =
+        ModelRepository(FakeApiClientProvider(service), FakeSettingsRepository())
+
+    private fun mnsWith(vararg records: ModelRecordDto) =
+        FakeMnsApiService(listModelsResponse = { _, _, _, _ -> ModelsResponseDto(models = records.toList()) })
+
+    private fun viewModel(
+        registry: FakeRegistryApiService,
+        configured: List<String>,
+        mns: FakeMnsApiService = FakeMnsApiService(),
+    ) = GroupListViewModel(
+        registryRepository = RegistryRepository(FakeApiClientProvider(registry), FakeSettingsRepository()),
+        settingsRepository = FakeSettingsRepository(
+            OpsSettings(useSharedHost = true, sharedHost = "localhost", registryGroups = configured),
+        ),
+        modelRepository = models(mns),
+    )
 
     @Test
     fun `each configured group gets its own pending count`() = runTest {
@@ -38,6 +61,7 @@ class GroupListViewModelTest {
             settingsRepository = FakeSettingsRepository(
                 OpsSettings(useSharedHost = true, sharedHost = "localhost", registryGroups = listOf("group-a", "group-b")),
             ),
+            modelRepository = models(),
         )
 
         val pollJob = backgroundScope.launch { viewModel.pollGroups() }
@@ -78,6 +102,7 @@ class GroupListViewModelTest {
                     registryGroups = listOf("broken-group", "healthy-group"),
                 ),
             ),
+            modelRepository = models(),
         )
 
         val pollJob = backgroundScope.launch { viewModel.pollGroups() }
@@ -100,6 +125,7 @@ class GroupListViewModelTest {
             settingsRepository = FakeSettingsRepository(
                 OpsSettings(useSharedHost = true, sharedHost = "localhost", registryGroups = emptyList()),
             ),
+            modelRepository = models(),
         )
 
         val pollJob = backgroundScope.launch { viewModel.pollGroups() }
@@ -108,6 +134,84 @@ class GroupListViewModelTest {
         val state = viewModel.uiState.value
         assertTrue(state.groups.isEmpty())
         assertEquals(false, state.isLoading)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `groups named by non-retired MNS models are listed after Settings' groups`() = runTest {
+        val registry = FakeRegistryApiService(
+            queueResponse = { group ->
+                when (group) {
+                    "bb01" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "b1")))
+                    "bb01/world_model" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "w1"), QueueEntryDto(path = "w2")))
+                    else -> QueueResponseDto()
+                }
+            },
+        )
+        val mns = mnsWith(
+            ModelRecordDto(model_name = "bodacious-badger", run_group = "bb01", state = "initializing"),
+            ModelRecordDto(model_name = "world-model-v1", run_group = "bb01", state = "training"),
+            ModelRecordDto(model_name = "chatbot-v1", run_group = "chatbot-v1", state = "retired"),
+            ModelRecordDto(model_name = "no-group", run_group = ""),
+        )
+        val viewModel = viewModel(registry, configured = listOf("manual"), mns = mns)
+
+        val pollJob = backgroundScope.launch { viewModel.pollGroups() }
+        testScheduler.runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(
+            listOf(
+                GroupSummary("manual", pendingCount = 0),
+                GroupSummary("bb01", pendingCount = 3, models = listOf("bodacious-badger", "world-model-v1")),
+            ),
+            state.groups,
+        )
+        assertNull(state.discoveryError)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `a group both in Settings and in MNS is listed once, where Settings puts it`() = runTest {
+        val mns = mnsWith(
+            ModelRecordDto(model_name = "model-z", run_group = "zz"),
+            ModelRecordDto(model_name = "model-a", run_group = "group-a"),
+        )
+        val viewModel = viewModel(FakeRegistryApiService(), configured = listOf("group-a"), mns = mns)
+
+        val pollJob = backgroundScope.launch { viewModel.pollGroups() }
+        testScheduler.runCurrent()
+
+        val groups = viewModel.uiState.value.groups
+        assertEquals(listOf("group-a", "zz"), groups.map { it.name })
+        assertEquals(listOf("model-a"), groups.first().models)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `an unreachable MNS still shows Settings' groups and reports why`() = runTest {
+        val mns = FakeMnsApiService(listModelsResponse = { _, _, _, _ -> throw IOException("mns down") })
+        val viewModel = viewModel(FakeRegistryApiService(), configured = listOf("group-a"), mns = mns)
+
+        val pollJob = backgroundScope.launch { viewModel.pollGroups() }
+        testScheduler.runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(listOf(GroupSummary("group-a", pendingCount = 0)), state.groups)
+        assertEquals("mns down", state.discoveryError)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `MNS is asked for more than its default 50 models`() = runTest {
+        var askedLimit: Int? = null
+        val mns = FakeMnsApiService(listModelsResponse = { _, _, _, limit -> askedLimit = limit; ModelsResponseDto() })
+        val viewModel = viewModel(FakeRegistryApiService(), configured = emptyList(), mns = mns)
+
+        val pollJob = backgroundScope.launch { viewModel.pollGroups() }
+        testScheduler.runCurrent()
+
+        assertTrue("limit was $askedLimit", (askedLimit ?: 0) > 50)
         pollJob.cancel()
     }
 }

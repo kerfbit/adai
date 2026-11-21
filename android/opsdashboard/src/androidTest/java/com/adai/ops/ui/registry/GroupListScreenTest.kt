@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -10,11 +10,15 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
+import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.settings.OpsSettings
 import com.adai.ops.testutil.FakeApiClientProvider
+import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
 import java.io.IOException
@@ -41,9 +45,11 @@ class GroupListScreenTest {
     private fun viewModel(
         settings: OpsSettings,
         fakeService: FakeRegistryApiService = FakeRegistryApiService(),
+        mnsService: FakeMnsApiService = FakeMnsApiService(),
     ) = GroupListViewModel(
         registryRepository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository(settings)),
         settingsRepository = FakeSettingsRepository(settings),
+        modelRepository = ModelRepository(FakeApiClientProvider(mnsService), FakeSettingsRepository(settings)),
     )
 
     private val configured = OpsSettings(useSharedHost = true, sharedHost = "localhost")
@@ -60,11 +66,47 @@ class GroupListScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            textIsShowing(
-                "No registry groups configured. Add group names in Settings — " +
-                    "registry_server has no way to list them for you.",
-            )
+            textIsShowing("No registry groups: no model in MNS has a run group, and none are added in Settings.")
         }
+    }
+
+    // TD-580: a non-retired model's run_group is listed without being added in Settings.
+    @Test
+    fun groupOfAnMnsModel_isListedWithItsModels() {
+        val mns = FakeMnsApiService(
+            listModelsResponse = { _, _, _, _ ->
+                ModelsResponseDto(
+                    models = listOf(
+                        ModelRecordDto(model_name = "bodacious-badger", run_group = "bb01"),
+                        ModelRecordDto(model_name = "chatbot-v1", run_group = "chatbot-v1", state = "retired"),
+                    ),
+                )
+            },
+        )
+        val vm = viewModel(configured.copy(registryGroups = emptyList()), mnsService = mns)
+
+        composeTestRule.setContent {
+            GroupListScreen(viewModel = vm, onOpenGroup = {}, onOpenSettings = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("bb01") }
+        composeTestRule.onNodeWithText("Models: bodacious-badger").assertExists()
+        composeTestRule.onNodeWithText("chatbot-v1").assertDoesNotExist()
+    }
+
+    @Test
+    fun unreachableMns_showsSettingsGroupsAndTheError() {
+        val mns = FakeMnsApiService(listModelsResponse = { _, _, _, _ -> throw IOException("mns down") })
+        val vm = viewModel(configured.copy(registryGroups = listOf("group-a")), mnsService = mns)
+
+        composeTestRule.setContent {
+            GroupListScreen(viewModel = vm, onOpenGroup = {}, onOpenSettings = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("group-a") }
+        composeTestRule.onNodeWithText(
+            "Showing only the groups in Settings: couldn't list models from MNS (mns down).",
+        ).assertExists()
     }
 
     @Test

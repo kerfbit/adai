@@ -1,7 +1,7 @@
 package com.adai.ops.di
 
 // @adai-status: beta        (TD-048 — AppViewModelProviderTest.kt added; real-device run still unverified, see below)
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-11-21
 
 
@@ -28,7 +28,9 @@ object AppViewModelProvider {
         initializer { SettingsViewModel(app.container.settingsDataStore) }
         initializer { SessionListViewModel(app.container.metricsRepository) }
         initializer { ModelListViewModel(app.container.modelRepository) }
-        initializer { GroupListViewModel(app.container.registryRepository, app.container.settingsDataStore) }
+        initializer {
+            GroupListViewModel(app.container.registryRepository, app.container.settingsDataStore, app.container.modelRepository)
+        }
     }
 
     fun sessionDetailFactory(app: OpsApp, sessionKey: String) = viewModelFactory {

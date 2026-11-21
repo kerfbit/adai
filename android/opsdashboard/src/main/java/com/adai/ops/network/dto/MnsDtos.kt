@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-21
 
 
 import kotlinx.serialization.Serializable
@@ -68,6 +68,8 @@ data class ConnectionDto(
  * TD-196: kind is one of: encoder | decoder | world_model | chatbot (default "chatbot" —
  * every pre-TD-196 record keeps the same shape). See [ConnectionDto]'s own doc comment for how
  * kind selects which of [arch]'s 6 inline fields apply and how [connection] is interpreted.
+ * TD-580: [run_group] is the dataset-registry group the model trains from (empty = none set);
+ * the Registry tab lists every group a non-retired model names.
  */
 @Serializable
 data class ModelRecordDto(
@@ -77,6 +79,7 @@ data class ModelRecordDto(
     val kind: String = "chatbot",
     val state: String = "initializing",
     val run_id: String = "",
+    val run_group: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
     val artifact: ArtifactDto = ArtifactDto(),

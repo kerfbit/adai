@@ -67,7 +67,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt` | beta | 0.9.0 | 2026-11-19 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/trainer/TrainerRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/di/AppContainer.kt` | beta | 0.3.0 | 2026-11-21 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/di/AppViewModelProvider.kt` | beta | 0.3.0 | 2026-11-21 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/di/AppViewModelProvider.kt` | beta | 0.4.0 | 2026-11-21 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/ApiClientProvider.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/ApiResult.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/CloudflareAccessInterceptor.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
@@ -78,13 +78,13 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/network/TrainerApiService.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/CommonDtos.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MetricsDtos.kt` | beta | 0.5.0 | 2026-11-14 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt` | beta | 0.5.1 | 2026-11-10 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt` | beta | 0.6.0 | 2026-11-21 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/RegistryDtos.kt` | beta | 0.7.0 | 2026-11-19 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/TrainerDtos.kt` | beta | 0.5.0 | 2026-11-02 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/AdaptivePoller.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/FixedIntervalPoller.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/settings/OpsSettingsDataStore.kt` | beta | 0.6.0 | 2026-11-21 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsScreen.kt` | beta | 0.5.0 | 2026-11-21 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsScreen.kt` | beta | 0.5.1 | 2026-11-21 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsViewModel.kt` | beta | 0.6.0 | 2026-11-21 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminScreen.kt` | beta | 0.3.0 | 2026-09-13 | TD-048 |
@@ -115,8 +115,8 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsNavHost.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | beta | 0.8.1 | 2026-11-21 | TD-205 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.9.0 | 2026-11-19 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | beta | 0.3.0 | 2026-09-20 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | beta | 0.3.0 | 2026-11-21 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | beta | 0.4.0 | 2026-11-21 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryActionDialogs.kt` | experimental | 0.2.0 | 2026-11-12 | — |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/scaffold/OpsAppScaffold.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |

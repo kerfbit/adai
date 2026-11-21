@@ -1,7 +1,7 @@
 package com.adai.ops.settings
 
 // @adai-status: beta        (TD-048 — SettingsScreenTest.kt runs on an emulator since 2026-11-21)
-// @adai-version: 0.5.0
+// @adai-version: 0.5.1
 // @adai-reviewed: 2026-11-21
 
 
@@ -218,8 +218,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             HorizontalDivider()
 
             Text(
-                "Dataset registry groups (there is no server-side way to discover " +
-                    "these — add the group names you use)",
+                "Extra dataset registry groups (the Registry tab already lists every " +
+                    "group a model in MNS trains from; add others here)",
                 style = MaterialTheme.typography.bodyLarge,
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

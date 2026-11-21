@@ -1,10 +1,50 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (487 on November 19, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (488 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-580: The Ops Dashboard's Registry Tab Lists Only the Groups Typed Into Settings
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Android / `opsdashboard` | Code fix (LOW, filed November 21, 2026) |
+
+Description:
+The Registry tab (`GroupListScreen`) lists only the group names saved in the app's Settings, because `registry_server` has no
+endpoint that lists its groups (`RegistryServer.cpp` creates a group lazily on first use). After the November 21 update the tablet
+still showed `my-training-group` and the retired `chatbot-v1`, and not `bb01`, the group `bodacious-badger` and `world-model-v1`
+train from: every new run group had to be typed in by hand on every device, and retired ones stayed until removed.
+
+MNS already knows the groups: every `ModelRecord` has a `run_group`, set at registration and changeable since
+`PUT /models/{name}/run_group`, and `GET /models` returns it (`bodacious-badger`'s is `bb01`). The app's `ModelRecordDto` didn't parse
+the field.
+
+Action Items:
+
+- [x] Parse `run_group` in `ModelRecordDto`.
+- [x] List the groups of every non-retired MNS model (`GET /models?limit=1000`; MNS returns 50 by default), after the groups in
+      Settings, once each; show which models use each group.
+- [x] When MNS can't be reached, still show Settings' groups, with the error.
+- [x] Reword the Settings hint and the empty-state text; tests (unit and Compose).
+
+**Fix (November 21, 2026):**
+- **Discovery.** `GroupListViewModel` takes the `ModelRepository` too. Each refresh lists MNS's models (limit 1000), drops retired
+  ones and those with no `run_group`, and groups the rest by `run_group`. The groups shown are Settings' groups in their order, then the
+  discovered ones sorted, each once. `GroupSummary.models` holds the models using a group, shown on its row ("Models: ...").
+- **MNS down.** If the model list fails, the groups in Settings still show; `GroupListUiState.discoveryError` holds the error, shown
+  above the list (or in the empty-state text when Settings has none).
+- **Text.** Settings' field is now "Extra dataset registry groups" and says the Registry tab already lists every group a model in MNS
+  trains from. The empty state says no model in MNS has a run group and none are added in Settings.
+- **Tests.** `GroupListViewModelTest`: discovered groups after Settings' (retired and empty `run_group` dropped), a group in both
+  listed once, an unreachable MNS, the list limit above 50 (131 opsdashboard unit tests pass). `GroupListScreenTest`: a discovered group
+  with its models (a retired model's group absent), and an unreachable MNS (111 instrumented tests pass on `Medium_Phone_API_35`).
+- Files: `network/dto/MnsDtos.kt` (0.6.0), `ui/registry/GroupListViewModel.kt` (0.4.0), `ui/registry/GroupListScreen.kt` (0.3.0),
+  `di/AppViewModelProvider.kt` (0.4.0), `settings/SettingsScreen.kt` (0.5.1).
+
+---
 
 ### TD-579: Gutenberg Downloads Don't Fall Back to a Mirror When gutenberg.org Is Unavailable
 

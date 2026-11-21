@@ -5,10 +5,10 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 
 ## Overview
 
-**Last Updated:** November 19, 2026
+**Last Updated:** November 21, 2026
 **Active Items:** 92 (7 high, 20 medium, 65 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 487 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 488 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -28,6 +28,11 @@ completed work and the old execution order, which had become a log of finished r
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
+
+**November 21, 2026:** Filed [TD-580](../archive/TECHNICAL_DEBT_RESOLVED.md#td-580-the-ops-dashboards-registry-tab-lists-only-the-groups-typed-into-settings) (LOW): the ops
+dashboard's Registry tab listed only the group names typed into Settings, so `bb01` didn't show on the tablet. Fixed the same day: it
+also lists the `run_group` of every non-retired model in MNS. The same day the Wear OS modules were removed and `opsdashboard`'s
+instrumented tests ran on an emulator for the first time (TD-048, TD-573).
 
 **November 19, 2026:** Filed [TD-579](../archive/TECHNICAL_DEBT_RESOLVED.md#td-579-gutenberg-downloads-dont-fall-back-to-a-mirror-when-gutenbergorg-is-unavailable) (MEDIUM): `www.gutenberg.org` answered 503 for days, so
 `bodacious-badger`'s world-model books (run group `bb01`) couldn't be queued, while the official mirrors served the same files.
@@ -151,7 +156,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (92 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579 and TD-576 to TD-578 moved and TD-575 to TD-579 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (92 since TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-580 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
