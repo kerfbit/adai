@@ -7,9 +7,9 @@ package com.adai.ops.ui.models
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.adai.ops.data.mns.ModelRepository
@@ -21,6 +21,9 @@ import com.adai.ops.network.dto.TrainingHistoryEntryDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import java.io.IOException
 import org.junit.Rule
 import org.junit.Test
@@ -42,11 +45,11 @@ import retrofit2.Response
  * real needs its own small addition (a minimal androidTest-only FragmentActivity host +
  * createAndroidComposeRule<...>() + a FakeAdminAuthGate) that doesn't exist in this codebase yet
  * -- flagged as a followup (see TECHNICAL_DEBT.md) rather than built speculatively here, since
- * this sandbox can't run any of it live anyway (opsdashboard's `wear-sdk` install blocker) to
+ * this sandbox couldn't run any of it live at the time (opsdashboard then required `wear-sdk`) to
  * confirm it's wired correctly.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class ModelDetailScreenTest {
 
@@ -68,8 +71,10 @@ class ModelDetailScreenTest {
         ),
     )
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun fullModel(state: String = "candidate") = ModelRecordDto(
         model_id = "model-1",
@@ -95,16 +100,16 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("run-42").assertExists()
-        composeTestRule.onNodeWithText("2026-01-01T00:00:00Z").assertExists()
-        composeTestRule.onNodeWithText("512").assertExists()
-        composeTestRule.onNodeWithText("8").assertExists()
-        composeTestRule.onNodeWithText("2048").assertExists()
-        composeTestRule.onNodeWithText("6 / 6").assertExists()
-        composeTestRule.onNodeWithText("128").assertExists()
-        composeTestRule.onNodeWithText("storage.example.com").assertExists()
-        composeTestRule.onNodeWithText("/models/chatbot-main.bin").assertExists()
-        composeTestRule.onNodeWithText("adai-native").assertExists()
+        composeTestRule.onNodeWithTextScrolled("run-42").assertExists()
+        composeTestRule.onNodeWithTextScrolled("2026-01-01T00:00:00Z").assertExists()
+        composeTestRule.onNodeWithTextScrolled("512").assertExists()
+        composeTestRule.onNodeWithTextScrolled("8").assertExists()
+        composeTestRule.onNodeWithTextScrolled("2048").assertExists()
+        composeTestRule.onNodeWithTextScrolled("6 / 6").assertExists()
+        composeTestRule.onNodeWithTextScrolled("128").assertExists()
+        composeTestRule.onNodeWithTextScrolled("storage.example.com").assertExists()
+        composeTestRule.onNodeWithTextScrolled("/models/chatbot-main.bin").assertExists()
+        composeTestRule.onNodeWithTextScrolled("adai-native").assertExists()
     }
 
     @Test
@@ -123,7 +128,7 @@ class ModelDetailScreenTest {
         // itself fail here; assert the count directly instead.
         val noneCount = composeTestRule.onAllNodesWithText("(none)").fetchSemanticsNodes().size
         assert(noneCount >= 2) { "expected Role and Run ID to both fall back to \"(none)\", found $noneCount occurrence(s)" }
-        composeTestRule.onNodeWithText("(local)").assertExists()
+        composeTestRule.onNodeWithTextScrolled("(local)").assertExists()
     }
 
     @Test
@@ -135,8 +140,8 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("Training History") }
-        composeTestRule.onNodeWithText("Run run-1").assertExists()
-        composeTestRule.onNodeWithText("epochs=10 loss=0.5 session=sess-1").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Run run-1").assertExists()
+        composeTestRule.onNodeWithTextScrolled("epochs=10 loss=0.5 session=sess-1").assertExists()
     }
 
     @Test
@@ -148,7 +153,7 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("Training History").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Training History").assertDoesNotExist()
     }
 
     @Test
@@ -160,9 +165,9 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).assertIsEnabled()
-        composeTestRule.onNodeWithText("Retire candidate", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Promote to production", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Retire candidate", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Promote to production", substring = true).assertIsNotEnabled()
     }
 
     @Test
@@ -174,9 +179,9 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Retire candidate", substring = true).assertIsEnabled()
-        composeTestRule.onNodeWithText("Promote to production", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Retire candidate", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Promote to production", substring = true).assertIsEnabled()
     }
 
     @Test
@@ -188,9 +193,9 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Retire candidate", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Promote to production", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Retire candidate", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Promote to production", substring = true).assertIsNotEnabled()
     }
 
     @Test
@@ -202,7 +207,7 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("Couldn't load data") }
-        composeTestRule.onNodeWithText("connection refused").assertExists()
+        composeTestRule.onNodeWithTextScrolled("connection refused").assertExists()
     }
 
     @Test
@@ -214,7 +219,7 @@ class ModelDetailScreenTest {
             ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = { backInvoked = true })
         }
 
-        composeTestRule.onNodeWithContentDescription("Back").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Back").performClick()
 
         assert(backInvoked) { "expected onBack() to have been invoked" }
     }
@@ -234,10 +239,10 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("my-enc").assertExists()
-        composeTestRule.onNodeWithText("my-dec").assertExists()
+        composeTestRule.onNodeWithTextScrolled("my-enc").assertExists()
+        composeTestRule.onNodeWithTextScrolled("my-dec").assertExists()
         // The legacy inline d_model row must not render for a linked chatbot.
-        composeTestRule.onNodeWithText("512").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("512").assertDoesNotExist()
     }
 
     @Test
@@ -252,7 +257,7 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("my-enc") }
-        composeTestRule.onNodeWithText("my-enc").performClick()
+        composeTestRule.onNodeWithTextScrolled("my-enc").performClick()
 
         assert(opened == "my-enc") { "expected onOpenModel(\"my-enc\"), got $opened" }
     }
@@ -273,9 +278,9 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("my-wm") }
-        composeTestRule.onNodeWithText("my-wm").assertExists()
-        composeTestRule.onNodeWithText("Link world model", substring = true).assertIsEnabled()
-        composeTestRule.onNodeWithText("Detach world model", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("my-wm").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Link world model", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Detach world model", substring = true).assertIsEnabled()
     }
 
     @Test
@@ -287,8 +292,8 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("Link world model", substring = true).assertIsEnabled()
-        composeTestRule.onNodeWithText("Detach world model", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Link world model", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Detach world model", substring = true).assertIsNotEnabled()
     }
 
     @Test
@@ -300,8 +305,8 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("512").assertExists()
-        composeTestRule.onNodeWithText("World Model").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("512").assertExists()
+        composeTestRule.onNodeWithTextScrolled("World Model").assertDoesNotExist()
     }
 
     @Test
@@ -315,7 +320,7 @@ class ModelDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
-        composeTestRule.onNodeWithText("2.5").assertExists()
-        composeTestRule.onNodeWithText("32").assertExists()
+        composeTestRule.onNodeWithTextScrolled("2.5").assertExists()
+        composeTestRule.onNodeWithTextScrolled("32").assertExists()
     }
 }

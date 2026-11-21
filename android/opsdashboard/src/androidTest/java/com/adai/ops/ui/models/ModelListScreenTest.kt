@@ -26,11 +26,9 @@ import org.junit.Test
 /**
  * TD-048: ModelListScreen had zero coverage. Reuses ModelListViewModelTest's own
  * real-repository Fixture shape (ModelRepository backed by the shared src/sharedTest fakes)
- * rather than a real network. NOTE (see GroupListScreenTest for the full explanation): this
- * sandbox cannot install/run opsdashboard's debug APK on its phone emulator at all
- * (INSTALL_FAILED_MISSING_SHARED_LIBRARY: wear-sdk, no Wear-capable device available), so this
- * test is compile-verified and hand-checked against the real production code paths, not
- * confirmed passing on a device. Deliberately does not attempt ModelListViewModelTest's own
+ * rather than a real network. Written compile-verified only, while opsdashboard's debug APK
+ * required `wear-sdk` and couldn't be installed on a phone emulator; it runs there since the wear
+ * modules were removed (November 21, 2026; TD-048 has the results). Deliberately does not attempt ModelListViewModelTest's own
  * "a failed *second* poll keeps the first poll's models" scenario -- that needs virtual time
  * control (advanceTimeBy past the 8s poll interval) that a real-device instrumented test can't
  * do without an actual ~9s real-time wait, and the ViewModel-level test already covers it with

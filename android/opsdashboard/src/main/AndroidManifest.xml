@@ -3,12 +3,6 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Watch Face Push (see com.adai.ops.data.wearsync.WatchFacePushRepository) — the
-         second is a runtime permission with a max rejection count of 1: if the user denies
-         it once, the request can never be shown again for this app install. -->
-    <uses-permission android:name="com.google.wear.permission.PUSH_WATCH_FACES" />
-    <uses-permission android:name="com.google.wear.permission.SET_PUSHED_WATCH_FACE_AS_ACTIVE" />
-
     <application
         android:name=".OpsApp"
         android:allowBackup="true"

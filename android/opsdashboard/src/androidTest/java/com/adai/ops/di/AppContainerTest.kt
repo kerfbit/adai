@@ -23,10 +23,8 @@ import org.junit.Test
  * checked for not throwing, not for round-tripping a written value (that's already covered by
  * `OpsSettingsDataStoreTest`).
  *
- * NOTE: same sandbox limitation as the other opsdashboard tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here (this module's
- * debug APK can't be installed on this sandbox's emulator at all, see TECHNICAL_DEBT.md's
- * `wear-sdk` note).
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class AppContainerTest {
 
@@ -42,8 +40,6 @@ class AppContainerTest {
         assertNotNull(container.modelRepository)
         assertNotNull(container.registryRepository)
         assertNotNull(container.trainerRepository)
-        assertNotNull(container.watchSyncRepository)
-        assertNotNull(container.watchFacePushRepository)
 
         // Not asserting a specific value -- just that reading doesn't throw, proving
         // OpsSettingsDataStore is a real, usable DataStore-backed object rather than something

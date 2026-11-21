@@ -1,14 +1,14 @@
 package com.adai.ops.testutil
 
-// @adai-status: beta        (TD-048 — androidTest-only FragmentActivity host, see doc comment below)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (TD-048 — debug-build-only FragmentActivity test host, see doc comment below)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.fragment.app.FragmentActivity
 
 /**
- * Minimal `androidTest`-only [FragmentActivity] host for `createAndroidComposeRule<...>()`,
+ * Minimal debug-build-only [FragmentActivity] host for `createAndroidComposeRule<...>()`,
  * built specifically to unblock testing any screen's admin-action confirm-dialog flow.
  *
  * [com.adai.ops.ui.common.ConfirmActionDialog] unconditionally does
@@ -23,8 +23,12 @@ import androidx.fragment.app.FragmentActivity
  * in `onCreate` — the test itself calls `composeTestRule.setContent { ... }`, the same as with
  * `createComposeRule()`.
  *
- * Declared in `src/androidTest/AndroidManifest.xml` (test-only activities need their own manifest
- * entry; this is never merged into the shipped app). Pair with [FakeAdminAuthGate], provided via
+ * Lives in the `debug` source set and is declared in `src/debug/AndroidManifest.xml`, so it is
+ * part of the debug app APK (never the release one), the same way `ui-test-manifest` supplies
+ * `ComponentActivity` for `createComposeRule()`. It used to be declared in the androidTest
+ * manifest, which put it in the test APK: the test then launched an activity of the app's
+ * package that resolved to the `com.adai.ops.test` process and failed ("resolved to different
+ * process"), the first time these tests ran on a device (November 21, 2026). Pair with [FakeAdminAuthGate], provided via
  * `CompositionLocalProvider(LocalAdminAuthGate provides ...)` around the screen under test, to
  * exercise a confirm-dialog click all the way through without touching real biometric hardware.
  */

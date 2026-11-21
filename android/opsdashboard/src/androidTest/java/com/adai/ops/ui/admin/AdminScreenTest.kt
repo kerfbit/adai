@@ -54,8 +54,8 @@ import retrofit2.Response
  * gated on parseable input) -- stopping BEFORE ever clicking "Next", which is the one action that
  * would compose ConfirmActionDialog.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class AdminScreenTest {
 

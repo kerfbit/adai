@@ -11,7 +11,6 @@ android {
 
     defaultConfig {
         applicationId = "com.adai.ops"
-        // androidx.wear.watchfacepush requires 33+ on the phone side.
         minSdk = 33
         targetSdk = 34
         versionCode = 1
@@ -64,8 +63,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":wearsync"))
-
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
@@ -100,11 +97,6 @@ dependencies {
     // androidx.fragment transitively, required by BiometricPrompt's FragmentActivity host.
     implementation(libs.biometric)
 
-    implementation(libs.play.services.wearable)
-    implementation(libs.work.runtime.ktx)
-    implementation(libs.wear.watchfacepush)
-    implementation(libs.watchface.validator.android)
-
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
@@ -115,22 +107,4 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     debugImplementation(libs.compose.ui.test.manifest)
-}
-
-// Bundles the compiled :wearface Watch Face Format APK as a raw asset so
-// WatchFacePushRepository can push it to the watch at runtime (validated + tokenized on
-// the fly via the DwfValidator library, no separate offline tool step needed). Re-run
-// whenever watchface.xml changes — a plain `./gradlew :opsdashboard:assembleDebug` re-triggers
-// this automatically via the preBuild dependency below.
-val copyWearFaceApk by tasks.registering(Copy::class) {
-    dependsOn(":wearface:resignWffApk")
-    from(project(":wearface").layout.buildDirectory.dir("wff")) {
-        include("wearface-wff.apk")
-        rename { "wearface.apk" }
-    }
-    into("src/main/assets")
-}
-
-tasks.named("preBuild") {
-    dependsOn(copyWearFaceApk)
 }

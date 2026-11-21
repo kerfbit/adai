@@ -6,10 +6,9 @@ package com.adai.ops.ui.metrics
 
 
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.adai.ops.data.metrics.MetricsRepository
 import com.adai.ops.network.dto.CurrentMetricsDto
@@ -18,6 +17,9 @@ import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMetricsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
 import com.adai.ops.testutil.httpException
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import java.io.IOException
 import org.junit.Rule
 import org.junit.Test
@@ -37,8 +39,8 @@ import org.junit.Test
  * for ModelDetailScreenTest (see TECHNICAL_DEBT.md and that file's own doc comment for the full
  * explanation) -- only the button's default-enabled rendering is checked here, not the click.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class SessionDetailScreenTest {
 
@@ -51,8 +53,10 @@ class SessionDetailScreenTest {
         settingsRepository = FakeSettingsRepository(),
     )
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun status(
         epoch: Int = 3,
@@ -96,10 +100,10 @@ class SessionDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("Live · polling every 2000ms") }
-        composeTestRule.onNodeWithText("3/10").assertExists()
-        composeTestRule.onNodeWithText("500/1000").assertExists()
-        composeTestRule.onNodeWithText("yes").assertExists()
-        composeTestRule.onNodeWithText("0.1234").assertExists()
+        composeTestRule.onNodeWithTextScrolled("3/10").assertExists()
+        composeTestRule.onNodeWithTextScrolled("500/1000").assertExists()
+        composeTestRule.onNodeWithTextScrolled("yes").assertExists()
+        composeTestRule.onNodeWithTextScrolled("0.1234").assertExists()
     }
 
     @Test
@@ -134,7 +138,7 @@ class SessionDetailScreenTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             textIsShowing("Disabled (ENABLE_GENERATION_QUALITY_METRICS=false)")
         }
-        composeTestRule.onNodeWithText("BLEU-4").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("BLEU-4").assertDoesNotExist()
     }
 
     @Test
@@ -142,7 +146,8 @@ class SessionDetailScreenTest {
         val vm = viewModel(
             FakeMetricsApiService(
                 sessionStatusResponse = { status() },
-                currentMetricsResponse = { current(bleu4 = 0.7) },
+                // TD-380: BLEU is on the 0-100 scale, shown with two decimals.
+                currentMetricsResponse = { current(bleu4 = 70.0) },
             ),
         )
 
@@ -151,8 +156,8 @@ class SessionDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("BLEU-4") }
-        composeTestRule.onNodeWithText("0.7000").assertExists()
-        composeTestRule.onNodeWithText("ROUGE-1").assertExists()
+        composeTestRule.onNodeWithTextScrolled("70.00").assertExists()
+        composeTestRule.onNodeWithTextScrolled("ROUGE-1").assertExists()
     }
 
     @Test
@@ -166,7 +171,7 @@ class SessionDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("Couldn't load data") }
-        composeTestRule.onNodeWithText("connection refused").assertExists()
+        composeTestRule.onNodeWithTextScrolled("connection refused").assertExists()
     }
 
     @Test
@@ -194,7 +199,7 @@ class SessionDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("End session") }
-        composeTestRule.onNodeWithText("End session", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("End session", substring = true).assertIsEnabled()
     }
 
     @Test
@@ -208,7 +213,7 @@ class SessionDetailScreenTest {
             SessionDetailScreen(sessionKey = "session-1", viewModel = vm, onBack = { backInvoked = true }, onEvicted = {})
         }
 
-        composeTestRule.onNodeWithContentDescription("Back").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Back").performClick()
 
         assert(backInvoked) { "expected onBack() to have been invoked" }
     }

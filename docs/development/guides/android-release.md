@@ -11,14 +11,9 @@ doc as the spec and that workflow as the test suite for it.
 
 ## Scope
 
-Covers `:app` and `:opsdashboard` only — the two applications TD-047 itself scopes in, and the
-only two `android-ci.yml` currently builds as APKs. `:wearsync` is a library module with no
-`versionName` of its own; it ships as part of whichever app depends on it. `:wearface` has a
-`versionName` but is never installed directly — `:opsdashboard` bundles its built, resigned APK as
-a raw asset (`copyWearFaceApk`/`resignWffApk`) and pushes it via Watch Face Push, so its version
-isn't independently released. `:wearcomplications` is a real, independent application but isn't
-mentioned in TD-047 and has no release process defined here yet — a natural follow-up once it's in
-scope.
+Covers `:app` and `:opsdashboard`, the project's only two modules and the two applications TD-047
+scopes in. (The Wear OS modules `:wearsync`, `:wearface` and `:wearcomplications` were removed on
+November 21, 2026.)
 
 ## Versioning scheme
 

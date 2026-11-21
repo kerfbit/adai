@@ -6,13 +6,15 @@ package com.adai.ops.ui.registry
 
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
 import com.adai.ops.network.dto.AssignResponseDto
@@ -28,6 +30,9 @@ import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import com.adai.ops.ui.common.AdminAuthResult
 import com.adai.ops.ui.common.LocalAdminAuthGate
 import org.junit.Rule
@@ -43,16 +48,18 @@ import retrofit2.Response
  * were previously ungated, an inconsistency with the rest of this app's admin actions), and
  * added Unassign/Delete/Manual-add/Upload/Migrate/Segment gated from the start.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class GroupDetailScreenConfirmActionTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<ConfirmDialogTestActivity>()
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun viewModelWith(registryService: FakeRegistryApiService, group: String = "group-x") =
         GroupDetailViewModel(
@@ -77,17 +84,17 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("run-1") }
-        composeTestRule.onNodeWithText("Release", substring = true).performClick()
-        composeTestRule.onNodeWithText("Force-release run 'run-1'?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Release", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Force-release run 'run-1'?").assertExists()
 
-        composeTestRule.onNodeWithText("Force release").performClick()
+        composeTestRule.onNodeWithTextScrolled("Force release").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.releaseCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.releaseCalls.single()
         assert(group == "group-x" && body.run_id == "" && body.files == listOf("a.jsonl", "b.jsonl")) {
             "unexpected release call: group=$group body=$body"
         }
-        composeTestRule.onNodeWithText("Force-release run 'run-1'?").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Force-release run 'run-1'?").assertDoesNotExist()
     }
 
     @Test
@@ -96,12 +103,12 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithText("Fetch Gutenberg book").performClick()
-        composeTestRule.onNodeWithText("Gutenberg book ID").performTextInput("42")
-        composeTestRule.onNodeWithText("Fetch").performClick()
-        composeTestRule.onNodeWithText("POST /registry/group-x/fetch/gutenberg", substring = true).assertExists()
+        composeTestRule.onNodeWithTextScrolled("Fetch Gutenberg book").performClick()
+        composeTestRule.onNodeWithTextScrolled("Gutenberg book ID").performTextInput("42")
+        composeTestRule.onNodeWithTextScrolled("Fetch").performClick()
+        composeTestRule.onNodeWithTextScrolled("POST /registry/group-x/fetch/gutenberg", substring = true).assertExists()
 
-        composeTestRule.onNodeWithText("Fetch").performClick()
+        composeTestRule.onNodeWithTextScrolled("Fetch").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.fetchGutenbergCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.fetchGutenbergCalls.single()
@@ -115,13 +122,13 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithText("Fetch HuggingFace dataset").performClick()
-        composeTestRule.onNodeWithText("Dataset ID (e.g. tatsu-lab/alpaca)").performTextInput("Salesforce/wikitext")
-        composeTestRule.onNodeWithText("Config (blank = default)").performTextInput("wikitext-2-raw-v1")
-        composeTestRule.onNodeWithText("Fetch").performClick()
-        composeTestRule.onNodeWithText("\"config\":\"wikitext-2-raw-v1\"", substring = true).assertExists()
+        composeTestRule.onNodeWithTextScrolled("Fetch HuggingFace dataset").performClick()
+        composeTestRule.onNodeWithTextScrolled("Dataset ID (e.g. tatsu-lab/alpaca)").performTextInput("Salesforce/wikitext")
+        composeTestRule.onNodeWithTextScrolled("Config (blank = default)").performTextInput("wikitext-2-raw-v1")
+        composeTestRule.onNodeWithTextScrolled("Fetch").performClick()
+        composeTestRule.onNodeWithTextScrolled("\"config\":\"wikitext-2-raw-v1\"", substring = true).assertExists()
 
-        composeTestRule.onNodeWithText("Fetch").performClick()
+        composeTestRule.onNodeWithTextScrolled("Fetch").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.fetchHuggingfaceCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.fetchHuggingfaceCalls.single()
@@ -140,11 +147,11 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
-        composeTestRule.onNodeWithContentDescription("Assign model").performClick()
-        composeTestRule.onNodeWithText("Assign").performClick()
-        composeTestRule.onNodeWithText("Assign model?").assertExists()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Assign model").performClick()
+        composeTestRule.onNodeWithTextScrolled("Assign").performClick()
+        composeTestRule.onNodeWithTextScrolled("Assign model?").assertExists()
 
-        composeTestRule.onNodeWithText("Assign").performClick()
+        composeTestRule.onNodeWithTextScrolled("Assign").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.assignCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.assignCalls.single()
@@ -163,10 +170,10 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
-        composeTestRule.onNodeWithText("Unassign").performClick()
-        composeTestRule.onNodeWithText("Unassign model?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Unassign").performClick()
+        composeTestRule.onNodeWithTextScrolled("Unassign model?").assertExists()
 
-        composeTestRule.onNodeWithText("Confirm unassign").performClick()
+        composeTestRule.onNodeWithTextScrolled("Confirm unassign").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.unassignCalls.isNotEmpty() }
         val (group, body) = fakeRegistryService.unassignCalls.single()
@@ -183,9 +190,9 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
-        composeTestRule.onNodeWithContentDescription("Delete").performClick()
-        composeTestRule.onNodeWithText("Delete").performClick()
-        composeTestRule.onNodeWithText("Delete entry?").assertExists()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Delete").performClick()
+        composeTestRule.onNodeWithTextScrolled("Delete").performClick()
+        composeTestRule.onNodeWithTextScrolled("Delete entry?").assertExists()
 
         composeTestRule.onAllNodesWithText("Delete").onFirst().performClick()
 
@@ -206,8 +213,8 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("trained1.jsonl") }
-        composeTestRule.onNodeWithContentDescription("Delete").performClick()
-        composeTestRule.onNodeWithText("Delete").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Delete").performClick()
+        composeTestRule.onNodeWithTextScrolled("Delete").performClick()
 
         composeTestRule.onAllNodesWithText("Delete").onFirst().performClick()
 
@@ -222,11 +229,11 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithContentDescription("Add data").performClick()
-        composeTestRule.onNodeWithText("Queue existing path").performClick()
-        composeTestRule.onNodeWithText("Path (must be readable by registry_server)").performTextInput("/data/new.jsonl")
-        composeTestRule.onNodeWithText("Queue").performClick()
-        composeTestRule.onNodeWithText("Queue existing path?").assertExists()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Add data").performClick()
+        composeTestRule.onNodeWithTextScrolled("Queue existing path").performClick()
+        composeTestRule.onNodeWithTextScrolled("Path (must be readable by registry_server)").performTextInput("/data/new.jsonl")
+        composeTestRule.onNodeWithTextScrolled("Queue").performClick()
+        composeTestRule.onNodeWithTextScrolled("Queue existing path?").assertExists()
 
         composeTestRule.onAllNodesWithText("Queue").onFirst().performClick()
 
@@ -250,11 +257,12 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
-        composeTestRule.onNodeWithText("Migrate").performClick()
-        composeTestRule.onNodeWithText("Chatbot").performClick()
-        composeTestRule.onNodeWithText("Migrate to 'chatbot'?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Migrate").performClick()
+        // "Chatbot" is also the pool overview's row and a kind filter chip: pick the dialog's.
+        composeTestRule.onNode(hasText("Chatbot") and hasAnyAncestor(isDialog())).performClick()
+        composeTestRule.onNodeWithTextScrolled("Migrate to 'chatbot'?").assertExists()
 
-        composeTestRule.onNodeWithText("Confirm migrate").performClick()
+        composeTestRule.onNodeWithTextScrolled("Confirm migrate").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.deleteCalls.isNotEmpty() }
         val (addGroup, addBody) = fakeRegistryService.pendingAddCalls.single()
@@ -279,10 +287,11 @@ class GroupDetailScreenConfirmActionTest {
         setContentWithAuth(viewModelWith(fakeRegistryService))
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("big.jsonl") }
-        composeTestRule.onNodeWithText("Segment").performClick()
-        composeTestRule.onNodeWithText("N").performTextInput("2")
-        composeTestRule.onNodeWithText("Create").performClick()
-        composeTestRule.onNodeWithText("Create 2 segment(s)?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Segment").performClick()
+        // N starts at 2; replace it rather than append (typing "2" made it 22).
+        composeTestRule.onNodeWithTextScrolled("N").performTextReplacement("2")
+        composeTestRule.onNodeWithTextScrolled("Create").performClick()
+        composeTestRule.onNodeWithTextScrolled("Create 2 segment(s)?").assertExists()
 
         composeTestRule.onAllNodesWithText("Create").onFirst().performClick()
 

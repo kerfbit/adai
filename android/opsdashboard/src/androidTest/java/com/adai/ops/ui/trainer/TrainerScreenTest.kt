@@ -8,11 +8,10 @@ package com.adai.ops.ui.trainer
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -24,6 +23,9 @@ import com.adai.ops.network.dto.TrainerStatusDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeSettingsRepository
 import com.adai.ops.testutil.FakeTrainerApiService
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import java.io.IOException
 import org.junit.Rule
 import org.junit.Test
@@ -49,8 +51,8 @@ import retrofit2.Response
  * so the formatted string isn't deterministic across environments; only that the row/entry
  * itself renders is checked.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class TrainerScreenTest {
 
@@ -60,8 +62,10 @@ class TrainerScreenTest {
     private fun viewModel(service: FakeTrainerApiService = FakeTrainerApiService()) =
         TrainerViewModel(TrainerRepository(FakeApiClientProvider(service), FakeSettingsRepository()))
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     @Test
     fun statusNotLoaded_showsErrorAndExplanatoryMessage() {
@@ -72,12 +76,13 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("connection refused") }
-        composeTestRule.onNodeWithText(
+        composeTestRule.onNodeWithTextScrolled(
             "The trainer admin API is opt-in (TRAINER_ADMIN_ENABLED=false by default) and " +
                 "only runs under `incremental_trainer serve`. Confirm it's enabled and " +
                 "reachable at the host/port configured in Settings.",
         ).assertExists()
-        composeTestRule.onNodeWithText("Checkpoint", substring = true).assertIsNotEnabled()
+        // Exact label: "Checkpoint" as a substring also matches the "Checkpoints written" status row.
+        composeTestRule.onNodeWithTextScrolled("Checkpoint now", substring = true).assertIsNotEnabled()
     }
 
     @Test
@@ -109,16 +114,16 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("training") }
-        composeTestRule.onNodeWithText("chatbot-main").assertExists()
-        composeTestRule.onNodeWithText("run-1").assertExists()
-        composeTestRule.onNodeWithText("session-1").assertExists()
-        composeTestRule.onNodeWithText("3 / 10").assertExists()
-        composeTestRule.onNodeWithText("5000").assertExists()
-        composeTestRule.onNodeWithText("0.25").assertExists()
-        composeTestRule.onNodeWithText("0.2").assertExists()
-        composeTestRule.onNodeWithText("/data/ckpt-4.bin").assertExists()
-        composeTestRule.onNodeWithText("Last checkpoint time").assertExists()
-        composeTestRule.onNodeWithText("paused").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("chatbot-main").assertExists()
+        composeTestRule.onNodeWithTextScrolled("run-1").assertExists()
+        composeTestRule.onNodeWithTextScrolled("session-1").assertExists()
+        composeTestRule.onNodeWithTextScrolled("3 / 10").assertExists()
+        composeTestRule.onNodeWithTextScrolled("5000").assertExists()
+        composeTestRule.onNodeWithTextScrolled("0.25").assertExists()
+        composeTestRule.onNodeWithTextScrolled("0.2").assertExists()
+        composeTestRule.onNodeWithTextScrolled("/data/ckpt-4.bin").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Last checkpoint time").assertExists()
+        composeTestRule.onNodeWithTextScrolled("paused").assertDoesNotExist()
     }
 
     @Test
@@ -130,8 +135,8 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("paused") }
-        composeTestRule.onNodeWithText("Pause", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Resume", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Pause", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Resume", substring = true).assertIsEnabled()
     }
 
     @Test
@@ -143,9 +148,10 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("idle") }
-        composeTestRule.onNodeWithText("Checkpoint", substring = true).assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Pause", substring = true).assertIsEnabled()
-        composeTestRule.onNodeWithText("Resume", substring = true).assertIsNotEnabled()
+        // Exact label: "Checkpoint" as a substring also matches the "Checkpoints written" status row.
+        composeTestRule.onNodeWithTextScrolled("Checkpoint now", substring = true).assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Pause", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Resume", substring = true).assertIsNotEnabled()
     }
 
     @Test
@@ -180,12 +186,12 @@ class TrainerScreenTest {
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("auto_save_enabled") }
         composeTestRule.onNode(isToggleable()).assertExists()
-        composeTestRule.onNodeWithText("auto_save_every_samples").assertExists()
-        composeTestRule.onNodeWithText("1000").assertExists()
-        composeTestRule.onNodeWithText("auto_save_every_minutes").assertExists()
-        composeTestRule.onNodeWithText("15").assertExists()
-        composeTestRule.onNodeWithText("max_sessions_to_keep").assertExists()
-        composeTestRule.onNodeWithText("5").assertExists()
+        composeTestRule.onNodeWithTextScrolled("auto_save_every_samples").assertExists()
+        composeTestRule.onNodeWithTextScrolled("1000").assertExists()
+        composeTestRule.onNodeWithTextScrolled("auto_save_every_minutes").assertExists()
+        composeTestRule.onNodeWithTextScrolled("15").assertExists()
+        composeTestRule.onNodeWithTextScrolled("max_sessions_to_keep").assertExists()
+        composeTestRule.onNodeWithTextScrolled("5").assertExists()
     }
 
     @Test
@@ -199,23 +205,23 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("auto_save_every_samples") }
-        composeTestRule.onNodeWithContentDescription("Edit auto_save_every_samples").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Edit auto_save_every_samples").performClick()
 
-        composeTestRule.onNodeWithText("Edit auto_save_every_samples").assertExists()
-        composeTestRule.onNodeWithText("Next").assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Edit auto_save_every_samples").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Next").assertIsEnabled()
 
         composeTestRule.onNode(hasSetTextAction()).performTextClearance()
         composeTestRule.onNode(hasSetTextAction()).performTextInput("not-a-number")
-        composeTestRule.onNodeWithText("Next").assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Next").assertIsNotEnabled()
 
         composeTestRule.onNode(hasSetTextAction()).performTextClearance()
         composeTestRule.onNode(hasSetTextAction()).performTextInput("2000")
-        composeTestRule.onNodeWithText("Next").assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Next").assertIsEnabled()
 
         // Deliberately stop here -- clicking "Next" would compose ConfirmActionDialog, see the
         // class doc comment above.
-        composeTestRule.onNodeWithText("Cancel").performClick()
-        composeTestRule.onNodeWithText("Edit auto_save_every_samples").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Cancel").performClick()
+        composeTestRule.onNodeWithTextScrolled("Edit auto_save_every_samples").assertDoesNotExist()
     }
 
     @Test
@@ -225,7 +231,7 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("Activity Log") }
-        composeTestRule.onNodeWithText("No activity yet.").assertExists()
+        composeTestRule.onNodeWithTextScrolled("No activity yet.").assertExists()
     }
 
     @Test
@@ -249,9 +255,9 @@ class TrainerScreenTest {
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = {}) }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("checkpoint write failed") }
-        composeTestRule.onNodeWithText("training started").assertExists()
-        composeTestRule.onNodeWithText("gradient spike detected").assertExists()
-        composeTestRule.onNodeWithText("No activity yet.").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("training started").assertExists()
+        composeTestRule.onNodeWithTextScrolled("gradient spike detected").assertExists()
+        composeTestRule.onNodeWithTextScrolled("No activity yet.").assertDoesNotExist()
     }
 
     @Test
@@ -261,7 +267,7 @@ class TrainerScreenTest {
 
         composeTestRule.setContent { TrainerScreen(viewModel = viewModel, onOpenSettings = { settingsOpened = true }) }
 
-        composeTestRule.onNodeWithContentDescription("Settings").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Settings").performClick()
 
         assert(settingsOpened) { "expected onOpenSettings() to have been invoked" }
     }

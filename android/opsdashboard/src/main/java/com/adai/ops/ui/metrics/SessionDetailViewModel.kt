@@ -1,14 +1,13 @@
 package com.adai.ops.ui.metrics
 
 // @adai-status: beta        (TD-048 resolved — was mistagged "capped by TD-047"; see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adai.ops.data.metrics.MetricsRepository
-import com.adai.ops.data.wearsync.WatchSyncRepository
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.dto.CurrentMetricsDto
 import com.adai.ops.network.dto.EpochHistoryDto
@@ -60,7 +59,6 @@ class SessionDetailViewModel(
     private val sessionKey: String,
     private val metricsRepository: MetricsRepository,
     private val settingsRepository: OpsSettingsRepository,
-    private val watchSyncRepository: WatchSyncRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SessionDetailUiState())
@@ -122,10 +120,6 @@ class SessionDetailViewModel(
                     sampleHistory = samples ?: it.sampleHistory,
                 )
             }
-
-            // Fire-and-forget: the watch relay does its own (slower) full-session fetch and
-            // Data Layer push, which shouldn't hold up this screen's own polling cadence.
-            watchSyncRepository?.let { repo -> viewModelScope.launch { repo.sync() } }
         }
 
         _uiState.update { it.copy(isLoading = false, status = status, current = current, error = null) }

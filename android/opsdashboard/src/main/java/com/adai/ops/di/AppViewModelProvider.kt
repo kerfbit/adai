@@ -1,8 +1,8 @@
 package com.adai.ops.di
 
 // @adai-status: beta        (TD-048 — AppViewModelProviderTest.kt added; real-device run still unverified, see below)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.lifecycle.viewmodel.initializer
@@ -25,7 +25,7 @@ import com.adai.ops.ui.trainer.TrainerViewModel
 object AppViewModelProvider {
 
     fun factory(app: OpsApp) = viewModelFactory {
-        initializer { SettingsViewModel(app.container.settingsDataStore, app.container.watchFacePushRepository) }
+        initializer { SettingsViewModel(app.container.settingsDataStore) }
         initializer { SessionListViewModel(app.container.metricsRepository) }
         initializer { ModelListViewModel(app.container.modelRepository) }
         initializer { GroupListViewModel(app.container.registryRepository, app.container.settingsDataStore) }
@@ -37,7 +37,6 @@ object AppViewModelProvider {
                 sessionKey,
                 app.container.metricsRepository,
                 app.container.settingsDataStore,
-                app.container.watchSyncRepository,
             )
         }
     }

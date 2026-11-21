@@ -94,15 +94,6 @@ jobs:
     - name: Set up Android SDK
       uses: android-actions/setup-android@v4
 
-    - name: Generate a debug keystore
-      # Same reasoning as android-ci.yml: wearface's resignWffApk task (pulled in transitively
-      # when building :opsdashboard) needs ~/.android/debug.keystore to already exist.
-      run: |
-        mkdir -p ~/.android
-        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
-          -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" \
-          -keyalg RSA -keysize 2048 -validity 10000
-
     - name: Grant execute permission for gradlew
       run: chmod +x ./gradlew
 

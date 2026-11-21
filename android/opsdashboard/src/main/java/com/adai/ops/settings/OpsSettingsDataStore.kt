@@ -1,8 +1,8 @@
 package com.adai.ops.settings
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-21
 
 
 import android.content.Context
@@ -59,10 +59,6 @@ data class OpsSettings(
     // toggle (only the credentials differ, not whether relay mode is on at all).
     val trainerAccessClientId: String = "",
     val trainerAccessClientSecret: String = "",
-    // Watch face relay (see com.adai.ops.data.wearsync.WatchSyncRepository) — null override
-    // means "Auto" (ActiveSessionSelector picks the live/most-recent session).
-    val watchSyncEnabled: Boolean = true,
-    val watchSyncSessionKeyOverride: String? = null,
 ) {
     val effectiveMetricsHost: String get() = if (useSharedHost) sharedHost else metricsHost
     val effectiveMnsHost: String get() = if (useSharedHost) sharedHost else mnsHost
@@ -108,8 +104,6 @@ class OpsSettingsDataStore(private val context: Context) : OpsSettingsRepository
         val ACCESS_CLIENT_SECRET = stringPreferencesKey("access_client_secret")
         val TRAINER_ACCESS_CLIENT_ID = stringPreferencesKey("trainer_access_client_id")
         val TRAINER_ACCESS_CLIENT_SECRET = stringPreferencesKey("trainer_access_client_secret")
-        val WATCH_SYNC_ENABLED = booleanPreferencesKey("watch_sync_enabled")
-        val WATCH_SYNC_SESSION_KEY_OVERRIDE = stringPreferencesKey("watch_sync_session_key_override")
     }
 
     override val settings: Flow<OpsSettings> = context.dataStore.data.map { prefs ->
@@ -131,8 +125,6 @@ class OpsSettingsDataStore(private val context: Context) : OpsSettingsRepository
             accessClientSecret = prefs[Keys.ACCESS_CLIENT_SECRET] ?: "",
             trainerAccessClientId = prefs[Keys.TRAINER_ACCESS_CLIENT_ID] ?: "",
             trainerAccessClientSecret = prefs[Keys.TRAINER_ACCESS_CLIENT_SECRET] ?: "",
-            watchSyncEnabled = prefs[Keys.WATCH_SYNC_ENABLED] ?: true,
-            watchSyncSessionKeyOverride = prefs[Keys.WATCH_SYNC_SESSION_KEY_OVERRIDE]?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -155,8 +147,6 @@ class OpsSettingsDataStore(private val context: Context) : OpsSettingsRepository
             prefs[Keys.ACCESS_CLIENT_SECRET] = settings.accessClientSecret
             prefs[Keys.TRAINER_ACCESS_CLIENT_ID] = settings.trainerAccessClientId
             prefs[Keys.TRAINER_ACCESS_CLIENT_SECRET] = settings.trainerAccessClientSecret
-            prefs[Keys.WATCH_SYNC_ENABLED] = settings.watchSyncEnabled
-            prefs[Keys.WATCH_SYNC_SESSION_KEY_OVERRIDE] = settings.watchSyncSessionKeyOverride ?: ""
         }
     }
 

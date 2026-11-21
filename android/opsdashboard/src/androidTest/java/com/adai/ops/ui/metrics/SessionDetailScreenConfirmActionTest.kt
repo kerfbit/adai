@@ -6,9 +6,9 @@ package com.adai.ops.ui.metrics
 
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.adai.ops.data.metrics.MetricsRepository
 import com.adai.ops.network.dto.SessionStatusDto
@@ -17,6 +17,9 @@ import com.adai.ops.testutil.FakeAdminAuthGate
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMetricsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import com.adai.ops.ui.common.AdminAuthResult
 import com.adai.ops.ui.common.LocalAdminAuthGate
 import org.junit.Rule
@@ -29,16 +32,18 @@ import org.junit.Test
  * and for the representative coverage of AdminAuthResult's Cancelled/Failed branches, which are
  * screen-agnostic and not re-tested here).
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class SessionDetailScreenConfirmActionTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<ConfirmDialogTestActivity>()
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     @Test
     fun confirmingEndSession_invokesEndSessionAndClosesTheDialog() {
@@ -57,15 +62,15 @@ class SessionDetailScreenConfirmActionTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("End session") }
-        composeTestRule.onNodeWithText("End session", substring = true).performClick()
-        composeTestRule.onNodeWithText("End this session?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("End session", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("End this session?").assertExists()
 
-        composeTestRule.onNodeWithText("End session").performClick()
+        composeTestRule.onNodeWithTextScrolled("End session").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.endSessionCalls.isNotEmpty() }
         assert(fakeService.endSessionCalls == listOf("session-1")) {
             "expected endSession('session-1'), got ${fakeService.endSessionCalls}"
         }
-        composeTestRule.onNodeWithText("End this session?").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("End this session?").assertDoesNotExist()
     }
 }

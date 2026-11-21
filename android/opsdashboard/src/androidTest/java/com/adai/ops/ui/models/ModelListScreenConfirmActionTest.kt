@@ -33,8 +33,8 @@ import retrofit2.Response
  * does for the admin actions there (see that file's own doc comment for why this needs to be a
  * separate file from ModelListScreenTest.kt's plain createComposeRule()).
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests — compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class ModelListScreenConfirmActionTest {
 

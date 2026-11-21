@@ -27,9 +27,8 @@ import org.junit.Test
  * (`visibleSessions`/`hiddenIdleCount` in SessionListScreen.kt) lives entirely in the composable,
  * not the ViewModel (only the `showIdle` flag flip is ViewModel-level, already covered by
  * SessionListViewModelTest) -- genuinely new coverage, not a duplicate of an existing test.
- * NOTE: same sandbox limitation as GroupListScreenTest/ModelListScreenTest -- compile-verified
- * and hand-checked against the real production code paths, not run on a device here (see
- * GroupListScreenTest's doc comment for the full explanation).
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class SessionListScreenTest {
 

@@ -1,11 +1,11 @@
 name: Android CI
 
-# TD-047: android/app, android/opsdashboard, and android/wearsync each have real, passing unit
-# tests, but nothing ever built or ran them in CI before this — the entire Android surface landed
-# in one commit with no automated gate at all. `./gradlew testDebugUnitTest` (no module scoping)
-# naturally covers app + opsdashboard + wearsync and safely no-ops on wearface/wearcomplications
-# (which have no tests yet — see TD-048), so a single job is enough; splitting into a matrix per
-# module would just re-run the same Gradle daemon/config four times for no benefit.
+# TD-047: android/app and android/opsdashboard each have real, passing unit tests, but nothing
+# ever built or ran them in CI before this — the entire Android surface landed in one commit with
+# no automated gate at all. `./gradlew testDebugUnitTest` (no module scoping) covers both apps,
+# so a single job is enough; splitting into a matrix per module would just re-run the same Gradle
+# daemon/config twice for no benefit. (The Wear OS modules — wearsync, wearface,
+# wearcomplications — were removed November 21, 2026.)
 #
 # Scoped to android/** changes only (unlike ci.yml/coverage.yml/release.yml, which don't path-
 # filter): this is an independent Gradle sub-project inside the C++ repo, and a 5-10 minute
@@ -48,19 +48,6 @@ jobs:
 
     - name: Set up Android SDK
       uses: android-actions/setup-android@v4
-
-    - name: Generate a debug keystore
-      # wearface/build.gradle.kts's resignWffApk task calls apksigner directly against
-      # ~/.android/debug.keystore (the same well-known debug credentials AGP itself uses,
-      # pass:android / androiddebugkey) rather than going through AGP's own signing-config
-      # resolution — the one path that normally auto-creates this file on first use. On a
-      # local dev machine it already exists from prior Android Studio/Gradle use, but a fresh
-      # runner has nothing at that path, so resignWffApk fails with FileNotFoundException.
-      run: |
-        mkdir -p ~/.android
-        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
-          -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" \
-          -keyalg RSA -keysize 2048 -validity 10000
 
     - name: Grant execute permission for gradlew
       run: chmod +x ./gradlew

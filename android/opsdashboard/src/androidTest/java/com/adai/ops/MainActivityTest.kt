@@ -26,10 +26,8 @@ import org.junit.Test
  * would open a real `BiometricPrompt` this sandbox has no way to drive) -- only navigation
  * between top-level destinations is checked.
  *
- * NOTE: same sandbox limitation as the other opsdashboard tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here (this module's
- * debug APK can't be installed on this sandbox's emulator at all, see TECHNICAL_DEBT.md's
- * `wear-sdk` note).
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class MainActivityTest {
 
@@ -45,7 +43,9 @@ class MainActivityTest {
     fun navigatingToTheModelsTab_leavesTheSessionsScreen() {
         composeTestRule.onNodeWithText("Training Sessions").assertExists()
 
-        composeTestRule.onNodeWithContentDescription("Models").performClick()
+        // The nav item merges its icon and label, so the icon's description is only in the
+        // unmerged tree.
+        composeTestRule.onNodeWithContentDescription("Models", useUnmergedTree = true).performClick()
 
         composeTestRule.onNodeWithText("Training Sessions").assertDoesNotExist()
         // "Models" now appears at least twice: the nav-suite item's own label, plus the screen's

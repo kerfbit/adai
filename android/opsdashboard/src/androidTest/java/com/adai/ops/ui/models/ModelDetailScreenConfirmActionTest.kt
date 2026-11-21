@@ -7,9 +7,9 @@ package com.adai.ops.ui.models
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.network.dto.ArchDto
@@ -23,6 +23,9 @@ import com.adai.ops.testutil.FakeAdminAuthGate
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import com.adai.ops.ui.common.AdminAuthResult
 import com.adai.ops.ui.common.LocalAdminAuthGate
 import okhttp3.MediaType.Companion.toMediaType
@@ -43,8 +46,8 @@ import retrofit2.Response
  * AdminScreen/TrainerScreen) only re-verify the Success happy path rather than re-testing every
  * branch redundantly.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class ModelDetailScreenConfirmActionTest {
 
@@ -72,8 +75,10 @@ class ModelDetailScreenConfirmActionTest {
         }
     }
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     @Test
     fun confirmingWithSuccessfulAuth_invokesTheAdminActionAndClosesTheDialog() {
@@ -85,17 +90,17 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).performClick()
-        composeTestRule.onNodeWithText("Clear stale training lock?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock?").assertExists()
 
-        composeTestRule.onNodeWithText("Clear lock").performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear lock").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.setStateCalls.isNotEmpty() }
         val (name, body) = fakeService.setStateCalls.single()
         assert(name == "chatbot-main" && body.state == "candidate" && body.run_id == "run-42") {
             "unexpected setState call: name=$name body=$body"
         }
-        composeTestRule.onNodeWithText("Clear stale training lock?").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock?").assertDoesNotExist()
         assert(authGate.authenticateCalls == listOf("Clear stale training lock?")) {
             "expected authenticate() to have been called with the dialog's own title as the reason"
         }
@@ -108,10 +113,10 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).performClick()
-        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Cancel").performClick()
 
-        composeTestRule.onNodeWithText("Clear stale training lock?").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock?").assertDoesNotExist()
         assert(authGate.authenticateCalls.isEmpty()) { "cancelling before confirming must not authenticate at all" }
         assert(fakeService.setStateCalls.isEmpty())
     }
@@ -123,13 +128,13 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).performClick()
-        composeTestRule.onNodeWithText("Clear lock").performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear lock").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { authGate.authenticateCalls.isNotEmpty() }
         // Cancelled is "not an error" (see AdminAuthResult's doc comment) -- the dialog is
         // neither dismissed nor does it show an error, just sits there for another attempt.
-        composeTestRule.onNodeWithText("Clear stale training lock?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock?").assertExists()
         assert(fakeService.setStateCalls.isEmpty())
     }
 
@@ -140,11 +145,11 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Clear stale training lock", substring = true).performClick()
-        composeTestRule.onNodeWithText("Clear lock").performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Clear lock").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("sensor error") }
-        composeTestRule.onNodeWithText("Clear stale training lock?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Clear stale training lock?").assertExists()
         assert(fakeService.setStateCalls.isEmpty())
     }
 
@@ -168,25 +173,25 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Link world model", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Link world model", substring = true).performClick()
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("(unassigned)") }
-        composeTestRule.onNodeWithText("(unassigned)").performClick()
-        composeTestRule.onNodeWithText("my-wm").performClick()
-        composeTestRule.onNodeWithText("Continue").performClick()
+        composeTestRule.onNodeWithTextScrolled("(unassigned)").performClick()
+        composeTestRule.onNodeWithTextScrolled("my-wm").performClick()
+        composeTestRule.onNodeWithTextScrolled("Continue").performClick()
 
-        composeTestRule.onNodeWithText("Link world model?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Link world model?").assertExists()
         // TD-199/TD-200 review fix: the preview must show the real chatbot name, not a literal
         // unsubstituted "{name}" placeholder.
-        composeTestRule.onNodeWithText("POST /models/chatbot-main/link-world-model", substring = true).assertExists()
+        composeTestRule.onNodeWithTextScrolled("POST /models/chatbot-main/link-world-model", substring = true).assertExists()
         composeTestRule.onAllNodesWithText("{name}", substring = true).assertCountEquals(0)
-        composeTestRule.onNodeWithText("Link").performClick()
+        composeTestRule.onNodeWithTextScrolled("Link").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.linkWorldModelCalls.isNotEmpty() }
         val (name, body) = fakeService.linkWorldModelCalls.single()
         assert(name == "chatbot-main" && body.world_model_name == "my-wm") {
             "unexpected linkWorldModel call: name=$name body=$body"
         }
-        composeTestRule.onNodeWithText("Link world model?").assertDoesNotExist()
+        composeTestRule.onNodeWithTextScrolled("Link world model?").assertDoesNotExist()
     }
 
     @Test
@@ -202,12 +207,12 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Link world model", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Link world model", substring = true).performClick()
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("(unassigned)") }
-        composeTestRule.onNodeWithText("(unassigned)").performClick()
-        composeTestRule.onNodeWithText("my-wm").performClick()
-        composeTestRule.onNodeWithText("Continue").performClick()
-        composeTestRule.onNodeWithText("Link").performClick()
+        composeTestRule.onNodeWithTextScrolled("(unassigned)").performClick()
+        composeTestRule.onNodeWithTextScrolled("my-wm").performClick()
+        composeTestRule.onNodeWithTextScrolled("Continue").performClick()
+        composeTestRule.onNodeWithTextScrolled("Link").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("d_model mismatch") }
     }
@@ -222,9 +227,9 @@ class ModelDetailScreenConfirmActionTest {
         setContent(fakeService, authGate)
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
-        composeTestRule.onNodeWithText("Detach world model", substring = true).performClick()
-        composeTestRule.onNodeWithText("Detach world model?").assertExists()
-        composeTestRule.onNodeWithText("Detach").performClick()
+        composeTestRule.onNodeWithTextScrolled("Detach world model", substring = true).performClick()
+        composeTestRule.onNodeWithTextScrolled("Detach world model?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Detach").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.linkWorldModelCalls.isNotEmpty() }
         val (name, body) = fakeService.linkWorldModelCalls.single()

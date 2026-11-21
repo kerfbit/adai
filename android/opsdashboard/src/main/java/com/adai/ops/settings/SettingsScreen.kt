@@ -1,19 +1,15 @@
 package com.adai.ops.settings
 
-// @adai-status: beta        (TD-048 — SettingsScreenTest.kt added; watch-face-push flow now covered via a fake, Activate-click and real-device run still unverified, see below)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (TD-048 — SettingsScreenTest.kt runs on an emulator since 2026-11-21)
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-21
 
 
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -42,16 +37,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 
 private val POLL_INTERVAL_OPTIONS = listOf(1000L, 2000L, 5000L, 10000L)
-private const val SET_ACTIVE_PERMISSION = "com.google.wear.permission.SET_PUSHED_WATCH_FACE_AS_ACTIVE"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -258,77 +250,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         },
                     )
                 }
-            }
-
-            HorizontalDivider()
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Switch(
-                    checked = state.watchSyncEnabled,
-                    onCheckedChange = viewModel::onWatchSyncEnabledChanged,
-                    modifier = Modifier.testTag("switch_watch_sync_enabled"),
-                )
-                Text("Sync training metrics to Galaxy Watch face", style = MaterialTheme.typography.bodyLarge)
-            }
-            if (state.watchSyncEnabled) {
-                OutlinedTextField(
-                    value = state.watchSyncSessionKeyOverride,
-                    onValueChange = viewModel::onWatchSyncSessionKeyOverrideChanged,
-                    label = { Text("Session key override (blank = Auto)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Auto tracks whichever session is currently training, or the most " +
-                        "recently updated one if none are.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-
-            HorizontalDivider()
-
-            Text("Galaxy Watch face (Watch Face Format)", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "Pushes the adai training-metrics watch face directly to the paired watch " +
-                    "via Watch Face Push, bypassing Samsung's picker (which doesn't list " +
-                    "sideloaded watch faces).",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            val context = LocalContext.current
-            val activatePermissionLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission(),
-            ) { granted -> if (granted) viewModel.activateWatchFace() }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = viewModel::pushWatchFace, enabled = !state.watchFacePushInProgress) {
-                    if (state.watchFacePushInProgress) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("Install / update")
-                    }
-                }
-                if (state.pushedWatchFaceSlotId != null) {
-                    OutlinedButton(onClick = {
-                        val alreadyGranted = ContextCompat.checkSelfPermission(
-                            context,
-                            SET_ACTIVE_PERMISSION,
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (alreadyGranted) {
-                            viewModel.activateWatchFace()
-                        } else {
-                            activatePermissionLauncher.launch(SET_ACTIVE_PERMISSION)
-                        }
-                    }) {
-                        Text("Activate")
-                    }
-                }
-            }
-            state.watchFacePushMessage?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodyMedium)
             }
 
             Button(onClick = {

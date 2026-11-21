@@ -1,12 +1,10 @@
 package com.adai.ops.settings
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-21
 
 
-import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -14,10 +12,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
-import com.adai.ops.data.wearsync.WatchFacePushResult
 import com.adai.ops.testutil.FakeSettingsRepository
-import com.adai.ops.testutil.FakeWatchFacePushRepository
 import org.junit.Rule
 import org.junit.Test
 
@@ -25,19 +22,10 @@ import org.junit.Test
  * TD-048: SettingsScreen (opsdashboard module) had zero coverage -- unlike every other screen
  * covered so far, there wasn't even a pre-existing SettingsViewModelTest to reuse a Fixture shape
  * from, so this test builds its own directly against SettingsViewModel's real constructor shape
- * (FakeSettingsRepository + FakeWatchFacePushRepository).
+ * (FakeSettingsRepository).
  *
- * WatchFacePushRepository was split into an interface (see its own doc comment) specifically so
- * SettingsViewModel didn't need a real Wear system service (androidx.wear.watchfacepush) just to
- * be testable -- FakeWatchFacePushRepository (shared src/sharedTest fake) now lets the
- * "Install / update" (pushWatchFace()) flow itself be exercised here. Still deliberately out of
- * scope: actually clicking "Activate" -- unlike "Install / update", it first checks a runtime
- * permission (SET_PUSHED_WATCH_FACE_AS_ACTIVE) and, if not yet granted, launches the system
- * permission dialog via rememberLauncherForActivityResult, which needs a real Activity/device to
- * interact with meaningfully; only that its button appears after a successful push is checked.
- *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class SettingsScreenTest {
 
@@ -46,13 +34,10 @@ class SettingsScreenTest {
 
     private val sharedHostLabel = "Host (e.g. 192.168.1.16)"
 
-    private class Fixture(
-        initial: OpsSettings = OpsSettings(),
-        val watchFacePushRepository: FakeWatchFacePushRepository = FakeWatchFacePushRepository(),
-    ) {
+    private class Fixture(initial: OpsSettings = OpsSettings()) {
         val settingsRepo = FakeSettingsRepository(initial)
 
-        fun viewModel() = SettingsViewModel(settingsRepo, watchFacePushRepository)
+        fun viewModel() = SettingsViewModel(settingsRepo)
     }
 
     @Test
@@ -132,10 +117,11 @@ class SettingsScreenTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText(sharedHostLabel).fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithText("Group name").performTextInput("nightly-batch")
-        composeTestRule.onNodeWithText("Add").performClick()
+        // The group controls are near the bottom of a scrolling column, below the fold on a
+        // phone; a click on an off-screen node lands outside the window and does nothing.
+        composeTestRule.onNodeWithText("Group name").performScrollTo().performTextInput("nightly-batch")
+        composeTestRule.onNodeWithText("Add").performScrollTo().performClick()
 
-        composeTestRule.onNodeWithText("nightly-batch").assertExists()
         composeTestRule.onNodeWithContentDescription("Remove nightly-batch").assertExists()
     }
 
@@ -150,6 +136,9 @@ class SettingsScreenTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText("group-a").fetchSemanticsNodes().isNotEmpty()
         }
+        // The chip sits in a LazyRow inside the scrolling column; performScrollTo() on it scrolls
+        // only the LazyRow, so bring the column's bottom (Save, just below the chips) on screen.
+        composeTestRule.onNodeWithText("Save").performScrollTo()
         composeTestRule.onNodeWithContentDescription("Remove group-a").performClick()
 
         composeTestRule.onNodeWithText("group-a").assertDoesNotExist()
@@ -167,35 +156,15 @@ class SettingsScreenTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText(sharedHostLabel).fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithText("5s").performClick()
-        composeTestRule.onNodeWithText("Save").performClick()
+        composeTestRule.onNodeWithText("5s").performScrollTo().performClick()
+        // Save is at the bottom of a scrolling column, below the fold on a phone.
+        composeTestRule.onNodeWithText("Save").performScrollTo().performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { backInvoked }
         assert(fixture.settingsRepo.settings.value.basePollIntervalMs == 5000L) {
             "expected the selected 5s poll interval to have been persisted, got " +
                 "${fixture.settingsRepo.settings.value.basePollIntervalMs}ms"
         }
-    }
-
-    @Test
-    fun watchSyncToggle_hidesSessionKeyOverrideFieldWhenOff() {
-        val fixture = Fixture()
-
-        composeTestRule.setContent {
-            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText(sharedHostLabel).fetchSemanticsNodes().isNotEmpty()
-        }
-        // watchSyncEnabled defaults to true (see OpsSettings), so the override field starts shown.
-        composeTestRule.onNodeWithText("Session key override (blank = Auto)").assertExists()
-        composeTestRule.onNodeWithTag("switch_watch_sync_enabled").assertIsOn()
-
-        composeTestRule.onNodeWithTag("switch_watch_sync_enabled").performClick()
-
-        composeTestRule.onNodeWithTag("switch_watch_sync_enabled").assertIsOff()
-        composeTestRule.onNodeWithText("Session key override (blank = Auto)").assertDoesNotExist()
     }
 
     @Test
@@ -213,89 +182,5 @@ class SettingsScreenTest {
         assert(fixture.settingsRepo.settings.value.basePollIntervalMs == OpsSettings.DEFAULT_POLL_INTERVAL_MS) {
             "back without Save must not persist anything"
         }
-    }
-
-    @Test
-    fun watchFaceSection_rendersInstallButtonEnabledByDefault() {
-        val fixture = Fixture()
-
-        composeTestRule.setContent {
-            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("Galaxy Watch face (Watch Face Format)").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Install / update").assertIsEnabled()
-    }
-
-    @Test
-    fun clickingInstallUpdate_successShowsSlotIdMessageAndActivateButton() {
-        val fixture = Fixture(
-            watchFacePushRepository = FakeWatchFacePushRepository(
-                pushResult = { WatchFacePushResult.Success("slot-7") },
-            ),
-        )
-
-        composeTestRule.setContent {
-            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Install / update").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("slot-7", substring = true).fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Activate").assertExists()
-    }
-
-    @Test
-    fun clickingInstallUpdate_validationFailureShowsReasons() {
-        val fixture = Fixture(
-            watchFacePushRepository = FakeWatchFacePushRepository(
-                pushResult = { WatchFacePushResult.ValidationFailed(listOf("bad manifest")) },
-            ),
-        )
-
-        composeTestRule.setContent {
-            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Install / update").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("bad manifest", substring = true).fetchSemanticsNodes().isNotEmpty()
-        }
-        // A failed validation must not offer to activate a face that was never installed.
-        composeTestRule.onNodeWithText("Activate").assertDoesNotExist()
-    }
-
-    @Test
-    fun clickingInstallUpdate_failureShowsMessage() {
-        val fixture = Fixture(
-            watchFacePushRepository = FakeWatchFacePushRepository(
-                pushResult = { WatchFacePushResult.Failure("no watch paired") },
-            ),
-        )
-
-        composeTestRule.setContent {
-            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Install / update").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithText("no watch paired").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithText("Activate").assertDoesNotExist()
     }
 }

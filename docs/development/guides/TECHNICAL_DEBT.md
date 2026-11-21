@@ -951,7 +951,8 @@ Action Items:
 Files to Modify:
 
 - 41 files under `android/app/src/main` and `android/opsdashboard/src/main` /
-  `android/wearsync/src/main` tagged `beta` — see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
+  `android/wearsync/src/main` (removed November 21, 2026, with the other wear modules and the CI
+  workflows' debug-keystore step, which only `wearface` needed) tagged `beta` — see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
   for the exact list.
 - `.github/workflows/android-ci.yml` — done.
 - `docs/development/guides/android-release.md`, `.github/workflows/android-release.yml` — done.
@@ -962,7 +963,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; admin-dialog confirm-click flows and DI containers/entry points now covered too; `wearcomplications` services and full real-device verification remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; admin-dialog confirm-click flows and DI containers/entry points now covered too; the wear modules were removed November 21, 2026, and `opsdashboard`'s 109 instrumented tests now run and pass on an emulator; `BiometricAdminAuthGate` remains) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -1361,6 +1362,33 @@ run correctly by the time `ApplicationProvider.getApplicationContext<...>()` ret
 untested area — background services, not UI/DI) and `BiometricAdminAuthGate.kt`'s own
 `BiometricPrompt` integration test, both already flagged separately below.
 
+**Update (November 21, 2026): wear modules removed, `opsdashboard`'s instrumented tests run at last.** At the owner's request
+`wearsync`, `wearface`, `wearcomplications` and `opsdashboard`'s `data/wearsync/` package were deleted, with the watch-sync and
+watch-face-push settings, the bundled `wearface.apk` and the wear dependencies. Without them the merged manifest no longer requires
+`wear-sdk`, so `opsdashboard`'s debug APK installs on the `Medium_Phone_API_35` AVD, and `connectedDebugAndroidTest` ran on a device
+for the first time: 109 tests, 67 pass, 42 fail. The failures are in the tests, not the change (none touch removed code): 19
+`*ConfirmActionTest`s can't start `ConfirmDialogTestActivity` ("resolved to different process com.adai.ops.test"); others click or
+look for nodes below the screen's fold without scrolling (`SettingsScreenTest`'s Save), inside merged nodes (a group chip's Remove
+button, the bottom bar's "Models" tab) or assert enabled states that differ from the screen (`ModelDetailScreenTest`,
+`TrainerScreenTest`). `app`'s 23 instrumented tests and both modules' unit tests (`app` 27, `opsdashboard` 127) pass. The
+`wearcomplications` services this item listed no longer exist.
+
+**Update (November 21, 2026, later): all 109 pass.** Fixed the same day; one real bug among them:
+- **App bug:** in `GroupDetailScreen`'s pending-queue row the text column took the whole row, so the Assign and Delete icon buttons
+  were measured at zero width and couldn't be tapped on a phone. The text column now has `weight(1f)` (the trained-files row too).
+- **Test host:** `ConfirmDialogTestActivity` moved from the androidTest manifest to the app's `debug` source set (fixed the 19
+  "resolved to different process" failures; the same way `ui-test-manifest` supplies `ComponentActivity`).
+- **Scrolling:** a new androidTest helper (`testutil/ComposeScrolling.kt`) scrolls a screen's LazyColumn to a node before finding it,
+  since items below the fold aren't composed; `SettingsScreenTest` scrolls its column before typing and clicking (a click on an
+  off-screen node lands outside the window).
+- **Stale expectations:** the group list now sums the legacy pool and every kind (TD-205), so its fakes return entries for the legacy
+  path only; BLEU prints on the 0-100 scale with two decimals (TD-380); the segments dialog pre-fills N; "Chatbot" and "Checkpoint" match
+  several nodes now (dialog-scoped and exact matchers; `AdminActionButton` prefixes its label with a space); the bottom bar's tab is
+  found in the unmerged tree.
+
+Run with `./gradlew :opsdashboard:connectedDebugAndroidTest` on the `Medium_Phone_API_35` AVD: 109 of 109 pass, with `app`'s 23
+instrumented tests and both modules' unit tests (`app` 27, `opsdashboard` 127).
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
@@ -1388,7 +1416,8 @@ Action Items:
   `Application` entry points — done, see the "DI containers and entry points" update above
   (`app` module verified live on a real device; `opsdashboard` compile-verified only, per the
   standing `wear-sdk` limitation). The `wearcomplications` services remain entirely untested —
-  not attempted in this pass, a distinct area (background services, not UI/DI).
+  not attempted in this pass, a distinct area (background services, not UI/DI). **November 21, 2026:** removed with the other
+  wear modules; `opsdashboard` now runs on an emulator (see the update above).
 
 Files to Modify:
 
@@ -4865,9 +4894,8 @@ Description:
 No Android file is `stable` (0 of 118 on November 12, 2026). TD-047 (no release history) and TD-048 (UI never run on a device) cap
 them, but neither says what `stable` would take. This item sets that bar for the two phone apps and lists what stands between each
 file and it. **Scope:** `android/app` (34 files: 29 `beta`, 5 `experimental`) and `android/opsdashboard` (74: 49 `beta`, 25
-`experimental`), 108 files in all. **Out of scope, set aside as optional future work (owner decision, November 12, 2026):** the wear
-modules (`wearcomplications`, `wearsync`, `wearface`) and `opsdashboard`'s `data/wearsync/` package (5 files), which only syncs to the
-watch; see the last section.
+`experimental`), 108 files in all. The wear modules (`wearcomplications`, `wearsync`, `wearface`) and `opsdashboard`'s
+`data/wearsync/` package were set aside on November 12, 2026, and removed on November 21, 2026 (owner decisions).
 
 **The bar.** `file-status-standard.md`'s `stable` means tested, documented, no known correctness gap that would surprise a caller, and
 in use. For these apps that means:
@@ -4876,8 +4904,8 @@ in use. For these apps that means:
    billing stops it today (it runs on the kerfbit mirror).
 2. **Tests run, not just compiled** (TD-048): every `opsdashboard` instrumented test (12 screens, the confirm-action dialogs, the DI
    container and `MainActivity`) has only been compiled. It needs at least one full `connectedDebugAndroidTest` run on a device or
-   emulator, recorded in TD-048. The `app` module's instrumented tests have run on the `Medium_Phone_API_35` AVD. `opsdashboard` can't
-   be installed on an ordinary phone or emulator yet (setup step 1 below).
+   emulator, recorded in TD-048. The `app` module's instrumented tests have run on the `Medium_Phone_API_35` AVD. `opsdashboard`'s
+   first ran there on November 21, 2026 (setup step 1 below), and after the same day's fixes all 109 pass (TD-048's updates).
 3. **Each file covered** by a test that exercises it (named, or drawn inside a tested screen), with no open item against it.
 4. **Documented**: the Android files have no code-traced reference documents (`docs/development/reference/source/` covers C++ and
    scripts). Decide what "documented" means for them, for example one reference document per screen or package rather than per file,
@@ -4896,11 +4924,11 @@ in use. For these apps that means:
 
 **Test setup.** Each app already has what most of the above needs: JUnit 4 and `kotlinx-coroutines-test` for unit tests; fakes in
 `src/sharedTest` shared by unit and instrumented tests (`opsdashboard`: fake metrics, MNS, registry and trainer API services, API
-client provider, settings repository, watch-face push repository, `FakeAdminAuthGate`; `app`: fake DAOs, API client provider, settings
+client provider, settings repository, `FakeAdminAuthGate`; `app`: fake DAOs, API client provider, settings
 repository), used instead of a mocking library; and `androidx.test.ext.junit`, `compose-ui-test-junit4` and `AndroidJUnitRunner` for
 instrumented and Compose tests, with `ConfirmDialogTestActivity` as the host for admin confirm dialogs. The network helpers and
-converters are plain JVM code (a fake OkHttp `Interceptor.Chain` covers the interceptors). Three things are missing:
-1. **`opsdashboard` requires the `wear-sdk` library to install.** Its merged manifest declares
+converters are plain JVM code (a fake OkHttp `Interceptor.Chain` covers the interceptors). Three things were missing:
+1. **Done (November 21, 2026), by removing the wear modules.** **`opsdashboard` requires the `wear-sdk` library to install.** Its merged manifest declares
    `<uses-library android:name="wear-sdk" android:required="true"/>`, brought in by a wear dependency (the app's own manifest doesn't
    name it), so the APK won't install on a phone or emulator without that library. That is why its instrumented tests have never run.
    Override it to `required="false"` in `opsdashboard`'s manifest (`tools:node`/`tools:replace`), after checking that the watch-face
@@ -4917,19 +4945,21 @@ converters are plain JVM code (a fake OkHttp `Interceptor.Chain` covers the inte
 
 Action Items:
 
-- [ ] Setup 1: make `wear-sdk` optional for `opsdashboard` (checking the watch-face push code without it).
+- [x] Setup 1: make `wear-sdk` optional for `opsdashboard` (checking the watch-face push code without it). Done November 21, 2026
+  by removing the wear modules and their dependencies instead; the APK no longer requires `wear-sdk`.
 - [ ] Setup 2: add `espresso-intents` for the file picker.
 - [ ] Setup 3: decide how `BiometricAdminAuthGate` is checked (emulator fingerprint, or a documented manual check).
 - [ ] Cut the first release of each app (TD-047), and get the Android CI running on `origin`.
-- [ ] Run `opsdashboard`'s instrumented tests on an emulator, and fix what fails.
+- [x] Run `opsdashboard`'s instrumented tests on an emulator, and fix what fails. Done November 21, 2026 on `Medium_Phone_API_35`:
+  67 of 109 passed at first; after fixing the tests and one layout bug (TD-048's updates), all 109 pass.
 - [ ] Add the tests in the `experimental` table above.
 - [ ] Decide what "documented" means for the Android files, and whether theme files are exempt; write the documents.
 - [ ] Then review the files for promotion, a module at a time.
 
-**Future optional work: the wear modules.** `wearcomplications` (4 `experimental` services, untested, TD-048), `wearsync` (1 `beta`),
-`wearface` (no in-scope files) and `opsdashboard`'s `data/wearsync/` (3 `beta`, 2 `experimental`: `WatchSyncRepository.kt`,
-`WatchSyncWorker.kt`) are left as they are, at the owner's decision (November 12, 2026). If they are taken up, the same bar applies,
-plus tests of the `wearcomplications` services (TD-048).
+**The wear modules (removed).** `wearcomplications`, `wearsync`, `wearface` and `opsdashboard`'s `data/wearsync/` were set aside on
+November 12, 2026 and deleted on November 21, 2026, at the owner's decision, with `opsdashboard`'s watch-sync and watch-face-push
+settings, the bundled `wearface.apk` and the wear libraries (`play-services-wearable`, `watchfacepush`, the watch-face validator,
+WorkManager).
 
 Location in code: `android/app/src/main`, `android/opsdashboard/src/main` (see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
 for the current list).

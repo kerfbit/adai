@@ -70,10 +70,13 @@ class GroupListScreenTest {
     @Test
     fun configuredGroups_showEachOnItsOwnRowWithPendingCount() {
         val fakeService = FakeRegistryApiService(
+            // GroupListViewModel sums the legacy pool and every kind's sub-pool ("group-a",
+            // "group-a/encoder", ...; TD-205), so only the legacy pool has entries here.
             queueResponse = { group ->
                 when (group) {
                     "group-a" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "a1"), QueueEntryDto(path = "a2")))
-                    else -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "b1")))
+                    "group-b" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "b1")))
+                    else -> QueueResponseDto()
                 }
             },
         )
@@ -93,8 +96,11 @@ class GroupListScreenTest {
     fun aGroupsFetchFailing_showsItsErrorWithoutHidingTheOthers() {
         val fakeService = FakeRegistryApiService(
             queueResponse = { group ->
-                if (group == "broken-group") throw IOException("connection refused")
-                QueueResponseDto(entries = listOf(QueueEntryDto(path = "ok1")))
+                when {
+                    group.startsWith("broken-group") -> throw IOException("connection refused")
+                    group == "healthy-group" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "ok1")))
+                    else -> QueueResponseDto()  // the healthy group's kind sub-pools (TD-205)
+                }
             },
         )
         val vm = viewModel(configured.copy(registryGroups = listOf("broken-group", "healthy-group")), fakeService)

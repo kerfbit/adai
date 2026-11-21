@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
-// @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; real-device run still unverified, see TD-048)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-11-19
+// @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; its tests run on an emulator since 2026-11-21, see TD-048)
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -564,7 +564,10 @@ private fun QueueRow(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Column {
+            // weight(1f): without it the text took the whole row and the buttons were measured
+            // at zero width, so Assign and Delete couldn't be tapped (found when the
+            // instrumented tests first ran on a device, November 21, 2026).
+            Column(modifier = Modifier.weight(1f)) {
                 Text(entry.path, style = MaterialTheme.typography.bodyLarge)
                 if (entry.isSegment) {
                     Text(
@@ -613,7 +616,7 @@ private fun RegistryRow(entry: RegistryEntryDto, onDelete: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {  // leaves room for the badge and Delete (see PendingRow)
             Text(entry.data_file, style = MaterialTheme.typography.bodyLarge)
             Text(
                 "${entry.num_samples} samples · ${entry.source.ifEmpty { "unknown source" }} · " +

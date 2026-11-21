@@ -7,10 +7,9 @@ package com.adai.ops.ui.registry
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.adai.ops.data.mns.ModelRepository
@@ -24,6 +23,9 @@ import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.onNodeWithContentDescriptionScrolled
+import com.adai.ops.testutil.onNodeWithTextScrolled
+import com.adai.ops.testutil.scrollToNode
 import java.io.IOException
 import org.junit.Rule
 import org.junit.Test
@@ -45,8 +47,8 @@ import org.junit.Test
  * (ConfirmActionDialog's FragmentActivity/LocalAdminAuthGate requirement) -- only the button's
  * default-enabled rendering is checked, not the click.
  *
- * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class GroupDetailScreenTest {
 
@@ -64,8 +66,10 @@ class GroupDetailScreenTest {
         fun viewModel() = GroupDetailViewModel(group, registryRepository, modelRepository)
     }
 
+    // Scrolls the screen's LazyColumn to the text first: items below the fold aren't composed.
     private fun textIsShowing(text: String): Boolean =
-        composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+        composeTestRule.scrollToNode(hasText(text, substring = true)) ||
+            composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
     @Test
     fun emptyGroup_showsPlaceholdersForEverySection() {
@@ -76,8 +80,8 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No files currently claimed by a run.") }
-        composeTestRule.onNodeWithText("No pending files in this pool.").assertExists()
-        composeTestRule.onNodeWithText("No trained files in this pool yet.").assertExists()
+        composeTestRule.onNodeWithTextScrolled("No pending files in this pool.").assertExists()
+        composeTestRule.onNodeWithTextScrolled("No trained files in this pool yet.").assertExists()
     }
 
     @Test
@@ -111,12 +115,12 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("run-1") }
-        composeTestRule.onNodeWithText("run-1 — 2 file(s)").assertExists()
-        composeTestRule.onNodeWithText("file1.jsonl").assertExists()
-        composeTestRule.onNodeWithText("run: unassigned · model: unassigned").assertExists()
-        composeTestRule.onNodeWithText("10 entries · 2.0 KB · gutenberg · added Jan 1, 2026 00:00 UTC").assertExists()
-        composeTestRule.onNodeWithText("trained1.jsonl").assertExists()
-        composeTestRule.onNodeWithText("trained").assertExists()
+        composeTestRule.onNodeWithTextScrolled("run-1 — 2 file(s)").assertExists()
+        composeTestRule.onNodeWithTextScrolled("file1.jsonl").assertExists()
+        composeTestRule.onNodeWithTextScrolled("run: unassigned · model: unassigned").assertExists()
+        composeTestRule.onNodeWithTextScrolled("10 entries · 2.0 KB · gutenberg · added Jan 1, 2026 00:00 UTC").assertExists()
+        composeTestRule.onNodeWithTextScrolled("trained1.jsonl").assertExists()
+        composeTestRule.onNodeWithTextScrolled("trained").assertExists()
     }
 
     @Test
@@ -147,7 +151,7 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("run-1") }
-        composeTestRule.onNodeWithText("Release", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Release", substring = true).assertIsEnabled()
     }
 
     @Test
@@ -159,11 +163,11 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithText("Fetch Gutenberg book").performClick()
+        composeTestRule.onNodeWithTextScrolled("Fetch Gutenberg book").performClick()
 
-        composeTestRule.onNodeWithText("Fetch").assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Gutenberg book ID").performTextInput("42")
-        composeTestRule.onNodeWithText("Fetch").assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Fetch").assertIsNotEnabled()
+        composeTestRule.onNodeWithTextScrolled("Gutenberg book ID").performTextInput("42")
+        composeTestRule.onNodeWithTextScrolled("Fetch").assertIsEnabled()
     }
 
     @Test
@@ -181,11 +185,11 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
-        composeTestRule.onNodeWithContentDescription("Assign model").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Assign model").performClick()
         // TD-205: Assign is now ConfirmActionDialog-gated — tapping this button opens the
         // confirmation dialog rather than calling the repository directly; the actual
         // dialog-then-confirm-then-auth flow is covered in GroupDetailScreenConfirmActionTest.kt.
-        composeTestRule.onNodeWithText("Assign").assertIsEnabled()
+        composeTestRule.onNodeWithTextScrolled("Assign").assertIsEnabled()
     }
 
     @Test
@@ -197,7 +201,7 @@ class GroupDetailScreenTest {
             GroupDetailScreen(group = fixture.group, viewModel = fixture.viewModel(), onBack = { backInvoked = true })
         }
 
-        composeTestRule.onNodeWithContentDescription("Back").performClick()
+        composeTestRule.onNodeWithContentDescriptionScrolled("Back").performClick()
 
         assert(backInvoked) { "expected onBack() to have been invoked" }
     }

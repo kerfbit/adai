@@ -32,8 +32,8 @@ import org.junit.Test
  * device while building the `app` module's own equivalent test -- so every call here uses the
  * `create(Class<T>, CreationExtras)` overload with `CreationExtras.Empty` instead.
  *
- * NOTE: same sandbox limitation as the other opsdashboard tests -- compile-verified and
- * hand-checked against the real production code paths, not run on a device here.
+ * Runs on the Medium_Phone_API_35 AVD (`./gradlew :opsdashboard:connectedDebugAndroidTest`); it was
+ * only compiled until November 21, 2026, when the APK stopped requiring `wear-sdk`.
  */
 class AppViewModelProviderTest {
 
