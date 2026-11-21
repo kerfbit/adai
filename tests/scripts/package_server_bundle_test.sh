@@ -92,6 +92,8 @@ else
         # confirms those binaries are correctly left out by default.
         assert_not_contains "/bin/incremental_trainer"
         assert_not_contains "/bin/chatbot_api_server"
+        # The Qt desktop GUI never goes into a headless server bundle, even when built.
+        assert_not_contains "/bin/mns_manager_gui"
     else
         t "tarball produced by full run"
         fail "no adai-server-bundle-*.tar.gz found in $out_dir"

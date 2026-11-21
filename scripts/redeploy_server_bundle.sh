@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.3.0
-# @adai-reviewed: 2026-11-17
+# @adai-version: 0.4.0
+# @adai-reviewed: 2026-11-20
 
 # Replaces the binaries an existing server-bundle host runs (the adai-mns, adai-registry and adai-metrics-api
 # or adai-metrics units, as install_server_bundle.sh, install_metrics_service.sh or a person installed
@@ -19,7 +19,7 @@
 #           and its data; the shared libraries this package's binaries need that the host lacks; the
 #           backups so far. The units it doesn't use are left alone.
 # install   stops the services (metrics, registry, MNS), backs up into /var/backups/adai-server-bundle/STAMP/
-#           each binary they run, mns_cli and dataset_manager next to it, the unit files, each unit's --config
+#           each binary they run, mns_cli, dataset_manager and vocab_builder next to it, the unit files, each unit's --config
 #           file, /etc/adai and /opt/adai/config, MNS's data directory, the SQLite metrics database (from
 #           --db-path, the unit's environment or its --config file) and the registry's queue files
 #           (not its datasets), replaces the binaries (same path, owner and group), starts again the units
@@ -41,7 +41,7 @@ CONF_DIRS=${ADAI_SERVER_CONF_DIRS:-/etc/adai /opt/adai/config}
 # install_server_bundle.sh, adai-metrics.
 SERVICES=("mns mns_server 8083 adai-mns" "registry registry_server 8082 adai-registry"
     "metrics metrics_api_server 8081 adai-metrics-api adai-metrics")
-CLIS=(mns_cli dataset_manager)
+CLIS=(mns_cli dataset_manager vocab_builder)
 
 COMMAND=check
 YES=0

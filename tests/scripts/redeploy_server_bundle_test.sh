@@ -36,7 +36,7 @@ pkg="$host/pkg"
 mkdir -p "$pkg/bin" "$pkg/scripts" "$host/opt/bin" "$host/mns" "$host/registry/aa01/chatbot" "$host/metrics" "$host/etc" \
     "$host/stub"
 cp "$TARGET" "$pkg/scripts/"
-for b in mns_server registry_server metrics_api_server mns_cli dataset_manager; do
+for b in mns_server registry_server metrics_api_server mns_cli dataset_manager vocab_builder; do
     printf '#!/bin/sh\necho new %s\n' "$b" >"$pkg/bin/$b"
     chmod +x "$pkg/bin/$b"
 done
@@ -103,7 +103,7 @@ t "install stops the services, backs up binaries, units, configs and data (not d
 run bash "$pkg/scripts/redeploy_server_bundle.sh" install --yes
 assert_exit 0
 assert_contains "Done."
-for b in mns_server registry_server metrics_api_server mns_cli dataset_manager; do
+for b in mns_server registry_server metrics_api_server mns_cli dataset_manager vocab_builder; do
     run cat "$host/opt/bin/$b"
     assert_contains "new $b"
 done

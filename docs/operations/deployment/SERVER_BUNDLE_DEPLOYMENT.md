@@ -160,6 +160,9 @@ adai-server-bundle-<version>/
   README.txt                    Quick-start instructions
 ```
 
+Every binary in the bundle runs headless; none links Qt. `mns_manager_gui`, the Qt desktop client for MNS, is left
+out even when the build has it: copy it to a workstation instead ([mns-manager-gui-guide.md](../guides/mns-manager-gui-guide.md)).
+
 ### Deploy to Target Host
 
 ```bash
@@ -192,7 +195,8 @@ its `--config` file (`METRICS_DB_PATH`, `METRICS_STORAGE_BACKEND`; a relative pa
 `WorkingDirectory`), else the defaults. It refuses a PostgreSQL metrics server when the package's binary was built
 without PostgreSQL. It
 stops the services (metrics, registry, MNS), and backs up into `/var/backups/adai-server-bundle/<UTC stamp>/` each binary,
-`mns_cli` and `dataset_manager` beside them, the unit files, each unit's `--config` file, `/etc/adai` and
+`mns_cli`, `dataset_manager` and `vocab_builder` beside them (each one the package has; one the host lacks is
+installed there), the unit files, each unit's `--config` file, `/etc/adai` and
 `/opt/adai/config`, MNS's data
 directory, the SQLite metrics database and the registry's queue files (`.txt`, `.json`, `.db`; not the datasets it
 serves). It replaces each binary at the same path with the same owner, starts again those that were running (MNS, the registry, metrics), and

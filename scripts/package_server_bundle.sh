@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: stable
-# @adai-version: 1.1.0
-# @adai-reviewed: 2026-11-17
+# @adai-version: 1.1.1
+# @adai-reviewed: 2026-11-21
 
 # ADAI Server Bundle — Packaging Script
 #
@@ -215,7 +215,7 @@ fi
 # three are needed for install_server_bundle.sh's own bundle contents
 # (mns_server/registry_server/metrics_api_server) to work. TD-109. Treat them
 # the same as the already-established "optional bonus" pattern used below for
-# mns_manager_gui/vocab_builder: include if present, skip with a warning
+# dataset_manager/vocab_builder: include if present, skip with a warning
 # otherwise, instead of aborting the whole package.
 if [[ ! -f "${REPO_ROOT}/config.conf" ]]; then
     error "Missing file: ${REPO_ROOT}/config.conf"
@@ -258,14 +258,8 @@ for bin in "${REQUIRED_BINS[@]}"; do
     success "  bin/${bin}"
 done
 
-# Optional: include mns_manager_gui if it was built
-if [[ -f "${BUILD_BIN}/mns_manager_gui" ]]; then
-    cp "${BUILD_BIN}/mns_manager_gui" "${STAGE}/bin/mns_manager_gui"
-    if [[ "${STRIP_BINARIES}" == true ]] && command -v strip &>/dev/null; then
-        strip "${STAGE}/bin/mns_manager_gui" 2>/dev/null || true
-    fi
-    success "  bin/mns_manager_gui (bonus)"
-fi
+# mns_manager_gui isn't packaged even when the build has it: it's a Qt desktop client, and the bundle's
+# hosts are headless servers (mns-manager-gui-guide.md copies it to a workstation instead).
 
 # Optional: include dataset_manager if it was built (the registry host's own CLI; --include-trainer
 # requires it, but it needs no trainer).
