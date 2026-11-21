@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (tests: tests/scripts/package_sycl_test.sh)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-11-17
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-11-21
 
 set -euo pipefail
 
@@ -74,8 +74,16 @@ fi
 
 if [[ -z "${ONEAPI_ROOT:-}" ]]; then
     if [[ -f /opt/intel/oneapi/setvars.sh ]]; then
+        # setvars.sh doesn't run under set -euo pipefail (it reads unset variables and returns
+        # non-zero), which ended this script silently; relax the options while it runs.
+        set +euo pipefail
         # shellcheck source=/dev/null
-        source /opt/intel/oneapi/setvars.sh --force 2>/dev/null
+        source /opt/intel/oneapi/setvars.sh --force >/dev/null 2>&1
+        set -euo pipefail
+        [[ -n "${ONEAPI_ROOT:-}" ]] || {
+            echo "ERROR: /opt/intel/oneapi/setvars.sh didn't set up oneAPI (ONEAPI_ROOT is unset)"
+            exit 1
+        }
     else
         echo "ERROR: oneAPI environment not set. Run: source /opt/intel/oneapi/setvars.sh"
         exit 1
