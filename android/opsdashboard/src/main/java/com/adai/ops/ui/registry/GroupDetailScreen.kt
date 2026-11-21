@@ -1,7 +1,7 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; its tests run on an emulator since 2026-11-21, see TD-048)
-// @adai-version: 0.8.1
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-11-21
 
 
@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -85,7 +87,12 @@ private sealed interface PendingAction {
         val config: String = "",
     ) : PendingAction
     data class Segment(val path: String, val ranges: List<Pair<Int, Int>>) : PendingAction
+    // TD-540: [paths] empty with [all] = every trained file in the selected pool.
+    data class Requeue(val paths: List<String>, val all: Boolean, val modelName: String) : PendingAction
 }
+
+// TD-540: which trained files the re-queue dialog is for; a null path means all of them.
+private data class RequeueTarget(val path: String?)
 
 private val KIND_FILTERS = listOf(null, "chatbot", "encoder", "decoder", "world_model")
 private fun kindLabel(kind: String?) = kind?.replaceFirstChar { it.uppercase() }?.replace('_', ' ') ?: "Legacy"
@@ -107,6 +114,7 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
     var showUploadDialog by remember { mutableStateOf(false) }
     var migrateDialogEntry by remember { mutableStateOf<QueueEntryDto?>(null) }
     var segmentDialogEntry by remember { mutableStateOf<QueueEntryDto?>(null) }
+    var requeueTarget by remember { mutableStateOf<RequeueTarget?>(null) }
     var showAddMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
@@ -160,6 +168,8 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
                 onRequestDeleteTrained = { entry -> deleteDialogTrained = entry },
                 onRequestMigrate = { entry -> migrateDialogEntry = entry },
                 onRequestSegment = { entry -> segmentDialogEntry = entry },
+                onRequestRequeue = { entry -> requeueTarget = RequeueTarget(entry.data_file) },
+                onRequestRequeueAll = { requeueTarget = RequeueTarget(null) },
             )
         }
     }
@@ -282,6 +292,19 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
         )
     }
 
+    requeueTarget?.let { target ->
+        RequeueDialog(
+            path = target.path,
+            count = if (target.path == null) state.registryEntries.size else 1,
+            models = state.models,
+            onSubmit = { modelName ->
+                requeueTarget = null
+                pending = PendingAction.Requeue(listOfNotNull(target.path), target.path == null, modelName)
+            },
+            onDismiss = { requeueTarget = null },
+        )
+    }
+
     when (val p = pending) {
         is PendingAction.None -> Unit
         is PendingAction.Release -> ConfirmActionDialog(
@@ -395,6 +418,25 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
             },
             onDismiss = { pending = PendingAction.None },
         )
+        is PendingAction.Requeue -> {
+            val groupPath = state.selectedKind?.let { "$group/$it" } ?: group
+            val target = if (p.all) "\"all\":true" else "\"paths\":[\"${p.paths.joinToString("\",\"")}\"]"
+            val model = if (p.modelName.isEmpty()) "" else ",\"model_name\":\"${p.modelName}\""
+            ConfirmActionDialog(
+                title = if (p.all) "Re-queue every trained file?" else "Re-queue '${p.paths.single()}'?",
+                httpCallDescription = "POST /registry/$groupPath/requeue\n{$target$model}",
+                effectDescription = (if (p.all) "Every trained file in this pool goes" else "This file goes") +
+                    " back to the pending queue and is trained again by the next passes" +
+                    (if (p.modelName.isEmpty()) ", unassigned." else ", assigned to '${p.modelName}'.") +
+                    " Its trained record is removed.",
+                confirmLabel = "Re-queue",
+                onConfirm = {
+                    pending = PendingAction.None
+                    viewModel.requeueTrained(p.paths, p.all, p.modelName)
+                },
+                onDismiss = { pending = PendingAction.None },
+            )
+        }
     }
 }
 
@@ -412,6 +454,8 @@ private fun GroupDetailContent(
     onRequestDeleteTrained: (RegistryEntryDto) -> Unit,
     onRequestMigrate: (QueueEntryDto) -> Unit,
     onRequestSegment: (QueueEntryDto) -> Unit,
+    onRequestRequeue: (RegistryEntryDto) -> Unit,
+    onRequestRequeueAll: () -> Unit,
 ) {
     LazyColumn(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // TD-128: state.error was computed in the ViewModel but never displayed
@@ -495,12 +539,31 @@ private fun GroupDetailContent(
         }
 
         item { HorizontalDivider() }
-        item { Text("Trained files", style = MaterialTheme.typography.titleLarge) }
+        item {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Trained files", style = MaterialTheme.typography.titleLarge)
+                // TD-540: dataset_manager requeue --all
+                if (state.registryEntries.isNotEmpty()) {
+                    TextButton(onClick = onRequestRequeueAll, enabled = !state.actionInProgress) {
+                        Text("Re-queue all")
+                    }
+                }
+            }
+        }
         if (state.registryEntries.isEmpty()) {
             item { Text("No trained files in this pool yet.") }
         } else {
             items(state.registryEntries, key = { "registry-" + it.data_file }) { entry ->
-                RegistryRow(entry, onDelete = { onRequestDeleteTrained(entry) })
+                RegistryRow(
+                    entry,
+                    actionInProgress = state.actionInProgress,
+                    onRequeue = { onRequestRequeue(entry) },
+                    onDelete = { onRequestDeleteTrained(entry) },
+                )
                 HorizontalDivider()
             }
         }
@@ -611,7 +674,12 @@ private fun QueueRow(
 }
 
 @Composable
-private fun RegistryRow(entry: RegistryEntryDto, onDelete: () -> Unit) {
+private fun RegistryRow(
+    entry: RegistryEntryDto,
+    actionInProgress: Boolean,
+    onRequeue: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth(),
@@ -626,6 +694,10 @@ private fun RegistryRow(entry: RegistryEntryDto, onDelete: () -> Unit) {
         }
         Row {
             StatusBadge(label = if (entry.trained) "trained" else "pending", isPositive = entry.trained)
+            // TD-540: back to the pending queue (dataset_manager requeue <file>)
+            IconButton(onClick = onRequeue, enabled = !actionInProgress) {
+                Icon(Icons.Filled.Replay, contentDescription = "Re-queue")
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete")
             }
@@ -793,6 +865,40 @@ private fun FetchHuggingfaceDialog(
                 enabled = datasetId.isNotBlank(),
             ) { Text("Fetch") }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * TD-540: chooses the model re-queued files are assigned to ("(unassigned)" = none, so any model in
+ * the group can claim them), like `dataset_manager requeue --model`. [path] null = every trained file.
+ */
+@Composable
+private fun RequeueDialog(
+    path: String?,
+    count: Int,
+    models: List<ModelRecordDto>,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var modelName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (path == null) "Re-queue all trained files" else "Re-queue trained file") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(path ?: "$count trained file(s) in this pool", style = MaterialTheme.typography.bodyLarge)
+                ModelPickerDropdown(
+                    models = models,
+                    selectedModelName = modelName,
+                    onModelSelected = { modelName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "Assign to model",
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { onSubmit(modelName) }) { Text("Next") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

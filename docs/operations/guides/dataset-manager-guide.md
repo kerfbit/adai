@@ -401,12 +401,14 @@ scratch.
 
 - Give either `--all` or one or more files, not both. Unknown options are rejected.
 - `--model <name>` assigns the re-queued files to that model; without it they are unassigned, so any model in the group can claim them.
-- Each file comes back as a whole-file entry, keeping its source, added time and checksum. Segment ranges aren't restored, because the trained
-  registry doesn't record them; re-run `segment` if you need them.
+- Each trained record comes back as it was trained, keeping its source, added time and checksum: a whole file as a whole-file entry, a
+  trained segment as that same segment (TD-333).
 - A file that is already pending only loses its trained record, so it never ends up queued twice.
 - With `REGISTRY_SERVER_URL` set, this runs on `registry_server` (`POST /registry/<group>[/<kind>]/requeue`), where the data lives. Use `--kind`
   to target a kind's own sub-pool.
 - `incremental_trainer reset --keep-data` performs the same `--all` re-queue, assigned to the trainer's `MODEL_NAME`.
+- The Android ops dashboard's Registry tab does the same for the selected pool: a Re-queue button on each trained file, and "Re-queue all"
+  (TD-540).
 
 The output lists each file as `requeued`, `already_pending` or `not_found`. The exit code is 1 if nothing was re-queued.
 

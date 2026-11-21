@@ -1,8 +1,8 @@
 package com.adai.ops.network
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-11-21
 
 import com.adai.ops.network.dto.AssignRequestDto
 import com.adai.ops.network.dto.AssignResponseDto
@@ -20,6 +20,8 @@ import com.adai.ops.network.dto.RegistryHealthDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
+import com.adai.ops.network.dto.RequeueRequestDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
 import com.adai.ops.network.dto.UnassignRequestDto
 import com.adai.ops.network.dto.UnassignResponseDto
@@ -80,6 +82,13 @@ interface RegistryApiService {
         @Path(value = "groupPath", encoded = true) groupPath: String,
         @Body body: UnassignRequestDto,
     ): Response<UnassignResponseDto>
+
+    /** TD-540: move trained files back to the pending queue (`dataset_manager requeue`). */
+    @POST("registry/{groupPath}/requeue")
+    suspend fun requeue(
+        @Path(value = "groupPath", encoded = true) groupPath: String,
+        @Body body: RequeueRequestDto,
+    ): Response<RequeueResponseDto>
 
     /** TD-205: permanently purge pending/trained entries, optionally unlinking the file. */
     @POST("registry/{groupPath}/delete")

@@ -1,8 +1,8 @@
 package com.adai.ops.data.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-11-21
 
 
 import com.adai.ops.network.ApiClientProvider
@@ -25,6 +25,8 @@ import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
+import com.adai.ops.network.dto.RequeueRequestDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
 import com.adai.ops.network.dto.SegmentTargetDto
 import com.adai.ops.network.dto.UnassignRequestDto
@@ -179,6 +181,24 @@ class RegistryRepository(
                 delete_files = deleteFiles,
                 segments = segment?.let { listOf(it) } ?: emptyList(),
             ),
+        )
+    }
+
+    /**
+     * TD-540: moves trained files back to the pending queue — [paths], or every trained file when
+     * [all] — assigned to [modelName] (empty = unassigned). Same request as `dataset_manager
+     * requeue`; a path that is already pending only loses its trained record.
+     */
+    suspend fun requeueTrained(
+        group: String,
+        paths: List<String> = emptyList(),
+        all: Boolean = false,
+        modelName: String = "",
+        kind: String? = null,
+    ): ApiResult<RequeueResponseDto> = safeResponseCall {
+        service().requeue(
+            groupPath(group, kind),
+            RequeueRequestDto(paths = paths, all = all, model_name = modelName),
         )
     }
 

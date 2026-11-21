@@ -19,10 +19,13 @@ import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
 import com.adai.ops.network.dto.AssignResponseDto
 import com.adai.ops.network.dto.DeleteResponseDto
+import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.RegistryResponseDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
 import com.adai.ops.testutil.ConfirmDialogTestActivity
 import com.adai.ops.testutil.FakeAdminAuthGate
@@ -61,12 +64,15 @@ class GroupDetailScreenConfirmActionTest {
         composeTestRule.scrollToNode(hasText(text, substring = true)) ||
             composeTestRule.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
-    private fun viewModelWith(registryService: FakeRegistryApiService, group: String = "group-x") =
-        GroupDetailViewModel(
-            group = group,
-            registryRepository = RegistryRepository(FakeApiClientProvider(registryService), FakeSettingsRepository()),
-            modelRepository = ModelRepository(FakeApiClientProvider(FakeMnsApiService()), FakeSettingsRepository()),
-        )
+    private fun viewModelWith(
+        registryService: FakeRegistryApiService,
+        group: String = "group-x",
+        mnsService: FakeMnsApiService = FakeMnsApiService(),
+    ) = GroupDetailViewModel(
+        group = group,
+        registryRepository = RegistryRepository(FakeApiClientProvider(registryService), FakeSettingsRepository()),
+        modelRepository = ModelRepository(FakeApiClientProvider(mnsService), FakeSettingsRepository()),
+    )
 
     private fun setContentWithAuth(viewModel: GroupDetailViewModel, group: String = "group-x") {
         composeTestRule.setContent {
@@ -221,6 +227,63 @@ class GroupDetailScreenConfirmActionTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.deleteCalls.isNotEmpty() }
         val (_, body) = fakeRegistryService.deleteCalls.single()
         assert(body.paths == listOf("trained1.jsonl")) { "unexpected delete call body: $body" }
+    }
+
+    // TD-540: one trained file back to the pending queue, unassigned.
+    @Test
+    fun confirmingRequeue_requeuesTheTrainedFileUnassigned() {
+        val fakeRegistryService = FakeRegistryApiService(
+            registryResponse = {
+                RegistryResponseDto(entries = listOf(RegistryEntryDto(data_file = "trained1.jsonl", trained = true)))
+            },
+            requeueResponse = { _, _ -> Response.success(RequeueResponseDto(requeued = 1)) },
+        )
+        setContentWithAuth(viewModelWith(fakeRegistryService))
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("trained1.jsonl") }
+        composeTestRule.onNodeWithContentDescriptionScrolled("Re-queue").performClick()
+        composeTestRule.onNodeWithTextScrolled("Next").performClick()
+        composeTestRule.onNodeWithTextScrolled("Re-queue 'trained1.jsonl'?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Re-queue").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.requeueCalls.isNotEmpty() }
+        val (group, body) = fakeRegistryService.requeueCalls.single()
+        assert(group == "group-x" && body.paths == listOf("trained1.jsonl") && !body.all && body.model_name.isEmpty()) {
+            "unexpected requeue call: group=$group body=$body"
+        }
+        composeTestRule.onNodeWithTextScrolled("Re-queue 'trained1.jsonl'?").assertDoesNotExist()
+    }
+
+    // TD-540: every trained file, assigned to a model chosen in the dialog.
+    @Test
+    fun confirmingRequeueAll_requeuesEveryTrainedFileForTheChosenModel() {
+        val fakeRegistryService = FakeRegistryApiService(
+            registryResponse = {
+                RegistryResponseDto(
+                    entries = listOf(
+                        RegistryEntryDto(data_file = "t1.jsonl", trained = true),
+                        RegistryEntryDto(data_file = "t2.jsonl", trained = true),
+                    ),
+                )
+            },
+        )
+        val mns = FakeMnsApiService(
+            listModelsResponse = { _, _, _, _ -> ModelsResponseDto(models = listOf(ModelRecordDto(model_name = "model-a"))) },
+        )
+        setContentWithAuth(viewModelWith(fakeRegistryService, mnsService = mns))
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("t2.jsonl") }
+        composeTestRule.onNodeWithTextScrolled("Re-queue all").performClick()
+        composeTestRule.onNodeWithTextScrolled("2 trained file(s) in this pool").assertExists()
+        composeTestRule.onNodeWithTextScrolled("(unassigned)").performClick()
+        composeTestRule.onNodeWithTextScrolled("model-a").performClick()
+        composeTestRule.onNodeWithTextScrolled("Next").performClick()
+        composeTestRule.onNodeWithTextScrolled("Re-queue every trained file?").assertExists()
+        composeTestRule.onNodeWithTextScrolled("Re-queue").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeRegistryService.requeueCalls.isNotEmpty() }
+        val (_, body) = fakeRegistryService.requeueCalls.single()
+        assert(body.all && body.paths.isEmpty() && body.model_name == "model-a") { "unexpected requeue body: $body" }
     }
 
     @Test

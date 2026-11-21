@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-21
 
 
 import kotlinx.serialization.Serializable
@@ -177,6 +177,34 @@ data class DeleteResponseDto(
     val skipped: Int = 0,
     val not_found: Int = 0,
     val details: List<DeleteDetailDto> = emptyList(),
+)
+
+/**
+ * TD-540: POST /registry/{group}[/{kind}]/requeue — moves trained files back to the pending queue
+ * (`dataset_manager requeue`). Either [paths] or [all]; [model_name] assigns the re-queued
+ * entries to that model, empty leaves them unassigned. Defaults aren't encoded, so an "all" request
+ * sends only {"all":true} (plus model_name when set).
+ */
+@Serializable
+data class RequeueRequestDto(
+    val paths: List<String> = emptyList(),
+    val all: Boolean = false,
+    val model_name: String = "",
+)
+
+/** status is "requeued", "already_pending" (only its trained record was dropped) or "not_found". */
+@Serializable
+data class RequeueDetailDto(
+    val path: String = "",
+    val status: String = "",
+)
+
+@Serializable
+data class RequeueResponseDto(
+    val requeued: Int = 0,
+    val already_pending: Int = 0,
+    val not_found: Int = 0,
+    val details: List<RequeueDetailDto> = emptyList(),
 )
 
 /**

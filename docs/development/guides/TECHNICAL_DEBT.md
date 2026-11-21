@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 92 (7 high, 19 medium, 66 low)
+**Active Items:** 91 (7 high, 18 medium, 66 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 489 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 490 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 92 open items:
+**Where things stand.** Of the 91 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **71 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **70 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Filed [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
+**November 21, 2026:** Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
+Registry tab can re-queue trained files (one, or all, optionally assigned to a model); the deployment re-queue isn't needed, since
+`bb01` has no trained files. Filed [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
 drops every model, since TD-196 added columns its positional insert doesn't supply, and still imports the roles; verified with a real
 server. Closed [TD-269](../archive/TECHNICAL_DEBT_RESOLVED.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
 (MEDIUM): MNS now shows the run's optimizer step (`progress.global_step`, and each pass's history entry). Found on the way: every
@@ -66,7 +68,7 @@ per-file `@adai-version` scheme, following SemVer 2.0.0 for what resets on minor
 "GPU does the training math" rule that TD-468's device-resident optimizer leaves open: the token embeddings still run on the host.
 **Now:** fixed in code October 19, 2026 (a device table with gather and scatter-add kernels); a measurement on ai-machine remains.
 
-**October 18, 2026:** Filed [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM) and fixed it in the same change, found while applying the owner's rule that the trainer
+**October 18, 2026:** Filed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM) and fixed it in the same change, found while applying the owner's rule that the trainer
 always takes its data and configuration from the remote services first. `incremental_trainer reset --keep-data` re-queued trained files by
 editing a local `data_registry.txt`, so against `registry_server` it re-queued nothing. A new server-side re-queue
 (`POST /registry/<group>[/<kind>]/requeue`, `dataset_manager requeue`, `RegistryTransport::requeue_trained()`) replaces it.
@@ -161,7 +163,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (92 since TD-269, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (91 since TD-269, TD-540, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -195,7 +197,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 3. Re-measure the token cost on the registry pool at the chosen vocabulary size ([TD-562](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text) (LOW)).
 4. Rebuild the cased vocabulary with the turn tokens and reserved ids ([TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)).
 5. Have every file pending again: `incremental_trainer retrain` re-queues the trained files itself (TD-411); to restart with `train` or
-   `trainer_service` instead, run `dataset_manager requeue --all --model <name>` first ([TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM)).
+   `trainer_service` instead, run `dataset_manager requeue --all --model <name>` first ([TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM)).
 6. Retrain from scratch: [TD-358](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) (HIGH), [TD-538](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) (HIGH), [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads) (HIGH).
 7. Afterwards: compare against the lowercase model (TD-563), benchmark generation quality before and after (TD-059), and test RAG
    retrieval with the trained checkpoint ([TD-247](#td-247-rag-retrieval-in-chatbot_api_server-uses-an-untrained-encoder) (HIGH)).
@@ -210,7 +212,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): re-queue in the Android ops dashboard's Registry tab (CLI parity).
 - Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
   error codes), [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW, `DatasetRegistry` dead code and checksum), [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
   [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
@@ -362,7 +363,6 @@ as TD-426 and TD-467 were:
   - [TD-527: `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries)
   - [TD-531: JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text)
   - [TD-538: Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint)
-  - [TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server)
   - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
   - [TD-553: Per-File Versions Have No Build Number](#td-553-per-file-versions-have-no-build-number)
   - [TD-554: No Aggregate Version per CMake Build](#td-554-no-aggregate-version-per-cmake-build)
@@ -4418,53 +4418,6 @@ Files to Modify:
 
 - `src/LLMEncoder.cpp`
 - `tests/encoderdecoder_test.cpp`
-
----
-
-### TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 18, 2026 | 2-4 hours |
-
-Description:
-Found while reviewing the TD-411 fix against the owner's rule (October 18, 2026) that the trainer always takes its data files and configuration
-from the remote services (`registry_server`, MNS) first, with local files only as fallback. `IncrementalTrainer::reset_all(keep_data_registry=true)`,
-used by `incremental_trainer reset --keep-data`, re-queued trained files in two steps:
-1. delete `<SESSION_DIR>/data_registry.txt`;
-2. re-add each trained path with `DatasetRegistry::add_files()`, which checks that the file exists locally.
-
-Against a remote `registry_server`, that changed nothing on the server, so no trained file was re-queued. There was also no operator command for
-re-queuing at all. That's needed now: every existing checkpoint has to be retrained from scratch (TD-358, TD-538), and files a pre-TD-411/412
-`resume` pass marked trained without training them can't be told apart (TD-334).
-
-**Fix landed October 18, 2026:** a server-side re-queue across every layer.
-- **Transport:** `RegistryTransport::requeue_trained(paths, all, model_name)`. `LocalTransport` does it under the pending lock; `RemoteTransport`
-  calls `POST /registry/<group>[/<kind>]/requeue`, which `registry_server` serves through the group's `LocalTransport`.
-- **Registry:** `DatasetRegistry::requeue_trained()`.
-- **CLI:** `dataset_manager requeue (--all | <file> ...) [--model <name>]`.
-- **Trainer:** `reset_all()`'s keep-data branch now uses it, assigning the files to `MODEL_NAME`.
-
-Trained entries come back as whole-file pending entries with their source, added time and checksum. A path that is already pending only loses its
-trained record.
-
-Tests: `DatasetRegistryTest.RequeueTrained*`, `LocalTransportRequeueTest`, `DatasetManagerArgsTest.RequeueArgs`. It was also checked end to end
-against a real `registry_server`: two trained files were re-queued as unclaimed and assigned, the trained registry was emptied, and an empty request
-got 400.
-
-Action Items:
-
-- [x] Re-queue through the registry transport so it works against `registry_server`; add an operator command.
-- [ ] Before the TD-358 retraining: `dataset_manager requeue --all --model <name>` on the deployment (covers TD-411's audit item).
-- [ ] Add re-queue to the Android ops dashboard's Registry tab, which aims for CLI parity (TD-205).
-- [x] Segment ranges aren't restored on re-queue, because the trained registry has no segment concept (TD-333). (Fixed with TD-333, October 19, 2026: records carry their segment, and re-queue restores it.)
-
-Location in code: `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp` (`handle_requeue()`), `src/DatasetRegistry.{hpp,cpp}`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/DatasetManagerTool.cpp`, `src/IncrementalTrainer.cpp` (`reset_all()`).
-
-Files to Modify:
-
-- (as above)
-- `tests/DatasetRegistryTests.cpp`, `tests/dataset_manager_args_test.cpp`
 
 ---
 

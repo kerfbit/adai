@@ -11,6 +11,8 @@ import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseResponseDto
+import com.adai.ops.network.dto.RequeueRequestDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.SegmentTargetDto
 import com.adai.ops.network.dto.UnassignResponseDto
 import com.adai.ops.testutil.FakeApiClientProvider
@@ -250,6 +252,26 @@ class RegistryRepositoryTest {
         assertEquals(listOf("a.jsonl"), body.paths)
         assertTrue(body.force)
         assertTrue(body.delete_files)
+    }
+
+    // TD-540: the same request as dataset_manager requeue, to the kind's sub-pool.
+    @Test
+    fun `requeueTrained sends paths or all and the model to the kind's pool`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            requeueResponse = { _, _ -> Response.success(RequeueResponseDto(requeued = 2)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.requeueTrained("my-group", paths = listOf("a.jsonl"), modelName = "m1", kind = "chatbot")
+        repository.requeueTrained("my-group", all = true)
+
+        assertEquals(2, (result as ApiResult.Success).data.requeued)
+        val (group1, body1) = fakeService.requeueCalls[0]
+        assertEquals("my-group/chatbot", group1)
+        assertEquals(RequeueRequestDto(paths = listOf("a.jsonl"), all = false, model_name = "m1"), body1)
+        val (group2, body2) = fakeService.requeueCalls[1]
+        assertEquals("my-group", group2)
+        assertEquals(RequeueRequestDto(all = true), body2)
     }
 
     @Test

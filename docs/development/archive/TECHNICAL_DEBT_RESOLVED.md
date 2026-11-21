@@ -1,10 +1,70 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (489 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (490 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Training / IncrementalTrainer, Android / `opsdashboard` | Code fix (MEDIUM, created October 18, 2026; code fix October 18, last items November 21) |
+
+Description:
+Found while reviewing the TD-411 fix against the owner's rule (October 18, 2026) that the trainer always takes its data files and configuration
+from the remote services (`registry_server`, MNS) first, with local files only as fallback. `IncrementalTrainer::reset_all(keep_data_registry=true)`,
+used by `incremental_trainer reset --keep-data`, re-queued trained files in two steps:
+1. delete `<SESSION_DIR>/data_registry.txt`;
+2. re-add each trained path with `DatasetRegistry::add_files()`, which checks that the file exists locally.
+
+Against a remote `registry_server`, that changed nothing on the server, so no trained file was re-queued. There was also no operator command for
+re-queuing at all. That's needed now: every existing checkpoint has to be retrained from scratch (TD-358, TD-538), and files a pre-TD-411/412
+`resume` pass marked trained without training them can't be told apart (TD-334).
+
+**Fix landed October 18, 2026:** a server-side re-queue across every layer.
+- **Transport:** `RegistryTransport::requeue_trained(paths, all, model_name)`. `LocalTransport` does it under the pending lock; `RemoteTransport`
+  calls `POST /registry/<group>[/<kind>]/requeue`, which `registry_server` serves through the group's `LocalTransport`.
+- **Registry:** `DatasetRegistry::requeue_trained()`.
+- **CLI:** `dataset_manager requeue (--all | <file> ...) [--model <name>]`.
+- **Trainer:** `reset_all()`'s keep-data branch now uses it, assigning the files to `MODEL_NAME`.
+
+Trained entries come back as whole-file pending entries with their source, added time and checksum. A path that is already pending only loses its
+trained record.
+
+Tests: `DatasetRegistryTest.RequeueTrained*`, `LocalTransportRequeueTest`, `DatasetManagerArgsTest.RequeueArgs`. It was also checked end to end
+against a real `registry_server`: two trained files were re-queued as unclaimed and assigned, the trained registry was emptied, and an empty request
+got 400.
+
+Action Items:
+
+- [x] Re-queue through the registry transport so it works against `registry_server`; add an operator command.
+- [x] Before the TD-358 retraining: `dataset_manager requeue --all --model <name>` on the deployment (covers TD-411's audit item).
+  Not needed (November 21, 2026): the retraining starts `bodacious-badger` from scratch in a new run group, `bb01`, whose pools hold no
+  trained files (`GET /registry/bb01/{world_model,chatbot}/registry`: 0 entries each); the old groups' models are retired.
+- [x] Add re-queue to the Android ops dashboard's Registry tab, which aims for CLI parity (TD-205). (November 21, 2026; see below.)
+- [x] Segment ranges aren't restored on re-queue, because the trained registry has no segment concept (TD-333). (Fixed with TD-333, October 19, 2026: records carry their segment, and re-queue restores it.)
+
+Location in code: `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp` (`handle_requeue()`), `src/DatasetRegistry.{hpp,cpp}`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/DatasetManagerTool.cpp`, `src/IncrementalTrainer.cpp` (`reset_all()`).
+
+Files to Modify:
+
+- (as above)
+- `tests/DatasetRegistryTests.cpp`, `tests/dataset_manager_args_test.cpp`
+
+**Fix (November 21, 2026): re-queue in the ops dashboard.**
+- **Data.** `RegistryApiService.requeue()` (`POST /registry/{group}[/{kind}]/requeue`), `RequeueRequestDto`/`RequeueResponseDto`, and
+  `RegistryRepository.requeueTrained(group, paths, all, modelName, kind)`.
+- **ViewModel.** `GroupDetailViewModel.requeueTrained()` re-queues in the selected pool, reports "Re-queued N file(s)" with any
+  already-pending or not-found counts and the model, and refreshes.
+- **Screen.** Each trained file has a Re-queue button, and the Trained files heading a "Re-queue all" button. Both open a dialog to
+  pick the model to assign ("(unassigned)" = none, like `--model`), then the usual `ConfirmActionDialog` with the request it sends.
+- **Tests.** `RegistryRepositoryTest` (paths or all, model, kind path), `GroupDetailViewModelTest` (counts message, kind, failure);
+  `GroupDetailScreenConfirmActionTest`: one file unassigned, and all files for a chosen model (134 unit and 113 instrumented tests
+  pass on `Medium_Phone_API_35`).
+
+---
 
 ### TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass
 

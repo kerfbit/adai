@@ -454,7 +454,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(92 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(91 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -539,7 +539,6 @@ reference doc that tracks it):
 | TD-527 (LOW) | `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries. Code fix landed October 25, 2026. Left: Parse bodies with `nlohmann/json` (TD-453) and return field-specific errors; factor the per-route boilerplate. (Parsing and errors done; the… See [TrainingMetricsAPI.md](docs/development/reference/source/TrainingMetricsAPI.md). |
 | **TD-531** (HIGH) | JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text. Code fix landed October 17, 2026 (dataset scan remains). Left: Scan queued datasets for `\u` before retraining, and drop tokenized caches built from affected files so they re-tokenize. A pending file needs… See [TrainingSampleMeta.md](docs/development/reference/source/TrainingSampleMeta.md). |
 | **TD-538** (HIGH) | Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint. Code fix landed October 18, 2026. Left: Retrain rather than continuing from an existing checkpoint: none has the encoder's own embedding or norm (with TD-358). |
-| TD-540 (MEDIUM) | `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server. Code fix landed October 18, 2026. Left: Before the TD-358 retraining: `dataset_manager requeue --all --model <name>` on the deployment (covers TD-411's audit item) (and 1 more). |
 | TD-547 (MEDIUM) | GPU Training Does the Token Embeddings on the Host. Code fix landed October 19, 2026. Left: Verify on the oneAPI CPU device against the host path, as for TD-468; measure on ai-machine. (CPU device done; ai-machine open.). |
 | TD-553 (LOW) | Per-File Versions Have No Build Number. Left: Get the owner's decision on BUILD's reset behavior (monotonic recommended) (and 5 more). |
 | TD-554 (LOW) | No Aggregate Version per CMake Build. Left: Owner decision: the aggregation rules above (bump-from-baseline vs. another derivation), the build-metadata contents, and where the released… (and 5 more). |

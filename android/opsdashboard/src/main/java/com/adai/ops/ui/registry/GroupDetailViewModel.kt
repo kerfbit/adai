@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-11-21
 
 
 import androidx.lifecycle.ViewModel
@@ -242,6 +242,40 @@ class GroupDetailViewModel(
                             actionInProgress = false,
                             actionMessage = "Deleted ${result.data.deleted} entry(ies) for '$path'.",
                         )
+                    }
+                    refresh()
+                }
+                else -> _uiState.update {
+                    it.copy(actionInProgress = false, actionMessage = "Failed: ${result.errorMessageOrNull()}")
+                }
+            }
+        }
+    }
+
+    /**
+     * TD-540: moves trained files back to the pending queue in the selected pool — [paths], or every
+     * trained file when [all] — assigned to [modelName] (empty = unassigned), as `dataset_manager
+     * requeue` does.
+     */
+    fun requeueTrained(paths: List<String>, all: Boolean, modelName: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
+            val kind = _uiState.value.selectedKind
+            when (
+                val result = registryRepository.requeueTrained(
+                    group, paths = paths, all = all, modelName = modelName, kind = kind,
+                )
+            ) {
+                is ApiResult.Success -> {
+                    val r = result.data
+                    val parts = buildList {
+                        add("Re-queued ${r.requeued} file(s)")
+                        if (r.already_pending > 0) add("${r.already_pending} already pending")
+                        if (r.not_found > 0) add("${r.not_found} not found")
+                    }
+                    val assigned = if (modelName.isNotEmpty() && r.requeued > 0) " for '$modelName'" else ""
+                    _uiState.update {
+                        it.copy(actionInProgress = false, actionMessage = parts.joinToString(", ") + assigned + ".")
                     }
                     refresh()
                 }

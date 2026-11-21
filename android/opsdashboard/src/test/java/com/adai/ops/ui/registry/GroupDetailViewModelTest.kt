@@ -7,6 +7,7 @@ import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.RegistryResponseDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.UnassignResponseDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
@@ -188,6 +189,55 @@ class GroupDetailViewModelTest {
         val (_, body) = fakeRegistryService.unassignCalls.single()
         assertEquals(listOf("a.jsonl"), body.paths)
         pollJob.cancel()
+    }
+
+    // TD-540
+    @Test
+    fun `requeueTrained re-queues into the selected pool and reports the counts`() = runTest {
+        val fakeRegistryService = FakeRegistryApiService(
+            registryResponse = { RegistryResponseDto(entries = listOf(RegistryEntryDto(data_file = "t.jsonl", trained = true))) },
+            requeueResponse = { _, _ -> Response.success(RequeueResponseDto(requeued = 3, already_pending = 1)) },
+        )
+        val viewModel = GroupDetailViewModel(
+            group = "my-group",
+            registryRepository = RegistryRepository(FakeApiClientProvider(fakeRegistryService), FakeSettingsRepository()),
+            modelRepository = ModelRepository(FakeApiClientProvider(FakeMnsApiService()), FakeSettingsRepository()),
+        )
+        viewModel.setKindFilter("world_model")
+        val pollJob = backgroundScope.launch { viewModel.pollGroup() }
+        testScheduler.runCurrent()
+
+        viewModel.requeueTrained(emptyList(), all = true, modelName = "bodacious-badger")
+        testScheduler.runCurrent()
+
+        assertEquals(
+            "Re-queued 3 file(s), 1 already pending for 'bodacious-badger'.",
+            viewModel.uiState.value.actionMessage,
+        )
+        assertEquals(false, viewModel.uiState.value.actionInProgress)
+        val (group, body) = fakeRegistryService.requeueCalls.single()
+        assertEquals("my-group/world_model", group)
+        assertTrue(body.all)
+        assertEquals("bodacious-badger", body.model_name)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `requeueTrained failure surfaces the error`() = runTest {
+        val fakeRegistryService = FakeRegistryApiService(
+            requeueResponse = { _, _ -> throw IOException("registry down") },
+        )
+        val viewModel = GroupDetailViewModel(
+            group = "my-group",
+            registryRepository = RegistryRepository(FakeApiClientProvider(fakeRegistryService), FakeSettingsRepository()),
+            modelRepository = ModelRepository(FakeApiClientProvider(FakeMnsApiService()), FakeSettingsRepository()),
+        )
+
+        viewModel.requeueTrained(listOf("t.jsonl"), all = false, modelName = "")
+        testScheduler.runCurrent()
+
+        assertEquals("Failed: registry down", viewModel.uiState.value.actionMessage)
+        assertEquals(false, viewModel.uiState.value.actionInProgress)
     }
 
     @Test

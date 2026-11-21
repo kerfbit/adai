@@ -22,6 +22,8 @@ import com.adai.ops.network.dto.RegistryHealthDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
+import com.adai.ops.network.dto.RequeueRequestDto
+import com.adai.ops.network.dto.RequeueResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
 import com.adai.ops.network.dto.UnassignRequestDto
 import com.adai.ops.network.dto.UnassignResponseDto
@@ -39,6 +41,8 @@ class FakeRegistryApiService(
         { _, _ -> Response.success(UnassignResponseDto()) },
     private val deleteResponse: (String, DeleteRequestDto) -> Response<DeleteResponseDto> =
         { _, _ -> Response.success(DeleteResponseDto()) },
+    private val requeueResponse: (String, RequeueRequestDto) -> Response<RequeueResponseDto> =
+        { _, _ -> Response.success(RequeueResponseDto()) },
     private val pendingAddResponse: (String, PendingAddRequestDto) -> Response<PendingAddResponseDto> =
         { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
     private val uploadResponse: (String, String) -> Response<PendingAddResponseDto> =
@@ -57,6 +61,7 @@ class FakeRegistryApiService(
     val assignCalls = mutableListOf<Pair<String, AssignRequestDto>>()
     val unassignCalls = mutableListOf<Pair<String, UnassignRequestDto>>()
     val deleteCalls = mutableListOf<Pair<String, DeleteRequestDto>>()
+    val requeueCalls = mutableListOf<Pair<String, RequeueRequestDto>>()  // TD-540
     val pendingAddCalls = mutableListOf<Pair<String, PendingAddRequestDto>>()
     val uploadCalls = mutableListOf<Triple<String, String, ByteArray>>()
     val uploadOverwrites = mutableListOf<Boolean?>()  // TD-552: the overwrite query parameter, per call
@@ -90,6 +95,11 @@ class FakeRegistryApiService(
     override suspend fun delete(group: String, body: DeleteRequestDto): Response<DeleteResponseDto> {
         deleteCalls += group to body
         return deleteResponse(group, body)
+    }
+
+    override suspend fun requeue(group: String, body: RequeueRequestDto): Response<RequeueResponseDto> {
+        requeueCalls += group to body
+        return requeueResponse(group, body)
     }
 
     override suspend fun pendingAdd(group: String, body: PendingAddRequestDto): Response<PendingAddResponseDto> {
