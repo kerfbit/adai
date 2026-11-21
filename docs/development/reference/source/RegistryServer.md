@@ -1,9 +1,9 @@
 # `RegistryServer` — Source File Reference
 
-- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,415 lines; `main()` and every handler, file-scope globals)
+- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,405 lines; `main()` and every handler, file-scope globals)
 - **Binary:** `registry_server` (port 8082), built from `RegistryServer.cpp`, `Config.cpp` and `RegistryServerArgs.cpp`
 - **Clients:** `RemoteTransport` ([DatasetRegistry.md](DatasetRegistry.md)) in `incremental_trainer` and `dataset_manager`; the Android ops dashboard's Registry tab; `mns_server`'s dataset proxy
-- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.34.0`, `@adai-reviewed: 2026-11-19`
+- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.34.1`, `@adai-reviewed: 2026-11-21`
 - **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (107 tests against a running server; **all pass** against a local instance, November 19, 2026), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
 - **Related:** [FtpDataServer.md](FtpDataServer.md), [DataFetcher.md](DataFetcher.md), [ParquetReader.md](ParquetReader.md), [DaemonConfigStore.md](DaemonConfigStore.md), [DataTransport.md](DataTransport.md)
 - **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314); `fetch/gutenberg`'s mirrors 2026-11-19 (TD-579)
@@ -359,3 +359,9 @@ place. Test: `LiveRegistryTest.FetchHuggingfaceRejectsUnsafeConfig`.
 `www.gutenberg.org` is unavailable (no answer, `429` or `5xx`), `DataFetcher` tries each mirror in turn, and a download is cached only
 when it is a Gutenberg text ([DataFetcher.md](DataFetcher.md) §3). It isn't admin-mutable; a change needs a restart. Requests and
 responses are unchanged: a book no source can serve still answers `502 fetch_failed`.
+
+## Addendum (November 21, 2026): the group-name rule is shared (TD-498)
+
+`valid_group_name()` now calls `valid_registry_group_name()` in `RegistryTransport.hpp`, the same TD-490 rule, so `RemoteTransport`,
+`DatasetRegistry` and `ConfigLoader::validate()` check a run group exactly as these routes do before it goes into a URL. Behaviour is
+unchanged: `datasetRegistryLiveTests` (107) pass against a local server.

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 3.0.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 3.1.0
+// @adai-reviewed: 2026-11-21
 
 #include <cstddef>
 #include <cstdint>
@@ -50,6 +50,30 @@ inline bool trained_matches(const DataVersion& dv, const std::string& path, int 
     if (segment_start < 0)
         return dv.segment_start < 0;
     return dv.segment_start == segment_start && dv.segment_count == segment_count;
+}
+
+/// TD-490/TD-498: a run group is one path component under registry_server's data_dir and one URL
+/// path segment: [A-Za-z0-9_-][A-Za-z0-9._-]*, at most 128 characters (so not "." or "..").
+/// Shared by registry_server's route check and RemoteTransport, which uses the name unencoded.
+inline bool valid_registry_group_name(const std::string& group) {
+    if (group.empty() || group.size() > 128)
+        return false;
+    auto ok = [](char c, bool first) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+               c == '_' || c == '-' || (!first && c == '.');
+    };
+    if (!ok(group[0], true))
+        return false;
+    for (std::size_t i = 1; i < group.size(); ++i)
+        if (!ok(group[i], false))
+            return false;
+    return true;
+}
+
+/// TD-202/TD-498: a dataset kind as registry_server's routes accept it; empty = the legacy pool.
+inline bool valid_dataset_kind(const std::string& kind) {
+    return kind.empty() || kind == "encoder" || kind == "decoder" || kind == "world_model" ||
+           kind == "chatbot";
 }
 
 /**

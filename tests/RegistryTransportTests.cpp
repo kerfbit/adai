@@ -4,8 +4,7 @@
  * Covers LocalTransport's distributed-queue operations.  These run entirely
  * on the local filesystem using temp directories; no registry_server needed.
  *
- * RemoteTransport integration tests (stub-server) are deferred until a
- * test-harness server is available; those will live in this file too.
+ * RemoteTransport's tests against a stub server are in remote_transport_test.cpp (TD-498).
  */
 #include <gtest/gtest.h>
 #include <sys/resource.h>
@@ -16,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include "../src/RegistryTransport.hpp"
 
@@ -335,6 +335,79 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedRecordsAUnitTrainedAgain) {
     ASSERT_EQ(reg.size(), 2u);
     EXPECT_EQ(reg[0].num_samples, 5);
     EXPECT_EQ(reg[1].num_samples, 7);
+}
+
+// TD-498: as registry_server's handle_trained(): a unit listed twice in one call is recorded once,
+// and a forced commit (no run_id) doesn't record a unit an earlier pass recorded.
+TEST_F(LocalTransportPhase9Test, CommitTrainedRecordsAUnitOncePerCallAndForceSkipsRecordedOnes) {
+    seed_pending({"/data/a.txt", "/data/b.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    DataVersion a;
+    a.data_file = "/data/a.txt";
+    a.checksum = "MISSING";
+    a.trained = true;
+    DataVersion b = a;
+    b.data_file = "/data/b.txt";
+
+    t.acquire("run-1", 0);
+    t.commit_trained("run-1", {a, a}, {"/data/a.txt"});
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 1u) << "listed twice, recorded once";
+
+    t.commit_trained("", {a, b}, {"/data/b.txt"});  // a is recorded already
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 2u);
+    EXPECT_EQ(reg[0].data_file, "/data/a.txt");
+    EXPECT_EQ(reg[1].data_file, "/data/b.txt");
+}
+
+// TD-498: delete_paths() and requeue_trained() read and save the trained registry under the pending
+// lock. They used to read it before taking the lock and save it after releasing it, so a commit
+// from another process or thread in between was overwritten and lost.
+TEST_F(LocalTransportPhase9Test, DeleteAndRequeueDoNotLoseConcurrentCommits) {
+    constexpr int kCommits = 60;
+    {
+        std::vector<DataVersion> old;  // records for the other thread to delete and re-queue
+        for (int i = 0; i < kCommits; ++i) {
+            DataVersion dv;
+            dv.data_file = "/data/old" + std::to_string(i) + ".txt";
+            dv.checksum = "MISSING";
+            dv.trained = true;
+            old.push_back(dv);
+        }
+        ASSERT_TRUE(LocalTransport(reg_path_, pend_path_).save_registry(old));
+    }
+    std::thread committer([&] {
+        LocalTransport t(reg_path_, pend_path_);
+        for (int i = 0; i < kCommits; ++i) {
+            DataVersion dv;
+            dv.data_file = "/data/new" + std::to_string(i) + ".txt";
+            dv.checksum = "MISSING";
+            dv.trained = true;
+            t.commit_trained("", {dv}, {dv.data_file});
+        }
+    });
+    {
+        LocalTransport t(reg_path_, pend_path_);
+        for (int i = 0; i < kCommits; ++i) {
+            const std::string old = "/data/old" + std::to_string(i) + ".txt";
+            if (i % 2 == 0)
+                t.delete_paths({old}, true, false);
+            else
+                t.requeue_trained({old}, false, "");
+        }
+    }
+    committer.join();
+
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    int kept = 0;
+    for (const auto& dv : reg)
+        if (dv.data_file.rfind("/data/new", 0) == 0)
+            ++kept;
+    EXPECT_EQ(kept, kCommits) << "every concurrent commit survives";
 }
 
 // ============================================================================
@@ -722,11 +795,14 @@ TEST_F(LocalTransportPhase9Test, AddPendingTwoSegmentsOfSamePathAreIndependentEn
 TEST_F(LocalTransportPhase9Test, AddPendingRejectsDuplicateSegment) {
     LocalTransport t(reg_path_, pend_path_);
     ASSERT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));
-    EXPECT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));  // no-op success, same as whole-file dedup
+    // TD-498: false for an entry already queued, as the header documents and RemoteTransport does.
+    EXPECT_FALSE(t.add_pending("/data/big.jsonl", 0, 100));
+    ASSERT_TRUE(t.add_pending("/data/whole.jsonl"));
+    EXPECT_FALSE(t.add_pending("/data/whole.jsonl"));
 
     std::vector<PendingEntry> entries;
     t.load_pending(entries);
-    EXPECT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries.size(), 2u) << "one segment entry and one whole-file entry";
 }
 
 TEST_F(LocalTransportPhase9Test, AddPendingSegmentDoesNotCollideWithWholeFileEntry) {

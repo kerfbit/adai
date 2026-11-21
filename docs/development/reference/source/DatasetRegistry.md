@@ -1,10 +1,10 @@
 # `DatasetRegistry` — Source File Reference
 
-- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (507 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (948 lines)
+- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (507 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (959 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_core`; used by `incremental_trainer` (including `trainer_service`'s passes), `dataset_manager`, `vocab_builder`'s loader and their tests
-- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` and `.hpp` `@adai-version: 2.1.0`, `@adai-reviewed: 2026-11-19` (2.0.0 was MAJOR, TD-552: `remote_upload()` returns an `UploadResult`; 2.1.0 adds `remote_fetch_huggingface()`'s `config`, TD-314)
-- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (86), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (107, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
+- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` `@adai-version: 2.2.0` (reviewed 2026-11-21), `.hpp` `2.1.0` (2026-11-19) (2.0.0 was MAJOR, TD-552: `remote_upload()` returns an `UploadResult`; 2.1.0 adds `remote_fetch_huggingface()`'s `config`, TD-314)
+- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (87), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (107, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
 - **Design:** [dataset_manager_separation.md](../../archive/dataset_manager_separation.md) (TD-028, archived); TD-202 (kinds), TD-205 (segments)
 - **Last traced against the code:** 2026-11-12; `remote_fetch_huggingface()`'s `config` 2026-11-19 (TD-314)
 
@@ -25,7 +25,9 @@ The **training-data ledger**: the in-memory view of, and operations on, two list
 All storage goes through a `RegistryTransport` chosen at construction: `registry_server_url` set → `RemoteTransport` (HTTP to `registry_server`;
 group = `run_group`, else the session directory's basename; a `/<kind>` segment for a kind); otherwise → `LocalTransport` (JSON Lines files, an
 advisory `flock`, atomic saves). A binary built without cpp-httplib warns and uses local files. A `dataset_kind` other than the four kinds throws
-`std::invalid_argument` (TD-402); the empty legacy pool is allowed.
+`std::invalid_argument` (TD-402); the empty legacy pool is allowed. So do (TD-498) an `https://` `registry_server_url` (the client has no TLS;
+it used to send plain HTTP to port 8082) and a group that isn't `valid_registry_group_name()` (it goes into the URL unencoded);
+`AnHttpsRegistryOrABadRunGroupIsRefused` covers both.
 
 It also owns `load_conversation_pairs()`, the training-file parser every training path uses (§5).
 

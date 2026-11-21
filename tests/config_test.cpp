@@ -1751,6 +1751,26 @@ TEST_F(ConfigTest, GutenbergMirrorsKey) {
     }));
 }
 
+// TD-498: the registry client has no TLS and puts RUN_GROUP into URLs unencoded.
+TEST_F(ConfigTest, RegistryUrlMustBeHttpAndRunGroupAName) {
+    adai::ServiceConfig c;
+    c.registry_server_url = "http://192.168.1.16:8082";
+    c.run_group = "bb01";
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(c, errors)) << (errors.empty() ? "" : errors[0]);
+
+    c.registry_server_url = "https://registry.example";
+    c.run_group = "../bb01";
+    errors.clear();
+    EXPECT_FALSE(ConfigLoader::validate(c, errors));
+    auto mentions = [&](const char* what) {
+        return std::any_of(errors.begin(), errors.end(),
+                           [&](const std::string& e) { return e.find(what) != std::string::npos; });
+    };
+    EXPECT_TRUE(mentions("registry_server_url"));
+    EXPECT_TRUE(mentions("run_group"));
+}
+
 // TD-410: early stopping and the schedule are settings, with the values that used to be fixed.
 TEST_F(ConfigTest, TrainingPolicyKeys) {
     const adai::ServiceConfig defaults;

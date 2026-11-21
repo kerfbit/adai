@@ -1,10 +1,72 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (490 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (491 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / RegistryTransport | Code fix (LOW, created October 17, 2026) |
+
+Description:
+Found while tracing `RegistryTransport.{hpp,cpp}`:
+- **Verified:** `LocalTransport::commit_trained()` appends without dedupe or claim checks: committing the same file from run `other` (claimed by `r1`) and
+  then from `r1` left two registry rows. `LocalTransport::add_pending()` returns true for an already-queued entry; `RemoteTransport` returns false, as the
+  header documents.
+- **By inspection:** `RemoteTransport::assign()`/`unassign()` don't parse the response's `segments`, so `result.segments` is empty while the counts include
+  them; `commit_trained()`/`delete_paths()` rewrite the local registry outside the lock; `RemoteTransport::commit_trained()` never sends `model_id`, and
+  nothing sets `DataVersion::model_id`, so `history?model_id=` (Android dashboard) never matches; `parse_host_port()` strips `https://` and sends plain HTTP
+  to 8082; `run_group`/`dataset_kind` aren't URL-encoded or validated; `LocalTransport::release()` logs the requested count; `upload_file()` reads the whole
+  file into memory.
+
+Action Items:
+
+- [x] Make `LocalTransport::commit_trained()` match the server (and TD-493's ownership rule); make `add_pending()` return false for duplicates.
+- [x] Parse `segments` in remote assign/unassign; lock registry rewrites.
+- [x] Set and send `model_id` (or remove it and the history filter); reject `https://` until supported; encode the group; stream uploads.
+  (`model_id` moved to TD-462, whose datasets proxy is its only consumer; the group is validated rather than encoded.)
+
+**Update (November 12, 2026, re-tracing `RegistryTransport` for TD-552):** part of this is done. `LocalTransport::commit_trained()` checks
+claims since TD-493 and now loads and saves the registry inside the pending lock, and `release()` logs the number actually released. Still
+open: `commit_trained()` appends without dedupe, `add_pending()`'s duplicate result, `delete_paths()`/`requeue_trained()` reading and
+saving the registry outside the lock, remote `assign`/`unassign` not reading `segments`, `model_id`, `https://`, the unencoded group and
+in-memory uploads. The code's `TODO: See TD-498` comments were updated to match.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::commit_trained()`/`add_pending()`/`release()`/`delete_paths()`, `RemoteTransport::commit_trained()`/`assign()`/`unassign()`, `parse_host_port()`); tagged `TODO: See TD-498`.
+
+Files to Modify:
+
+- `src/RegistryTransport.{hpp,cpp}`
+- `src/DatasetRegistry.cpp`
+- `tests/RegistryTransportTests.cpp`
+
+**Fix (November 21, 2026):**
+- **`LocalTransport::commit_trained()`** now does what `registry_server`'s `handle_trained()` does (the server stores through
+  `LocalTransport`, but its handler decides what to record): a unit listed twice in one call is recorded once, and a forced commit (no
+  run id) records only units not recorded yet. A claimed unit trained again still gets a second record (TD-493: the registry keeps each
+  pass's sample count), so "appends without dedupe" was by design for that case.
+- **`add_pending()`** returns false for a unit already queued, as the header and `RemoteTransport` say.
+- **Locking.** `delete_paths()` and `requeue_trained()` load and save the trained registry inside the pending lock. A test racing them
+  against `commit_trained()` from another thread lost commits on the old code (0, 27 and 0 of 60 kept in three runs) and keeps all 60 now.
+- **Remote assign/unassign** read the reply's `segments` into `result.segments` (`json_segments()`).
+- **URLs.** `valid_registry_group_name()` (the TD-490 rule, moved from `RegistryServer.cpp`, which now calls it) and
+  `valid_dataset_kind()` live in `RegistryTransport.hpp`. `RemoteTransport` refuses an `https://` URL (it stripped the scheme and sent
+  plain HTTP to port 8082), a bad group or a bad kind: one error, then no request is sent. `DatasetRegistry::build_transport()` throws
+  `std::invalid_argument` for the URL and group (as it does for a kind, TD-402), and `ConfigLoader::validate()` reports a `https://`
+  `REGISTRY_SERVER_URL` and a malformed `RUN_GROUP`. A valid group needs no encoding.
+- **Uploads** stream from the file in 1 MiB pieces through an httplib content provider instead of reading it whole.
+- **`model_id`** stays unset: its only consumer is MNS's datasets proxy, and TD-462 already decides whether to fix or remove that proxy
+  ("record `model_id` on mark-trained"); the `TODO` in `RemoteTransport::commit_trained()` now points there.
+- **Tests:** `RegistryTransportTests.cpp` (once per call and force, duplicate `add_pending()`, the race; 67 pass), new
+  `remote_transport_test.cpp` (a stub server: segments, a 3 MiB streamed upload byte for byte, no request for https/bad group/bad kind;
+  4 pass), `DatasetConfigTest.AnHttpsRegistryOrABadRunGroupIsRefused`, `ConfigTest.RegistryUrlMustBeHttpAndRunGroupAName`; the 107
+  registry live tests pass against a local `registry_server`.
+
+---
 
 ### TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server
 

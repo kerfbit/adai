@@ -1,12 +1,12 @@
 # `Config` — Source File Reference
 
-- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,040 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,035 lines)
+- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,040 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,110 lines)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
-- **Status tags:** `@adai-status: stable`; `Config.hpp` and `Config.cpp` `@adai-version: 1.34.0`; `@adai-reviewed: 2026-11-19`
-- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (112); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
+- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.34.0` (reviewed 2026-11-19), `Config.cpp` `1.35.0` (reviewed 2026-11-21)
+- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (113); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579)
+- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579); the registry URL and `RUN_GROUP` checks 2026-11-21 (TD-498)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `ConfigLoader` (a scratch program compiled against
 > `Config.cpp`) or the binaries.
@@ -78,7 +78,7 @@ Precedence is **command-line flags > environment > file > defaults**; each binar
   width, strategy);
 - **training:** learning rate, epochs, batch size, accumulation steps, weight decay, dropout `[0, 1)`, clipping and adaptive clipping, seed;
 - **GPU** fraction `(0, 1]`, device, `gpu_queue_depth` `[0, 1000000]` and `gpu_wait_timeout_seconds` `[0, 86400]` (TD-574); **every port** (PASV min ≤ max; the trainer's admin port ≠ its child port); every metrics, registry, FTP,
-  MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569); each `GUTENBERG_MIRRORS` entry an `https://` URL (TD-579). A field whose 0 means "off" or "no limit" accepts 0.
+  MNS and auto-save interval, size and count; `TRAINER_PASS_STALL_MINUTES` 0–10080 (TD-569); each `GUTENBERG_MIRRORS` entry an `https://` URL (TD-579); `REGISTRY_SERVER_URL` not `https://`, and a non-empty `RUN_GROUP` a valid group name (`valid_registry_group_name()`, TD-498). A field whose 0 means "off" or "no limit" accepts 0.
 
 `validate_or_exit(config, binary)` logs every error and calls `std::exit(1)`. Every shipped `config.*.conf` passes
 (`EveryShippedConfigFilePassesValidation`).

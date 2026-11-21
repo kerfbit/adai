@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 91 (7 high, 18 medium, 66 low)
+**Active Items:** 90 (7 high, 18 medium, 65 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 490 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 491 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 91 open items:
+**Where things stand.** Of the 90 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **70 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **69 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
+**November 21, 2026:** Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
+(LOW): `LocalTransport` commits as `registry_server` does and keeps the registry under its lock (a race test lost commits before),
+remote assign/unassign read segments, `https://` and bad group names are refused, and uploads stream; `model_id` moved to TD-462. Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
 Registry tab can re-queue trained files (one, or all, optionally assigned to a model); the deployment re-queue isn't needed, since
 `bb01` has no trained files. Filed [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
 drops every model, since TD-196 added columns its positional insert doesn't supply, and still imports the roles; verified with a real
@@ -163,7 +165,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (91 since TD-269, TD-540, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (90 since TD-269, TD-540, TD-498, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -212,7 +214,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- Registry and transport cleanup: [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) (LOW, `LocalTransport`/`RemoteTransport` divergence), [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
+- Registry and transport cleanup: [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW, `startup_sweep()`
   error codes), [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW, `DatasetRegistry` dead code and checksum), [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
   [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
@@ -353,7 +355,6 @@ as TD-426 and TD-467 were:
   - [TD-481: PPO Advantages Are Normalized Within Each Response](#td-481-ppo-advantages-are-normalized-within-each-response)
   - [TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1)
   - [TD-483: `Quantization` Asymmetric Range, Mode-Less Files and Unpacked INT4](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4)
-  - [TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
   - [TD-499: `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization)
   - [TD-500: RLHF Rollouts Never Explore and Updates Train on a Different Sequence](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence)
   - [TD-501: `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states)
@@ -3662,7 +3663,9 @@ Found while tracing `ModelNameService`:
 
 Action Items:
 
-- [ ] Fix or remove the datasets proxy (record `model_id` on mark-trained, use the model's `run_group` and kind).
+- [ ] Fix or remove the datasets proxy (record `model_id` on mark-trained, use the model's `run_group` and kind). Recording `model_id`
+  was also TD-498's item, moved here November 21, 2026: nothing sets `DataVersion::model_id` and `RemoteTransport::commit_trained()`
+  doesn't send it (its `TODO: See TD-462`), so this proxy is its only consumer.
 - [ ] Guard the registry settings with a mutex.
 - [ ] Return 500 (and roll back the in-memory change) when persistence fails.
 - [ ] Remove the old role mapping when a model is promoted to a different role.
@@ -4055,45 +4058,6 @@ Files to Modify:
 
 - `src/Quantization.hpp`
 - `tests/quantization_test.cpp`
-
----
-
-### TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `RegistryTransport.{hpp,cpp}`:
-- **Verified:** `LocalTransport::commit_trained()` appends without dedupe or claim checks: committing the same file from run `other` (claimed by `r1`) and
-  then from `r1` left two registry rows. `LocalTransport::add_pending()` returns true for an already-queued entry; `RemoteTransport` returns false, as the
-  header documents.
-- **By inspection:** `RemoteTransport::assign()`/`unassign()` don't parse the response's `segments`, so `result.segments` is empty while the counts include
-  them; `commit_trained()`/`delete_paths()` rewrite the local registry outside the lock; `RemoteTransport::commit_trained()` never sends `model_id`, and
-  nothing sets `DataVersion::model_id`, so `history?model_id=` (Android dashboard) never matches; `parse_host_port()` strips `https://` and sends plain HTTP
-  to 8082; `run_group`/`dataset_kind` aren't URL-encoded or validated; `LocalTransport::release()` logs the requested count; `upload_file()` reads the whole
-  file into memory.
-
-Action Items:
-
-- [ ] Make `LocalTransport::commit_trained()` match the server (and TD-493's ownership rule); make `add_pending()` return false for duplicates.
-- [ ] Parse `segments` in remote assign/unassign; lock registry rewrites.
-- [ ] Set and send `model_id` (or remove it and the history filter); reject `https://` until supported; encode the group; stream uploads.
-
-**Update (November 12, 2026, re-tracing `RegistryTransport` for TD-552):** part of this is done. `LocalTransport::commit_trained()` checks
-claims since TD-493 and now loads and saves the registry inside the pending lock, and `release()` logs the number actually released. Still
-open: `commit_trained()` appends without dedupe, `add_pending()`'s duplicate result, `delete_paths()`/`requeue_trained()` reading and
-saving the registry outside the lock, remote `assign`/`unassign` not reading `segments`, `model_id`, `https://`, the unencoded group and
-in-memory uploads. The code's `TODO: See TD-498` comments were updated to match.
-
-Location in code: `src/RegistryTransport.cpp` (`LocalTransport::commit_trained()`/`add_pending()`/`release()`/`delete_paths()`, `RemoteTransport::commit_trained()`/`assign()`/`unassign()`, `parse_host_port()`); tagged `TODO: See TD-498`.
-
-Files to Modify:
-
-- `src/RegistryTransport.{hpp,cpp}`
-- `src/DatasetRegistry.cpp`
-- `tests/RegistryTransportTests.cpp`
 
 ---
 

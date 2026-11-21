@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.1.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 2.2.0
+// @adai-reviewed: 2026-11-21
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -61,6 +61,17 @@ static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& c
 #ifdef BUILD_METRICS_API_SERVER
         const std::string group =
             cfg.run_group.empty() ? fs::path(cfg.session_dir).filename().string() : cfg.run_group;
+        // TD-498: as for the kind above; RemoteTransport would otherwise make no requests.
+        if (cfg.registry_server_url.rfind("https://", 0) == 0) {
+            throw std::invalid_argument("REGISTRY_SERVER_URL '" + cfg.registry_server_url +
+                                        "': https:// isn't supported by the registry client; use "
+                                        "http://");
+        }
+        if (!valid_registry_group_name(group)) {
+            throw std::invalid_argument("invalid registry run group '" + group +
+                                        "' (letters, digits, '_', '-' and '.', not first; at most "
+                                        "128)");
+        }
         return std::make_unique<RemoteTransport>(cfg.registry_server_url, group,
                                                  cfg.registry_timeout_ms, cfg.dataset_kind);
 #else

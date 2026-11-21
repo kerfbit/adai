@@ -1,12 +1,12 @@
 # `RegistryTransport` — Source File Reference
 
-- **Files:** [`src/RegistryTransport.hpp`](../../../../src/RegistryTransport.hpp) (676 lines), [`src/RegistryTransport.cpp`](../../../../src/RegistryTransport.cpp) (1,748)
+- **Files:** [`src/RegistryTransport.hpp`](../../../../src/RegistryTransport.hpp) (700 lines), [`src/RegistryTransport.cpp`](../../../../src/RegistryTransport.cpp) (1,805)
 - **Namespace:** global (`DataVersion`, `PendingEntry`, `segment_matches()`, `trained_matches()`, `SegmentTarget`, `PendingFileRange`, `FileToken`, `AcquireResponse`, `download_file_name()`, `registry_path_problem()`, the result types, `RegistryTransport`, `LocalTransport`, `RemoteTransport`)
 - **Built into:** `adai_core`. `RemoteTransport`'s HTTP code is compiled only with `BUILD_METRICS_API_SERVER` (set alongside httplib); without it every remote method logs an error and fails
 - **Used by:** [`DatasetRegistry`](DatasetRegistry.md) (`build_transport()`: `RemoteTransport` when `REGISTRY_SERVER_URL` is set, else `LocalTransport`), hence `incremental_trainer` and `dataset_manager`; **`registry_server` stores every group's state through `LocalTransport`** ([RegistryServer.md](RegistryServer.md)); `DataTransport` and `StartupSweep` use `download_file_name()`
-- **Status tag:** `@adai-status: stable`, `RegistryTransport.hpp` `@adai-version: 3.0.0` (MAJOR, TD-314: `fetch_huggingface()` gained `config`), `RegistryTransport.cpp` `2.1.0`, `@adai-reviewed: 2026-11-19`
+- **Status tag:** `@adai-status: stable`, `RegistryTransport.hpp` `@adai-version: 3.1.0` (3.0.0 was MAJOR, TD-314: `fetch_huggingface()` gained `config`; 3.1.0 adds the shared name checks, TD-498), `RegistryTransport.cpp` `2.2.0`, `@adai-reviewed: 2026-11-21`
 - **Tests:** [`tests/registry_transport_test.cpp`](../../../../tests/registry_transport_test.cpp) → `registryTransportTests` (10) and [`tests/RegistryTransportTests.cpp`](../../../../tests/RegistryTransportTests.cpp) → `registryTransportPhase9Tests` (65), all local; `RemoteTransport` against a real `registry_server` in `registryFtpConfinementTests` (which starts one) and `datasetRegistryLiveTests` (107, skipped unless one is running)
-- **Last traced against the code:** 2026-11-12; `fetch_huggingface()`'s `config` 2026-11-19 (TD-314)
+- **Last traced against the code:** 2026-11-12; `fetch_huggingface()`'s `config` 2026-11-19 (TD-314); TD-498's changes 2026-11-21
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linking `libadai_core.a`, using a scratch directory for
 > `LocalTransport` and a local `registry_server` for `RemoteTransport`.
@@ -67,15 +67,16 @@ the first changed: a unit then ends up both pending and trained, so it trains ag
 
 **Locking:** every operation that changes the queue (`acquire`, `release`, `commit_trained`, `add_pending`, `assign`, `unassign`,
 `delete_paths`, `requeue_trained`) holds an exclusive lock on `<pending>.lock` (`flock()`, or `_locking()` on Windows) for its
-read-modify-write. `commit_trained()` loads and saves the registry inside that lock; `delete_paths()` and `requeue_trained()` read the
-registry before taking it and save it after releasing it (TD-498). `load_*`/`save_*` themselves take no lock.
+read-modify-write. `commit_trained()`, `delete_paths()` and `requeue_trained()` load and save the registry inside that lock too (the last two
+read it before taking the lock and saved it after releasing it until TD-498, so a concurrent commit could be lost). `load_*`/`save_*`
+themselves take no lock.
 
 | Method | Behaviour |
 |---|---|
 | `acquire` | Under the lock, claims eligible entries in queue order up to the limit, records `claimed_unix` (display only: standalone claims have no lease), saves, and returns tokens with paths and ranges (no FTP). No queue file → nothing |
 | `release` | Clears this run's claim on matching entries and logs the number actually released |
-| `commit_trained` | TD-493: with a run id, records a new entry only when its unit is pending and claimed by that run (a whole-file record by any claimed entry of the path, a segment by its exact entry), logging how many it skipped; without one, records everything. Appends without removing an earlier record of the same unit (TD-498). Then removes the trained units from the queue as in §2 |
-| `add_pending` | Refuses a path `registry_path_problem()` rejects; otherwise appends the unit unless it is already queued, rewriting the queue atomically. Returns **true** for an already-queued unit (TD-498: the header and `RemoteTransport` say false) |
+| `commit_trained` | TD-493: with a run id, records a new entry only when its unit is pending and claimed by that run (a whole-file record by any claimed entry of the path, a segment by its exact entry), logging how many it skipped; without one (a force), only a unit not recorded yet. A claimed unit recorded by an earlier pass gets another record, so the registry keeps each pass's sample count; a unit listed twice in one call is recorded once. This is `registry_server`'s `handle_trained()` (TD-498). Then removes the trained units from the queue as in §2 |
+| `add_pending` | Refuses a path `registry_path_problem()` rejects; otherwise appends the unit unless it is already queued, rewriting the queue atomically. Returns **false** for an already-queued unit, as the header and `RemoteTransport` say (it returned true until TD-498) |
 | `next_session` | `SessionCounterStore` in `session_counters.db` beside the queue, opened on first use: one atomic increment per (model, run), so standalone trainers sharing it never get the same number (TD-304, TD-308). If the store can't be opened, `session-01` with a warning |
 | `assign` / `unassign` | §2's modes; whole-file targets match only whole-file entries, and bulk modes include segments |
 | `delete_paths` | A whole-file target removes its whole-file pending entry and **every** trained record of the path; a segment target exactly its own entry and record (TD-333). `delete_files` unlinks a whole-file target's file if it exists (local mode can reach any path), never for a segment target and never the transport's own two files |
@@ -86,9 +87,12 @@ registry before taking it and save it after releasing it (TD-498). `load_*`/`sav
 
 ## 4. `RemoteTransport(base_url, run_group, timeout_ms = 5000, dataset_kind = "")`
 
-`parse_host_port()` takes `http://` or `https://` off the URL (and any path) and reads `host[:port]`, default port 8082; every request is
-then plain HTTP (TD-498). Requests go to `/registry/<run_group>[/<kind>]/…`; the group and kind are put into the URL as given (the server
-validates the group, TD-490). Each call opens a new `httplib::Client` with connection and read timeouts of `timeout_ms` (verified: an
+TD-498: the constructor refuses an `https://` URL (this client has no TLS; it used to strip the scheme and send plain HTTP to port 8082),
+a run group that isn't `valid_registry_group_name()` (`[A-Za-z0-9_-][A-Za-z0-9._-]*`, at most 128, the rule `registry_server` applies,
+TD-490) and a kind that isn't `valid_dataset_kind()`. It logs one error, and every request then fails without being sent.
+`DatasetRegistry::build_transport()` throws `std::invalid_argument` for the same URL and group first, and `ConfigLoader::validate()`
+reports them. Otherwise `parse_host_port()` takes `http://` off the URL (and any path) and reads `host[:port]`, default port 8082, and
+requests go to `/registry/<run_group>[/<kind>]/…`; a valid group and kind need no encoding. Each call opens a new `httplib::Client` with connection and read timeouts of `timeout_ms` (verified: an
 unreachable host failed after 2.00 s with a 2 s timeout); the fetches and uploads allow at least 120 s to read (and upload to write).
 Nothing is retried.
 
@@ -104,13 +108,13 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
 | `acquire` | `POST …/acquire {run_id, max_files, model_name}` | Reads both reply shapes: with FTP, `files` tokens and the FTP host, port and `ftps_enabled`; without, the `acquired` path list with parallel `segment_starts`/`segment_counts`. `claim_lease_seconds` from either. `failed` on an HTTP error or unreadable reply |
 | `release` | `POST …/release {run_id, files, segments}` | Logs a failure |
 | `renew_claims` | `POST …/renew {run_id}` | `renewed`, or −1 |
-| `commit_trained` | `POST …/trained {run_id, files, samples}` (one aligned entry per unit: the new entries with their counts, then trained units already recorded so their pending entries are still removed), plus `segment_starts`/`segment_counts` in exact mode | Logs a failure, and warns when the server lists units it `rejected` (TD-493). `model_id` isn't sent (TD-498) |
+| `commit_trained` | `POST …/trained {run_id, files, samples}` (one aligned entry per unit: the new entries with their counts, then trained units already recorded so their pending entries are still removed), plus `segment_starts`/`segment_counts` in exact mode | Logs a failure, and warns when the server lists units it `rejected` (TD-493). `model_id` isn't sent: its only consumer is MNS's datasets proxy, which TD-462 fixes or removes |
 | `add_pending` | `POST …/pending/add {path, segment_start, segment_count}` | `true` when added; `false` (a warning) when the server says it was already queued, or on failure |
 | `next_session` | `POST …/session/next {model_name, run_id}` | `session_id`; `session-01` on an HTTP error, `""` on an unreadable reply |
-| `assign` / `unassign` | `POST …/assign {model_name, paths, count, segments}`, `…/unassign {…, force, segments}` | Counts and `paths`; the reply's `segments` aren't read, so `result.segments` stays empty while the counts include them (TD-498) |
+| `assign` / `unassign` | `POST …/assign {model_name, paths, count, segments}`, `…/unassign {…, force, segments}` | Counts, `paths`, and the segments touched from the reply's `segments` (read since TD-498) |
 | `delete_paths` | `POST …/delete {paths, force, delete_files, segments}` | Counts and per-target details (status, `file_deleted`, range) |
 | `fetch_gutenberg` / `fetch_huggingface` | `POST …/fetch/gutenberg {book_id, num_pairs, model_name}`, `…/fetch/huggingface {dataset_id, num_pairs, split, input_field, output_field, model_name, config}` | The queued path when the reply says `added`, else `""` |
-| `upload_file(local_path, overwrite)` | Reads the whole file into memory (TD-498), then `POST …/upload?filename=<basename>` with the bytes, adding `&overwrite=true` when asked | TD-552: a 409 sets `refused` from the reply's `reason` (`conflict` when it has none) with a warning; another error is logged and returns an empty result. A 200 succeeds when the reply says `added` **or** `replaced`, since a replaced queued file answers `{"added":false,"replaced":true}` |
+| `upload_file(local_path, overwrite)` | `POST …/upload?filename=<basename>` (adding `&overwrite=true` when asked), the body streamed from the file in 1 MiB pieces through an httplib content provider (TD-498; the whole file used to be read into memory first) | TD-552: a 409 sets `refused` from the reply's `reason` (`conflict` when it has none) with a warning; another error is logged and returns an empty result. A 200 succeeds when the reply says `added` **or** `replaced`, since a replaced queued file answers `{"added":false,"replaced":true}` |
 | `requeue_trained` | `POST …/requeue {paths, all, model_name}` | Counts and details; `ok = false` on failure |
 
 ---
@@ -120,14 +124,17 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
 | Suite | Covers |
 |---|---|
 | `registry_transport_test.cpp` (10) | `LocalTransport` round trips, missing files, directory creation, comments and blank lines, overwriting, `model_id` |
-| `RegistryTransportTests.cpp` (65) | `LocalTransportPhase9Test` (60): acquire (limits, claims, model eligibility), release (a wrong run, a segment), `commit_trained` (recording, the TD-493 claim check, a unit trained again, `model_id`), assign/unassign/delete modes, guards and segment targeting, `next_session()` (per run and model, persisted), failed saves under a file-size limit (TD-495), JSON Lines round trips of paths with spaces, tabs and newlines, old-format files rewritten, unreadable lines skipped, `registry_path_problem()` at `add_pending()`, a negative assign count, and the fetch/upload stubs. `SegmentMatchesTest` (3), `RegistryPathProblemTest` (2) |
+| `RegistryTransportTests.cpp` (67) | `LocalTransportPhase9Test` (62): acquire (limits, claims, model eligibility), release (a wrong run, a segment), `commit_trained` (recording, the TD-493 claim check, a unit trained again, `model_id`), assign/unassign/delete modes, guards and segment targeting, `next_session()` (per run and model, persisted), failed saves under a file-size limit (TD-495), JSON Lines round trips of paths with spaces, tabs and newlines, old-format files rewritten, unreadable lines skipped, `registry_path_problem()` at `add_pending()`, a negative assign count, the fetch/upload stubs, and (TD-498) a unit listed twice and a forced commit of a recorded unit, a duplicate
+`add_pending()`, and `delete_paths()`/`requeue_trained()` racing `commit_trained()` from another thread (both new tests fail on the old
+code). `SegmentMatchesTest` (3), `RegistryPathProblemTest` (2) |
+| `remote_transport_test.cpp` (4, TD-498) | `RemoteTransport` against a stub server: segments read from assign/unassign replies, a 3 MiB upload streamed byte for byte, no request for an `https://` URL, a bad group or a bad kind; the shared name rules |
 | `registryFtpConfinementTests` | `RemoteTransport` against a `registry_server` it starts: paths with JSON syntax through every call (TD-497), acquire's out-of-tree confinement (TD-040), a negative assign count, and `upload_file()` through `dataset_manager add --overwrite` (TD-552) |
-| `datasetRegistryLiveTests` (106) | The remote surface against a running `registry_server`, through `DatasetRegistry` and raw HTTP; skipped when none is running |
+| `datasetRegistryLiveTests` (107; all pass against a local `registry_server`, November 21, 2026) | The remote surface against a running `registry_server`, through `DatasetRegistry` and raw HTTP; skipped when none is running |
 
 `requeue_trained()` is tested through `DatasetRegistryTests` ([DatasetRegistry.md](DatasetRegistry.md)).
 
-**Not covered:** releasing paths and segments in one call; concurrent local processes (the unlocked registry half of
-`delete_paths()`/`requeue_trained()`).
+**Not covered:** releasing paths and segments in one call; concurrent local *processes* (the race test uses two threads, each with its
+own `LocalTransport` and so its own lock descriptor, which `flock()` treats like two processes).
 
 ---
 
@@ -135,16 +142,16 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `LocalTransport::commit_trained()` appends without dedupe; `add_pending()` returns true for a duplicate where `RemoteTransport` and the header say false | A unit trained twice gets two records; inconsistent results | **Verified** | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
-| `delete_paths()`/`requeue_trained()` read and save the registry outside the lock | A concurrent commit can lose a record | By inspection | TD-498 |
-| Remote `assign`/`unassign` don't read the reply's `segments` | `result.segments` empty while the counts include them | By inspection | TD-498 |
-| `model_id` never set or sent; `https://` sent as plain HTTP; group and kind not URL-encoded; uploads read the whole file into memory | A dead history filter; a misleading URL; memory for large uploads | By inspection | TD-498 |
+| `model_id` never set or sent | `history?model_id=` (MNS's datasets proxy) never matches | By inspection | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) (moved from TD-498) |
 | `next_session()` answers `""` for an unreadable reply but `session-01` for an HTTP error | A pass can continue with an empty session id | By inspection | — |
 
 ---
 
 ## 7. History
 
+- **TD-498 (November 21, 2026):** `LocalTransport::commit_trained()` matches `handle_trained()` (once per call; a force skips recorded
+  units); `add_pending()` returns false for a duplicate; `delete_paths()`/`requeue_trained()` hold the lock across the registry too;
+  remote assign/unassign read `segments`; `https://`, bad groups and kinds are refused; uploads stream. `model_id` moved to TD-462.
 - **TD-552 (November 12, 2026):** `upload_file(local_path, overwrite)` and `UploadResult`; a replacement is a success. The same day the
   header's comments on `PendingEntry::run_id`, `release()`, `requeue_trained()` and `LocalTransport`'s file formats, which described the
   code before TD-333 and TD-496, were corrected.

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.34.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 1.35.0
+// @adai-reviewed: 2026-11-21
 
 #include "Config.hpp"
 #include <algorithm>
@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include "GenerationSettings.hpp"
 #include "Logger.hpp"
+#include "RegistryTransport.hpp"  // valid_registry_group_name() (TD-498)
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
 // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #1) - JSON Configuration Format Support
@@ -1704,6 +1705,18 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     at_least(config.large_file_warn_threshold_mb, 0, "large_file_warn_threshold_mb");
     at_least(config.ftp_max_sessions_per_run, 0, "ftp_max_sessions_per_run");
     at_least(config.name_service_timeout_ms, 1, "name_service_timeout_ms");
+    // TD-498: the registry client speaks plain HTTP and puts RUN_GROUP into the URL unencoded.
+    if (config.registry_server_url.rfind("https://", 0) == 0) {
+        errors.push_back("Invalid registry_server_url: '" + config.registry_server_url +
+                         "' (https:// isn't supported by the registry client; use http://)");
+        valid = false;
+    }
+    if (!config.run_group.empty() && !valid_registry_group_name(config.run_group)) {
+        errors.push_back("Invalid run_group: '" + config.run_group +
+                         "' (letters, digits, '_', '-' and '.', not first; at most 128)");
+        valid = false;
+    }
+
     // TD-579: each Gutenberg mirror is an https:// base URL.
     {
         std::stringstream mirrors(config.gutenberg_mirrors);

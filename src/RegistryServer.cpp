@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.34.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.34.1
+// @adai-reviewed: 2026-11-21
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -82,6 +82,7 @@
 #include "DaemonConfigStore.hpp"
 #include "SessionCounterStore.hpp"
 #include "RegistryServerArgs.hpp"
+#include "RegistryTransport.hpp"
 #include "DataFetcher.hpp"
 #include "DatasetRegistry.hpp"
 #include "FtpDataServer.hpp"
@@ -133,22 +134,7 @@ static std::string data_dir = "registry_sessions";
 // to data_dir itself. Allowed: [A-Za-z0-9_-][A-Za-z0-9._-]*, at most 128 characters; it can't
 // start with '.', so "." and ".." are out.
 static bool valid_group_name(const std::string& group) {
-    if (group.empty() || group.size() > 128) {
-        return false;
-    }
-    auto ok = [](char c, bool first) {
-        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-               c == '_' || c == '-' || (!first && c == '.');
-    };
-    if (!ok(group[0], true)) {
-        return false;
-    }
-    for (size_t i = 1; i < group.size(); ++i) {
-        if (!ok(group[i], false)) {
-            return false;
-        }
-    }
-    return true;
+    return valid_registry_group_name(group);  // RegistryTransport.hpp, shared with the client
 }
 
 // Every route checks the group first; a bad one gets 400 and never reaches a handler.

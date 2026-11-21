@@ -1106,6 +1106,14 @@ target_link_libraries(registryTransportPhase9Tests
 )
 add_test(NAME RegistryTransportPhase9Tests COMMAND registryTransportPhase9Tests)
 
+# TD-498: RemoteTransport against a stub registry_server (segments, streamed upload, refused URLs)
+if(HTTPLIB_INCLUDE_DIR AND BUILD_METRICS_API_SERVER)
+    add_executable(remoteTransportTests remote_transport_test.cpp)
+    target_include_directories(remoteTransportTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(remoteTransportTests adai_core GTest::gtest_main)
+    add_test(NAME RemoteTransportTests COMMAND remoteTransportTests)
+endif()
+
 # TD-028 Phase 10: DatasetRegistry unit tests
 add_executable(datasetRegistryTests DatasetRegistryTests.cpp)
 target_link_libraries(datasetRegistryTests

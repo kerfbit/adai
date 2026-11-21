@@ -224,6 +224,21 @@ TEST(DatasetConfigTest, AnUnknownDatasetKindIsRefused) {
     EXPECT_FALSE(std::filesystem::exists("/tmp/escape"));
 }
 
+// TD-498: an https:// registry URL (the client has no TLS; it used to send plain HTTP to port 8082)
+// or a run group that isn't a single safe URL segment is refused, as an unknown kind is.
+TEST(DatasetConfigTest, AnHttpsRegistryOrABadRunGroupIsRefused) {
+    DatasetConfig cfg;
+    cfg.session_dir = "/tmp/adai_td498_session";
+    cfg.registry_server_url = "https://registry.example";
+    cfg.run_group = "bb01";
+    EXPECT_THROW(DatasetRegistry{cfg}, std::invalid_argument);
+    cfg.registry_server_url = "http://127.0.0.1:1";
+    for (const std::string group : {"../etc", "a/b", ".hidden"}) {
+        cfg.run_group = group;
+        EXPECT_THROW(DatasetRegistry{cfg}, std::invalid_argument) << group;
+    }
+}
+
 TEST(DatasetConfigTest, MakeConfigEmptySessionDirKeepsDefault) {
     adai::ServiceConfig svc;
     svc.session_dir = "";

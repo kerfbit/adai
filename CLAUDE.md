@@ -454,7 +454,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(91 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(90 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -529,7 +529,6 @@ reference doc that tracks it):
 | TD-481 (LOW) | PPO Advantages Are Normalized Within Each Response. Deferred with RLHF. Left: Normalize advantages across a batch of rollouts (or not at all, relying on the value baseline), not within one response (and 1 more). See [PPOOptimizer.md](docs/development/reference/source/PPOOptimizer.md). |
 | TD-482 (LOW) | `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1. Deferred with RLHF. Left: Apply the clipped objective to the policy (compute new log-probs with the live model each PPO epoch and backpropagate the clipped loss, with KL early… (and 1 more). See [PPOOptimizer.md](docs/development/reference/source/PPOOptimizer.md). |
 | TD-483 (LOW) | `Quantization` Asymmetric Range, Mode-Less Files and Unpacked INT4. Left: Asymmetric calibration: `min = min(min, 0)`, `max = max(max, 0)` (standard), then compute `zero_point` without clamping away the range (and 2 more). See [Quantization.md](docs/development/reference/source/Quantization.md). |
-| TD-498 (LOW) | `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene. Left: Make `LocalTransport::commit_trained()` match the server (and TD-493's ownership rule); make `add_pending()` return false for duplicates (and 2 more). See [RegistryTransport.md](docs/development/reference/source/RegistryTransport.md). |
 | TD-499 (LOW) | `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization. Left: Check every read in `load()`, validate counts and per-layer shapes, and reject a file whose architecture differs from the constructed one (and 2 more). See [RewardModel.md](docs/development/reference/source/RewardModel.md). |
 | TD-500 (LOW) | RLHF Rollouts Never Explore and Updates Train on a Different Sequence. Left: Return the generated token IDs from generation and train on exactly those, with the same encoder input generation used (no special tokens). See [RLHFTrainer.md](docs/development/reference/source/RLHFTrainer.md). |
 | TD-501 (LOW) | `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States. Left: Add a KL penalty (per-token reward shaping against a frozen reference model's log-probs) (and 2 more). See [RLHFTrainer.md](docs/development/reference/source/RLHFTrainer.md). |

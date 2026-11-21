@@ -247,7 +247,7 @@ None — every in-scope file carries a tag.
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/RLHFTrainer.cpp` | experimental | 0.1.4 | 2026-10-26 | TD-038 |
 | `src/RLHFTrainer.hpp` | experimental | 0.1.0 | 2026-09-13 | TD-038 |
-| `src/RegistryServer.cpp` | beta | 0.34.0 | 2026-11-19 | TD-376 |
+| `src/RegistryServer.cpp` | beta | 0.34.1 | 2026-11-21 | TD-376 |
 | `src/RegistryServerArgs.cpp` | beta | 0.6.0 | 2026-11-10 | — |
 | `src/RegistryServerArgs.hpp` | beta | 0.6.0 | 2026-11-10 | — |
 | `src/RewardModel.hpp` | beta | 0.7.1 | 2026-09-13 | TD-038 |

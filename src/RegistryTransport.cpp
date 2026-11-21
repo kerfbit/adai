@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.1.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 2.2.0
+// @adai-reviewed: 2026-11-21
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -19,6 +19,7 @@
 #include <unistd.h>    // close()
 #endif
 #include <algorithm>
+#include <memory>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -522,8 +523,6 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
     unlock_pending(lock_fd);
 }
 
-// TODO: See TD-498 in TECHNICAL_DEBT.md - appends without dedupe: a unit recorded by an earlier
-// pass gets a second row.
 void LocalTransport::commit_trained(const std::string& run_id,
                                     const std::vector<DataVersion>& new_entries,
                                     const std::vector<std::string>& trained_paths,
@@ -538,24 +537,44 @@ void LocalTransport::commit_trained(const std::string& run_id,
     load_pending(pending);
 
     // ── Registry ──────────────────────────────────────────────────────────
-    // TD-493, as in registry_server's handle_trained(): with a run_id, an entry is recorded only
-    // when its unit is pending and claimed by that run (even if an earlier pass recorded it too).
-    // Without one, entries are recorded as given (DatasetRegistry already skipped recorded units).
+    // TD-493/TD-498, as in registry_server's handle_trained(): with a run_id, an entry is recorded
+    // only when its unit is pending and claimed by that run, even if an earlier pass recorded it
+    // too (the registry keeps each pass's sample count). Without one (a force), only a unit not
+    // recorded yet. A unit listed twice in one call is recorded once.
     std::vector<DataVersion> registry;
     load_registry(registry);
+    const std::size_t recorded_before = registry.size();
+    auto recorded_earlier = [&](const DataVersion& e) {
+        return std::any_of(registry.begin(), registry.begin() + static_cast<std::ptrdiff_t>(recorded_before),
+                           [&](const DataVersion& dv) {
+                               return trained_matches(dv, e.data_file, e.segment_start,
+                                                      e.segment_count);
+                           });
+    };
+    auto recorded_now = [&](const DataVersion& e) {
+        return std::any_of(registry.begin() + static_cast<std::ptrdiff_t>(recorded_before),
+                           registry.end(), [&](const DataVersion& dv) {
+                               return trained_matches(dv, e.data_file, e.segment_start,
+                                                      e.segment_count);
+                           });
+    };
     int rejected = 0;
     for (const auto& e : new_entries) {
-        const bool claimed =
-            run_id.empty() ||
-            std::any_of(pending.begin(), pending.end(), [&](const PendingEntry& p) {
-                return p.run_id == run_id &&
-                       (e.segment_start < 0 ? p.path == e.data_file
-                                            : segment_matches(p, e.data_file, e.segment_start,
-                                                              e.segment_count));
-            });
-        if (claimed)
+        if (recorded_now(e))
+            continue;  // listed twice in one call
+        const bool eligible =
+            run_id.empty()
+                ? !recorded_earlier(e)
+                : std::any_of(pending.begin(), pending.end(), [&](const PendingEntry& p) {
+                      return p.run_id == run_id &&
+                             (e.segment_start < 0 ? p.path == e.data_file
+                                                  : segment_matches(p, e.data_file,
+                                                                    e.segment_start,
+                                                                    e.segment_count));
+                  });
+        if (eligible)
             registry.push_back(e);
-        else
+        else if (!run_id.empty())
             ++rejected;
     }
     if (!save_registry(registry)) {  // TD-495
@@ -610,8 +629,7 @@ bool LocalTransport::add_pending(const std::string& path, int segment_start, int
     for (const auto& e : entries) {
         if (segment_matches(e, path, segment_start, segment_count)) {
             unlock_pending(lock_fd);
-            // TODO: See TD-498 in TECHNICAL_DEBT.md - header (and RemoteTransport) say false for a duplicate.
-            return true;  // already queued
+            return false;  // TD-498: already queued, as the header and RemoteTransport say
         }
     }
 
@@ -812,16 +830,15 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
         return result;
     }
 
-    // TODO: See TD-498 in TECHNICAL_DEBT.md - the registry is read before the lock and saved after
-    // it, so a concurrent commit_trained() can lose a record (requeue_trained() does the same).
-    std::vector<DataVersion> registry;
-    load_registry(registry);
-
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::delete_paths — failed to acquire pending lock");
         return result;
     }
+    // TD-498: the registry is read and saved under the pending lock, as commit_trained() does; it
+    // used to be read before the lock and saved after it, so a concurrent commit could lose a record.
+    std::vector<DataVersion> registry;
+    load_registry(registry);
     std::vector<PendingEntry> pending;
     load_pending(pending);
 
@@ -908,10 +925,10 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
     if (pending_changed && !save_pending(pending)) {  // TD-495
         Logger::error("LocalTransport::delete_paths — the pending queue wasn't saved");
     }
-    unlock_pending(lock_fd);
     if (registry_changed && !save_registry(registry)) {  // TD-495
         Logger::error("LocalTransport::delete_paths — the trained registry wasn't saved");
     }
+    unlock_pending(lock_fd);
     Logger::info("LocalTransport::delete_paths — {} deleted, {} skipped, {} not_found",
                 result.deleted, result.skipped, result.not_found);
     return result;
@@ -953,15 +970,14 @@ RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& pa
         return result;
     }
 
-    std::vector<DataVersion> registry;
-    load_registry(registry);
-
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::requeue_trained — failed to acquire pending lock");
         result.ok = false;
         return result;
     }
+    std::vector<DataVersion> registry;  // TD-498: read and saved under the lock
+    load_registry(registry);
     std::vector<PendingEntry> pending;
     load_pending(pending);
 
@@ -1022,10 +1038,10 @@ RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& pa
     if (changed && !save_pending(pending)) {
         result.ok = false;
     }
-    unlock_pending(lock_fd);
     if (changed && result.ok && !save_registry(registry)) {
         result.ok = false;
     }
+    unlock_pending(lock_fd);
     Logger::info("LocalTransport::requeue_trained — {} requeued, {} already pending, {} not "
                  "found",
                  result.requeued, result.already_pending, result.not_found);
@@ -1081,6 +1097,23 @@ std::vector<std::string> json_strings(const Json& j, const char* key) {
     return out;
 }
 
+// TD-498: a reply's [{"path":"...","segment_start":N,"segment_count":N},...] (assign/unassign).
+std::vector<SegmentTarget> json_segments(const Json& j, const char* key) {
+    std::vector<SegmentTarget> out;
+    for (const auto& v : json_list(j, key)) {
+        if (!v.is_object())
+            continue;
+        const auto path = v.find("path");
+        const auto start = v.find("segment_start");
+        const auto count = v.find("segment_count");
+        if (path == v.end() || !path->is_string() || start == v.end() ||
+            !start->is_number_integer() || count == v.end() || !count->is_number_integer())
+            continue;
+        out.push_back({path->get<std::string>(), start->get<int>(), count->get<int>()});
+    }
+    return out;
+}
+
 // TD-205: segment targets as [{"path":"...","segment_start":N,"segment_count":N},...]
 Json segments_json(const std::vector<SegmentTarget>& v) {
     Json out = Json::array();
@@ -1091,17 +1124,12 @@ Json segments_json(const std::vector<SegmentTarget>& v) {
     return out;
 }
 
-// TODO: See TD-498 in TECHNICAL_DEBT.md - https:// is stripped and plain HTTP is sent (default port 8082).
-// Parse URL "http://host[:port]" → {host, port}
+// Parse URL "http://host[:port]" → {host, port}. TD-498: the caller refuses https:// (this client
+// speaks plain HTTP only), so only http:// or a bare host:port reach here.
 std::pair<std::string, int> parse_host_port(const std::string& url) {
     std::string s = url;
-    for (const char* prefix : {"http://", "https://"}) {
-        const std::string p = prefix;
-        if (s.rfind(p, 0) == 0) {
-            s = s.substr(p.size());
-            break;
-        }
-    }
+    if (s.rfind("http://", 0) == 0)
+        s = s.substr(7);
     // strip any trailing path
     const auto slash = s.find('/');
     if (slash != std::string::npos)
@@ -1122,6 +1150,22 @@ std::pair<std::string, int> parse_host_port(const std::string& url) {
 RemoteTransport::RemoteTransport(std::string base_url, std::string run_group, int timeout_ms,
                                  std::string dataset_kind)
     : timeout_ms_(timeout_ms) {
+    // TD-498: the run group and kind go into the URL unencoded, so they must be names
+    // registry_server accepts; and this client has no TLS, so https:// isn't accepted. It used to
+    // strip "https://" and send plain HTTP to port 8082. Either way every request then fails
+    // (an empty host) after this one error, instead of reaching the wrong server or path.
+    std::string problem;
+    if (base_url.rfind("https://", 0) == 0)
+        problem = "https:// isn't supported by the registry client (it speaks plain HTTP); use http://";
+    else if (!valid_registry_group_name(run_group))
+        problem = "invalid run group '" + run_group + "' ([A-Za-z0-9_-][A-Za-z0-9._-]*, at most 128)";
+    else if (!valid_dataset_kind(dataset_kind))
+        problem = "invalid dataset kind '" + dataset_kind + "'";
+    if (!problem.empty()) {
+        Logger::error("RemoteTransport: {} — no registry requests will be made", problem);
+        port_ = 0;
+        return;
+    }
     auto [host, port] = parse_host_port(base_url);
     host_ = std::move(host);
     port_ = port;
@@ -1336,7 +1380,8 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    // TODO: See TD-498 in TECHNICAL_DEBT.md - model_id is never sent (and never set), so history?model_id= never matches.
+    // TODO: See TD-462 in TECHNICAL_DEBT.md - model_id is never sent (and never set), so history?model_id= never matches;
+    // its only consumer is MNS's datasets proxy, which TD-462 fixes or removes.
     // One aligned entry per trained unit: files[i], samples[i] and (TD-333, exact mode)
     // segment_starts[i]/segment_counts[i]. new_entries first (they carry the sample counts), then
     // any trained path/segment already recorded, so its pending entry is still removed.
@@ -1465,9 +1510,9 @@ AssignResult RemoteTransport::assign(const std::string& model_name,
     const Json reply = parse_reply(res->body, "assign");
     if (reply.is_discarded())
         return result;
-    // TODO: See TD-498 in TECHNICAL_DEBT.md - response "segments" not parsed; result.segments stays empty.
     result.assigned = json_num(reply, "assigned", 0);
     result.paths = json_strings(reply, "paths");
+    result.segments = json_segments(reply, "segments");  // TD-498
     Logger::info("RemoteTransport: assigned {} files to model '{}'", result.assigned, model_name);
 #else
     Logger::error("RemoteTransport::assign — not compiled");
@@ -1500,6 +1545,7 @@ UnassignResult RemoteTransport::unassign(const std::string& model_name,
     result.unassigned = json_num(reply, "unassigned", 0);
     result.skipped = json_num(reply, "skipped", 0);
     result.paths = json_strings(reply, "paths");
+    result.segments = json_segments(reply, "segments");  // TD-498
     Logger::info("RemoteTransport: unassigned {} files from model '{}' ({} skipped)",
                 result.unassigned, model_name, result.skipped);
 #else
@@ -1630,14 +1676,14 @@ std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, in
 UploadResult RemoteTransport::upload_file(const std::string& local_path, bool overwrite) {
     UploadResult result;
 #ifdef BUILD_METRICS_API_SERVER
-    std::ifstream in(local_path, std::ios::binary);
-    if (!in.is_open()) {
+    // TD-498: streamed from disk in 1 MiB pieces; it used to be read whole into memory first.
+    auto in = std::make_shared<std::ifstream>(local_path, std::ios::binary);
+    std::error_code size_ec;
+    const auto file_size = fs::file_size(local_path, size_ec);
+    if (!in->is_open() || size_ec) {
         Logger::error("RemoteTransport::upload_file — cannot open local file: {}", local_path);
         return result;
     }
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    const std::string contents = buf.str();
 
     const std::string filename = fs::path(local_path).filename().string();
 
@@ -1650,7 +1696,18 @@ UploadResult RemoteTransport::upload_file(const std::string& local_path, bool ov
     const std::string path = group_prefix_ +
                              "/upload?filename=" + httplib::detail::encode_query_param(filename) +
                              (overwrite ? "&overwrite=true" : "");
-    const auto res = cli.Post(path.c_str(), contents, "application/octet-stream");
+    const auto res = cli.Post(
+        path, static_cast<std::size_t>(file_size),
+        [in](std::size_t offset, std::size_t length, httplib::DataSink& sink) {
+            std::vector<char> chunk(std::min<std::size_t>(length, 1 << 20));
+            in->seekg(static_cast<std::streamoff>(offset));
+            in->read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+            const auto got = in->gcount();
+            if (got <= 0)
+                return false;  // the file shrank: abort the request
+            return sink.write(chunk.data(), static_cast<std::size_t>(got));
+        },
+        "application/octet-stream");
     if (res && res->status == 409) {
         // TD-492: the name is claimed, segmented, or (without overwrite) trained or queued.
         const Json reply = parse_reply(res->body, "upload_file");
