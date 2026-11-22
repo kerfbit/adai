@@ -5,8 +5,8 @@
 - **Built into:** `adai_core`. `RemoteTransport`'s HTTP code is compiled only with `BUILD_METRICS_API_SERVER` (set alongside httplib); without it every remote method logs an error and fails
 - **Used by:** [`DatasetRegistry`](DatasetRegistry.md) (`build_transport()`: `RemoteTransport` when `REGISTRY_SERVER_URL` is set, else `LocalTransport`), hence `incremental_trainer` and `dataset_manager`; **`registry_server` stores every group's state through `LocalTransport`** ([RegistryServer.md](RegistryServer.md)); `DataTransport` and `StartupSweep` use `download_file_name()`
 - **Status tag:** `@adai-status: stable`, `RegistryTransport.hpp` `@adai-version: 3.1.0` (3.0.0 was MAJOR, TD-314: `fetch_huggingface()` gained `config`; 3.1.0 adds the shared name checks, TD-498), `RegistryTransport.cpp` `2.2.0`, `@adai-reviewed: 2026-11-21`
-- **Tests:** [`tests/registry_transport_test.cpp`](../../../../tests/registry_transport_test.cpp) → `registryTransportTests` (10) and [`tests/RegistryTransportTests.cpp`](../../../../tests/RegistryTransportTests.cpp) → `registryTransportPhase9Tests` (65), all local; `RemoteTransport` against a real `registry_server` in `registryFtpConfinementTests` (which starts one) and `datasetRegistryLiveTests` (107, skipped unless one is running)
-- **Last traced against the code:** 2026-11-12; `fetch_huggingface()`'s `config` 2026-11-19 (TD-314); TD-498's changes 2026-11-21
+- **Tests:** [`tests/registry_transport_test.cpp`](../../../../tests/registry_transport_test.cpp) → `registryTransportTests` (10) and [`tests/RegistryTransportTests.cpp`](../../../../tests/RegistryTransportTests.cpp) → `registryTransportPhase9Tests` (68), all local; `RemoteTransport` against a real `registry_server` in `registryFtpConfinementTests` (which starts one) and `datasetRegistryLiveTests` (107, skipped unless one is running)
+- **Last traced against the code:** 2026-11-12; `fetch_huggingface()`'s `config` 2026-11-19 (TD-314); TD-498's changes 2026-11-21; tests 2026-11-21 (TD-583)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linking `libadai_core.a`, using a scratch directory for
 > `LocalTransport` and a local `registry_server` for `RemoteTransport`.
@@ -124,8 +124,8 @@ to vanish, be cut short or come back with each backslash quadrupled, verified).
 | Suite | Covers |
 |---|---|
 | `registry_transport_test.cpp` (10) | `LocalTransport` round trips, missing files, directory creation, comments and blank lines, overwriting, `model_id` |
-| `RegistryTransportTests.cpp` (67) | `LocalTransportPhase9Test` (62): acquire (limits, claims, model eligibility), release (a wrong run, a segment), `commit_trained` (recording, the TD-493 claim check, a unit trained again, `model_id`), assign/unassign/delete modes, guards and segment targeting, `next_session()` (per run and model, persisted), failed saves under a file-size limit (TD-495), JSON Lines round trips of paths with spaces, tabs and newlines, old-format files rewritten, unreadable lines skipped, `registry_path_problem()` at `add_pending()`, a negative assign count, the fetch/upload stubs, and (TD-498) a unit listed twice and a forced commit of a recorded unit, a duplicate
-`add_pending()`, and `delete_paths()`/`requeue_trained()` racing `commit_trained()` from another thread (both new tests fail on the old
+| `RegistryTransportTests.cpp` (68) | `LocalTransportPhase9Test` (63): acquire (limits, claims, model eligibility), release (a wrong run, a segment), `commit_trained` (recording, the TD-493 claim check, a unit trained again, `model_id`), assign/unassign/delete modes, guards and segment targeting, `next_session()` (per run and model, persisted), failed saves under a file-size limit (TD-495), JSON Lines round trips of paths with spaces, tabs and newlines, old-format files rewritten, unreadable lines skipped, `registry_path_problem()` at `add_pending()`, a negative assign count, the fetch/upload stubs, and (TD-498) a unit listed twice and a forced commit of a recorded unit, a duplicate
+`add_pending()`, and `delete_paths()`/`requeue_trained()` racing `commit_trained()` from another thread and, since TD-583, from a forked process (each fails on the old
 code). `SegmentMatchesTest` (3), `RegistryPathProblemTest` (2) |
 | `remote_transport_test.cpp` (4, TD-498) | `RemoteTransport` against a stub server: segments read from assign/unassign replies, a 3 MiB upload streamed byte for byte, no request for an `https://` URL, a bad group or a bad kind; the shared name rules |
 | `registryFtpConfinementTests` | `RemoteTransport` against a `registry_server` it starts: paths with JSON syntax through every call (TD-497), acquire's out-of-tree confinement (TD-040), a negative assign count, and `upload_file()` through `dataset_manager add --overwrite` (TD-552) |
@@ -133,8 +133,7 @@ code). `SegmentMatchesTest` (3), `RegistryPathProblemTest` (2) |
 
 `requeue_trained()` is tested through `DatasetRegistryTests` ([DatasetRegistry.md](DatasetRegistry.md)).
 
-**Not covered:** releasing paths and segments in one call; concurrent local *processes* (the race test uses two threads, each with its
-own `LocalTransport` and so its own lock descriptor, which `flock()` treats like two processes; [TD-583](../../guides/TECHNICAL_DEBT.md#td-583-the-registry-lock-race-is-tested-only-across-threads)).
+**Not covered:** releasing paths and segments in one call.
 
 ---
 
@@ -174,3 +173,12 @@ own `LocalTransport` and so its own lock descriptor, which `flock()` treats like
 `registry_server` to pick `default` or the dataset's only one. `RemoteTransport` sends it as the body's `"config"`; `LocalTransport`
 ignores it, as it does the whole fetch. Adding a parameter to the pure virtual breaks every implementation, hence the header's MAJOR
 version; the only others are the tests' fakes.
+
+## Addendum (November 21, 2026): the lock race across processes (TD-583)
+
+`LocalTransportPhase9Test.DeleteAndRequeueDoNotLoseCommitsFromAnotherProcess` forks: the child commits 60 units while the parent deletes
+and re-queues 60 old records, a pipe starting both together, and the parent checks that every commit survived and every old record went.
+The child only `_exit()`s; the parent reaps its own child's pid. Unlike the thread test, it would still catch a lost commit if the lock
+became per-process (POSIX `fcntl()` record locks don't exclude threads of one process). With the lock scope TD-498 replaced (the
+registry read before `lock_pending()` and saved after `unlock_pending()`), it kept 0, 0 and 15 of 60 commits in three runs, and the
+thread test 0 each time; both pass on the current code. The code is unchanged.

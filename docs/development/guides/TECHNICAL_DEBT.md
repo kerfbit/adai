@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 84 (7 high, 18 medium, 59 low)
+**Active Items:** 83 (7 high, 18 medium, 58 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 500 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 501 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,20 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 84 open items:
+**Where things stand.** Of the 83 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **63 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **62 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
+**November 21, 2026:** Closed [TD-583](../archive/TECHNICAL_DEBT_RESOLVED.md#td-583-the-registry-lock-race-is-tested-only-across-threads)
+(LOW): the registry lock race is also tested across a forked process, and fails with the lock scope TD-498 replaced. Closed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
 (LOW): the failure was a hang. A pass's admin API lost a `stop()` that came before httplib was listening, so a pass that failed at once
 never exited; `TrainerAdminAPI` and `TrainerServiceProxy` now use TD-528's start/stop handshake. Closed [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
 (LOW): `registry_ftp_confinement_test` takes kernel-assigned ports and starts `registry_server` again with new ones when another process
@@ -45,7 +46,7 @@ connection, and `DataTransport.hpp` no longer leaks `using` declarations. Closed
 trained file that changed is reported. Closed [TD-513](../archive/TECHNICAL_DEBT_RESOLVED.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls)
 (LOW): `startup_sweep()` no longer throws on filesystem errors, releases every segment this run claimed on an empty download, and leaves
 another run's. Filed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW, `SighupTests` failing under a loaded parallel run),
-[TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](../archive/TECHNICAL_DEBT_RESOLVED.md#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
+[TD-583](../archive/TECHNICAL_DEBT_RESOLVED.md#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](../archive/TECHNICAL_DEBT_RESOLVED.md#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
 commit message misstating that test's results; closed the same day: the owner left the message as is, with the TD as the correction).
 Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
 (LOW): `LocalTransport` commits as `registry_server` does and keeps the registry under its lock (a race test lost commits before),
@@ -183,7 +184,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (84 since TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (83 since TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -232,7 +233,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
 - [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
   with too few values) while still importing `roles.json`.
 
@@ -382,7 +382,6 @@ as TD-426 and TD-467 were:
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
   - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
-  - [TD-583: The Registry Lock Race Is Tested Only Across Threads](#td-583-the-registry-lock-race-is-tested-only-across-threads)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4760,33 +4759,6 @@ Action Items:
       mentions this).
 
 Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `init_db()`'s "no rows yet" check).
-
----
-
-### TD-583: The Registry Lock Race Is Tested Only Across Threads
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Tests / RegistryTransport | November 21, 2026 | 1-2 hours |
-
-Description:
-TD-498 moved `LocalTransport::delete_paths()`'s and `requeue_trained()`'s registry read and save inside the pending lock (`flock()` on
-`<pending>.lock`, `_locking()` on Windows). Its regression test,
-`LocalTransportPhase9Test.DeleteAndRequeueDoNotLoseConcurrentCommits`, races them against `commit_trained()` from **two threads of one
-process**, each with its own `LocalTransport` and so its own descriptor for the lock file. On Linux `flock()` locks belong to the open
-file description, so that behaves like two processes, and the test lost commits on the old code (0, 27 and 0 of 60 kept in three runs).
-But the case that matters in production is separate **processes**: standalone `incremental_trainer` passes and `dataset_manager`
-sharing one session directory. Nothing tests that, and the thread test wouldn't notice if the lock were ever changed to something
-per-process (POSIX `fcntl()` record locks, for example, don't exclude threads of one process). `RegistryTransport.md` lists it as not
-covered.
-
-Action Items:
-
-- [ ] Add a test that forks: the child commits while the parent deletes and re-queues (as the thread test does), and the parent checks
-      that every commit survived. The child must only exit (`_exit()`), never signal anything; the parent reaps its own child's pid.
-- [ ] Confirm it fails with the lock scope TD-498 replaced (as the thread test was checked), then keep both tests.
-
-Location in code: `tests/RegistryTransportTests.cpp`; `src/RegistryTransport.cpp` (`lock_pending()`, `delete_paths()`, `requeue_trained()`).
 
 ---
 

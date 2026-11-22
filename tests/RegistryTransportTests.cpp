@@ -410,6 +410,74 @@ TEST_F(LocalTransportPhase9Test, DeleteAndRequeueDoNotLoseConcurrentCommits) {
     EXPECT_EQ(kept, kCommits) << "every concurrent commit survives";
 }
 
+// TD-583: the same race across processes, the case that matters in production (standalone
+// incremental_trainer passes and dataset_manager sharing one session directory). The thread test above
+// can't tell a per-process lock (POSIX fcntl() record locks don't exclude threads of one process) from
+// a per-descriptor one. A forked child commits while this process deletes and re-queues; a pipe starts
+// both together. The child only ever _exit()s, and this process reaps exactly its own child's pid.
+TEST_F(LocalTransportPhase9Test, DeleteAndRequeueDoNotLoseCommitsFromAnotherProcess) {
+    constexpr int kCommits = 60;
+    {
+        std::vector<DataVersion> old;
+        for (int i = 0; i < kCommits; ++i) {
+            DataVersion dv;
+            dv.data_file = "/data/old" + std::to_string(i) + ".txt";
+            dv.checksum = "MISSING";
+            dv.trained = true;
+            old.push_back(dv);
+        }
+        ASSERT_TRUE(LocalTransport(reg_path_, pend_path_).save_registry(old));
+    }
+    int go[2];
+    ASSERT_EQ(::pipe(go), 0);
+    const pid_t pid = ::fork();
+    ASSERT_GE(pid, 0) << "fork() failed";
+    if (pid == 0) {
+        ::close(go[1]);
+        char c = 0;
+        const bool started = ::read(go[0], &c, 1) == 1;
+        LocalTransport t(reg_path_, pend_path_);
+        for (int i = 0; started && i < kCommits; ++i) {
+            DataVersion dv;
+            dv.data_file = "/data/new" + std::to_string(i) + ".txt";
+            dv.checksum = "MISSING";
+            dv.trained = true;
+            t.commit_trained("", {dv}, {dv.data_file});
+        }
+        ::_exit(started ? 0 : 2);
+    }
+    ::close(go[0]);
+    {
+        LocalTransport t(reg_path_, pend_path_);
+        const char c = 1;
+        const bool released = ::write(go[1], &c, 1) == 1;
+        ::close(go[1]);  // the child sees EOF (and exits) if the write failed
+        for (int i = 0; released && i < kCommits; ++i) {
+            const std::string old = "/data/old" + std::to_string(i) + ".txt";
+            if (i % 2 == 0)
+                t.delete_paths({old}, true, false);
+            else
+                t.requeue_trained({old}, false, "");
+        }
+    }
+    int status = 0;
+    ASSERT_EQ(::waitpid(pid, &status, 0), pid);  // pid > 0 here: our own child
+    ASSERT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0) << "the committing child failed";
+
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    int kept = 0, old_left = 0;
+    for (const auto& dv : reg) {
+        if (dv.data_file.rfind("/data/new", 0) == 0)
+            ++kept;
+        else if (dv.data_file.rfind("/data/old", 0) == 0)
+            ++old_left;
+    }
+    EXPECT_EQ(kept, kCommits) << "every commit from the other process survives";
+    EXPECT_EQ(old_left, 0) << "every old record was deleted or re-queued";
+}
+
 // ============================================================================
 // Backward compatibility: Phase 8 format (no run_id column) still loads
 // ============================================================================

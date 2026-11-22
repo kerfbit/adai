@@ -1,10 +1,45 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (500 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (501 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-583: The Registry Lock Race Is Tested Only Across Threads
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Tests / RegistryTransport | Test added (LOW, created November 21, 2026) |
+
+Description:
+TD-498 moved `LocalTransport::delete_paths()`'s and `requeue_trained()`'s registry read and save inside the pending lock (`flock()` on
+`<pending>.lock`, `_locking()` on Windows). Its regression test,
+`LocalTransportPhase9Test.DeleteAndRequeueDoNotLoseConcurrentCommits`, races them against `commit_trained()` from **two threads of one
+process**, each with its own `LocalTransport` and so its own descriptor for the lock file. On Linux `flock()` locks belong to the open
+file description, so that behaves like two processes, and the test lost commits on the old code (0, 27 and 0 of 60 kept in three runs).
+But the case that matters in production is separate **processes**: standalone `incremental_trainer` passes and `dataset_manager`
+sharing one session directory. Nothing tests that, and the thread test wouldn't notice if the lock were ever changed to something
+per-process (POSIX `fcntl()` record locks, for example, don't exclude threads of one process). `RegistryTransport.md` lists it as not
+covered.
+
+Action Items:
+
+- [x] Add a test that forks: the child commits while the parent deletes and re-queues (as the thread test does), and the parent checks
+      that every commit survived. The child must only exit (`_exit()`), never signal anything; the parent reaps its own child's pid.
+- [x] Confirm it fails with the lock scope TD-498 replaced (as the thread test was checked), then keep both tests.
+
+**Fix (November 21, 2026).** `LocalTransportPhase9Test.DeleteAndRequeueDoNotLoseCommitsFromAnotherProcess` in
+`tests/RegistryTransportTests.cpp`: a forked child commits 60 units while the parent deletes and re-queues 60 old records, a pipe
+starting both together. The parent waits for its own child's pid, then checks that all 60 commits are recorded and no old record is
+left. The child only `_exit()`s (2 if the start signal never came). With TD-498's replaced lock scope restored in a scratch copy (the
+registry read before `lock_pending()` and saved after `unlock_pending()`, in both `delete_paths()` and `requeue_trained()`), it kept 0, 0
+and 15 of 60 commits in three runs, with 4–9 old records left, and the thread test kept 0 each time. On the current code both pass (five
+runs), and `registryTransportPhase9Tests` passes 68/68. No source change.
+
+Location in code: `tests/RegistryTransportTests.cpp`; `src/RegistryTransport.cpp` (`lock_pending()`, `delete_paths()`, `requeue_trained()`).
+
+---
 
 ### TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`
 
