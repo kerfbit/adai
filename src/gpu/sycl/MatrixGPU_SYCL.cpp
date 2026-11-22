@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-386, TD-394, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-11-14
+// @adai-status: beta        (capped by TD-386, TD-395 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.18.1
+// @adai-reviewed: 2026-11-22
 
 #ifdef ADAI_ENABLE_GPU
 

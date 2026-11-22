@@ -1262,6 +1262,14 @@ if(ENABLE_GPU OR ENABLE_SYCL)
     add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
 endif()
 
+# TD-394: every matrix_*_gpu kernel against a double-precision CPU reference. Skips without a device;
+# a SYCL build runs it on the oneAPI CPU device with ADAI_SYCL_ALLOW_CPU_DEVICE=1 (build/sycl-cpudev).
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(gpuKernelReferenceTests gpu_kernel_reference_test.cpp)
+    target_link_libraries(gpuKernelReferenceTests adai_core adai_gpu GTest::gtest_main)
+    add_test(NAME GPUKernelReferenceTests COMMAND gpuKernelReferenceTests)
+endif()
+
 # TD-391: no SYCL types, so every build runs it.
 add_executable(deviceSelectionTests device_selection_test.cpp)
 target_link_libraries(deviceSelectionTests GTest::gtest_main)

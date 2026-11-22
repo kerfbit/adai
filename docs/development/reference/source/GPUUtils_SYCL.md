@@ -3,7 +3,7 @@
 - **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 676 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.12.1`, `@adai-reviewed: 2026-11-18`
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.12.2`, `@adai-reviewed: 2026-11-22` (a stale TD-394 comment removed)
 - **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (28 tests in a SYCL build, all run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (one skips with a device present), including TD-392's `EmptyGPUMemoryIsValid`; the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
 - **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); §3's zero-size case 2026-11-18 (TD-392)
 

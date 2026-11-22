@@ -455,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(82 on November 22, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(80 on November 22, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -500,8 +500,6 @@ reference doc that tracks it):
 | TD-387 (MEDIUM) | GPU Generation Fails on Input Longer Than `max_seq_length`. Code fix landed October 26, 2026 (with TD-365). Left: Test (on a GPU host): an over-length prompt generates without throwing and matches the CPU path. (Run on the oneAPI CPU device, and on ai-machine's… See [MatrixGPU.md](docs/development/reference/source/MatrixGPU.md), [MatrixGPU_SYCL.md](docs/development/reference/source/MatrixGPU_SYCL.md). |
 | TD-389 (LOW) | `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches. Left: Add shape checks to the unchecked operations; zero (or document) new allocations; validate before allocating; check layer indices (and 1 more). See [MatrixGPU.md](docs/development/reference/source/MatrixGPU.md), [MatrixGPU_SYCL.md](docs/development/reference/source/MatrixGPU_SYCL.md). |
 | TD-390 (MEDIUM) | SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue. Code fix landed October 20, 2026. Left: Measure first on ai-machine: time one training step, and count `host_task`s per step (or use `onetrace`/`unitrace`) (and 1 more). See [GPUUtils_SYCL.md](docs/development/reference/source/GPUUtils_SYCL.md). |
-| TD-393 (MEDIUM) | SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8. Code fix landed October 17, 2026. Left: Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6). The tests exist in `tests/matrixgpu_td003_test.cpp`; only the device-less CI… See [MatrixGPU_SYCL_cpp.md](docs/development/reference/source/MatrixGPU_SYCL_cpp.md). |
-| TD-394 (MEDIUM) | GPU Kernel Tests Can't Run Without a GPU. CPU-device opt-in landed October 19, 2026. Left: Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests`… (and 2 more). See [MatrixGPU_SYCL_cpp.md](docs/development/reference/source/MatrixGPU_SYCL_cpp.md). |
 | TD-395 (LOW) | `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers. Left: Add a backend `matrix_zero_gpu()` (and use `matrix_copy_device_to_device_gpu()` for `copy()`), then move `GPUMatrix` below the backend split in… (and 1 more). See [MatrixGPU_SYCL.md](docs/development/reference/source/MatrixGPU_SYCL.md). |
 | TD-397 (LOW) | Hippocampal Swap File Grows Without Bound. Left: Cap the swap file (a ring of N records, or drop the oldest records when over a size limit), make the cap configurable, and log its size at startup. See [HippocampalMemory.md](docs/development/reference/source/HippocampalMemory.md). |
 | TD-398 (LOW) | `HippocampalMemory` Per-Step Copies and Unchecked Saves. Left: Cache the packed key/value matrices and update them incrementally on write/evict; check stream state after saves; save both files atomically together… See [HippocampalMemory.md](docs/development/reference/source/HippocampalMemory.md). |

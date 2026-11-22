@@ -1,10 +1,107 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (502 on November 22, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (504 on November 22, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-394: GPU Kernel Tests Can't Run Without a GPU
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | GPU / Testing | Tests added (MEDIUM, created October 12, 2026) |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.cpp`. The GPU kernel tests (`gpuutilsTests`,
+`matrixgpuTd003Tests`, the GPU cases in `feedforward_test.cpp`/`multiheadattention_test.cpp`) skip
+whenever `GPUManager::probe()` finds no GPU, and the SYCL `GPUManager` enumerates GPU devices only. No
+development or CI environment used so far has a GPU, so **no GPU kernel had ever been run** by the
+test suite. A scratch harness that let the SYCL backend use the oneAPI CPU device ran every kernel in
+minutes and found two real bugs: TD-384 (verified deterministically) and TD-393. A CPU-device mode
+can't prove GPU timing behaviour, but it checks numerics and catches races that a sequential CPU
+schedule exposes.
+
+Action Items:
+
+- [x] Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests` plus a kernel-vs-CPU-reference suite (every `matrix_*_gpu`) in `build/sycl-gputest`. (Opt-in done October 19, 2026 with TD-468: `ADAI_SYCL_ALLOW_CPU_DEVICE=1` makes `enumerate_gpu_devices()` list every device type. Used for `gpuOptimizerTests` and the trainer suites in a fresh SYCL tree, `build/sycl-cpudev`, configured with the current `icpx`. The older `build/sycl-gputest` no longer links against oneAPI 2026.2. A kernel-vs-reference suite for every `matrix_*_gpu` is still to do.)
+- [x] Add LayerNorm forward/backward, softmax, cross-entropy and reduction-size cases (the harness from MatrixGPU_SYCL_cpp.md §2 is a ready template).
+- [x] Optionally add a CI job using the oneAPI CPU runtime. **Not added (owner decision, November 22, 2026):** a GitHub Actions job would install the oneAPI compiler and runtime (several GB) and build with `icpx`, and `origin`'s Actions are blocked (TD-047). The CPU-device suites run locally in `build/sycl-cpudev` and on ai-machine through its GPU test package.
+
+**Fix (November 22, 2026):** `tests/gpu_kernel_reference_test.cpp` → `gpuKernelReferenceTests` (17 tests) runs every
+`matrix_*_gpu` entry point on the device against a double-precision CPU reference, at the sizes where the kernels change shape:
+- element counts around the 4-wide vector pass and its scalar tail;
+- row widths below, at and above the 256-item work-group (1, 7, 255, 256, 257, 1,000, 3,000) for softmax and its backward,
+  LayerNorm forward and backward (`dgamma`/`dbeta` accumulated), row entropy and cross-entropy loss and gradient;
+- reduction sizes 1, 255–257, 65,535–65,537 and 1,000,003 for `matrix_sum_gpu` and `matrix_count_below_threshold_gpu`, and
+  `matrix_sum_squares_accumulate_gpu` past its 1,024-group grid;
+- `matrix_gemm_strided_gpu` with every transpose pair on views into wider matrices; `matrix_token_correct_gpu`'s tie and
+  out-of-vocabulary rules; GELU's backward against a central difference.
+
+The kernels already covered elsewhere (`optimizer_update_gpu`, `dropout_forward_gpu`, the embedding and gated-residual kernels) are left
+to `gpuOptimizerTests` and `gpuDebugSyncTests`. On the oneAPI CPU device (`build/sycl-cpudev`, `ADAI_SYCL_ALLOW_CPU_DEVICE=1`) all 17
+pass, as do `matrixgpuTd003Tests` (22), `gpuutilsTests` (27, one skip), `gpuOptimizerTests` (19) and `gpuDebugSyncTests` (19). The suite
+builds against CUDA (`build/cuda-gputest`; it skips without a device) and is in ai-machine's GPU test package
+(`scripts/package_sycl_gpu_tests.sh`, `scripts/sycl_gpu_tests/run_gpu_tests.sh`). It found that `matrix_batch_multiply_gpu` computes
+nothing in the SYCL backend (recorded in TD-386, which owns that dead function; its test is `DISABLED_BatchMultiply`). A stale
+"add a CPU-device test mode" comment in `GPUUtils_SYCL.hpp` is gone, and TD-394 no longer caps `MatrixGPU_SYCL.cpp`'s status.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`); `tests/gpu_kernel_reference_test.cpp`.
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `tests/matrixgpu_td003_test.cpp`
+- `tests/CMakeLists.txt`
+
+---
+
+### TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | GPU / Kernels | Code fix October 17, tests November 22 (MEDIUM, created October 12, 2026) |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.cpp` and verified on the oneAPI CPU device.
+`workgroup_reduce_sum()` (used by `matrix_sum_gpu` and `matrix_count_below_threshold_gpu`) reduces
+within each sub-group, stores one partial per sub-group, and then has **only sub-group 0** combine the
+`256 / S` partials. That's correct only if `S ≥ 16`. No `reqd_sub_group_size` is set, so the compiler
+chooses `S`; the CPU device chose 8, so 8 of 32 partials were summed per level: 256 ones → 64,
+1,000 → 256, 1,000,000 → 65,536; the saturation count came out 427 instead of 1,667. The
+cross-entropy loss also goes through `matrix_sum_gpu`, so it's wrong once `seq_len > 64`.
+
+ai-machine's Arc B60 (Xe2/Battlemage) supports only sub-group sizes 16 and 32, so it's probably
+latent there, but nothing in the code guarantees it. Arc A-series (Alchemist) and CPU devices can use
+8, and the CUDA version (warp 32) is unaffected.
+
+**Fix landed October 17, 2026:** sub-group 0 now loops over all partials
+(`for (i = lane; i < num_subgroups; i += S)`) before its final sub-group reduction, so the sum is
+exact for any `S`. Verified on the oneAPI CPU device (`S = 8`):
+- the new `MatrixGPUTD003Test.SumIsExactAcrossWorkGroupBoundaries` (1 to 100,000 ones, including
+  255/256/257) and `CountBelowThresholdIsExactForFullWorkGroup` pass;
+- the existing `CountBelowThresholdLargeMatrixMultiBlock` now passes too (it failed before).
+
+These tests skip without a device, so CI coverage still depends on TD-394.
+
+Action Items:
+
+- [x] Have sub-group 0 loop over all partials (`for (i = lane; i < num_subgroups; i += S)`), or pin `[[sycl::reqd_sub_group_size(16)]]` (or 32) on the reduction kernels.
+- [x] Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6). The tests exist in `tests/matrixgpu_td003_test.cpp`; only the device-less CI mode is missing.
+
+**Coverage (November 22, 2026):** besides `matrixgpuTd003Tests`' cases, `gpuKernelReferenceTests` checks every kernel that goes through
+`workgroup_reduce_sum()` (`matrix_sum_gpu`, `matrix_count_below_threshold_gpu`, `matrix_sum_squares_accumulate_gpu`, and through
+`matrix_sum_gpu` the cross-entropy loss with 65 and 300 rows and `matrix_token_correct_gpu`) at 1, 255, 256, 257, 65,535–65,537 and
+1,000,003 elements, on the oneAPI CPU device where the sub-group size is 8. All pass. No CI job runs them (owner decision, see TD-394);
+they run locally in `build/sycl-cpudev` and on ai-machine's GPU test package.
+
+Location in code: `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`workgroup_reduce_sum()`); previously tagged `TODO: See TD-393`, now a `TD-393:` fix comment.
+
+Files to Modify:
+
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
 
 ### TD-581: MNS's Legacy JSONL Import Drops Every Model
 
@@ -27895,9 +27992,9 @@ ai-machine log the selected platform (or run `sycl-ls`) to confirm it's on Level
 [TD-390](../guides/TECHNICAL_DEBT.md#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) on ai-machine (time a training step with and without a buffer pool) before rewriting the
 allocator; it's likely the largest SYCL performance item. [TD-392](../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) is small.
 
-**Tier 46 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.cpp`.** Do [TD-394](../guides/TECHNICAL_DEBT.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) first or alongside
+**Tier 46 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.cpp`.** Do [TD-394](#td-394-gpu-kernel-tests-cant-run-without-a-gpu) first or alongside
 TD-384: a CPU-device test mode turns the harness that found both bugs into a permanent regression
-test, so TD-384's fix (and TD-358's) can be verified without ai-machine. Fix [TD-393](../guides/TECHNICAL_DEBT.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) in the same
+test, so TD-384's fix (and TD-358's) can be verified without ai-machine. Fix [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) in the same
 change (pin the sub-group size or loop over the partials).
 
 **Tier 47 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.hpp`.** [TD-395](../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) is a refactor; do it

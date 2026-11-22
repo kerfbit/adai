@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 22, 2026
-**Active Items:** 82 (7 high, 18 medium, 57 low)
+**Active Items:** 80 (7 high, 16 medium, 57 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 502 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 504 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,25 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 82 open items:
+**Where things stand.** Of the 80 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **61 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **59 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 22, 2026:** Closed [TD-581](../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model)
+**November 22, 2026:** Closed [TD-394](../archive/TECHNICAL_DEBT_RESOLVED.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
+(MEDIUM) and [TD-393](../archive/TECHNICAL_DEBT_RESOLVED.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
+(MEDIUM): `gpuKernelReferenceTests` checks every `matrix_*_gpu` kernel against a CPU reference, TD-393's reduction sizes included, and
+passes on the oneAPI CPU device; no CI job (owner decision). It found `matrix_batch_multiply_gpu` computes nothing in the SYCL backend
+(added to [TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions), which owns that dead function).
+
+Closed [TD-581](../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model)
 (LOW): `mns_server`'s one-time import of a pre-SQLite `models.jsonl` saves each model through `persist_model()`, which now names its
 columns; roles are imported only for imported models, and every skipped record is logged. With it, [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)'s
 early-SIGTERM hang is fixed (the same lost `stop()` as TD-582, which hung two MNS test suites under load); its crash and `LOG_LEVEL`
@@ -169,7 +175,7 @@ unchecked kernel inputs plus uncalled batch functions (TD-386).
 **Now:** TD-384 was fixed in code October 17, 2026 and verified on the oneAPI CPU device and on ai-machine's Arc; only a CUDA
 `racecheck` remains. TD-385's per-call allocation was fixed November 9, 2026; its per-sample loss download stays by design. TD-386 is open.
 
-**October 12, 2026:** Filed [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) and [TD-394](#td-394-gpu-kernel-tests-cant-run-without-a-gpu) from the code-traced
+**October 12, 2026:** Filed [TD-393](../archive/TECHNICAL_DEBT_RESOLVED.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) and [TD-394](../archive/TECHNICAL_DEBT_RESOLVED.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) from the code-traced
 [MatrixGPU_SYCL_cpp.md](../reference/source/MatrixGPU_SYCL_cpp.md), the first time any GPU kernel in
 this repository has actually been run (a scratch copy of the SYCL backend on the oneAPI CPU device).
 Both are MEDIUM: the sub-group sum reduction is correct only when the compiler picks a sub-group size
@@ -179,7 +185,7 @@ GPU kernels without a GPU, which is how this and TD-384 went unnoticed (TD-394).
 verified**: the race reproduces deterministically on the CPU device (LayerNorm forward 0.32 relative
 error) and adding the barrier fixes all four kernels. TD-385 and TD-386 were amended for SYCL.
 **Now:** TD-393 was fixed in code October 17, 2026, and TD-394's opt-in CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`) landed
-October 19, 2026; kernel-versus-reference suites and a CI job remain for both.
+October 19, 2026; both closed November 22, 2026, with a kernel-versus-reference suite and no CI job (owner decision).
 
 **October 12, 2026:** Filed [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) from the code-traced
 [MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md): `GPUMatrix` is maintained twice, once per
@@ -190,7 +196,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (82 since TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (80 since TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -243,8 +249,6 @@ None left: the last, TD-581, closed November 22, 2026.
 
 ### 5. Code work: GPU
 
-- [TD-394](#td-394-gpu-kernel-tests-cant-run-without-a-gpu) (MEDIUM) with [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) (MEDIUM): kernel-versus-reference suites on the oneAPI CPU device and, optionally, a CI job, which
-  closes TD-393's coverage too.
 - [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) before [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (LOW): make `GPUMatrix` one definition, then add its shape checks and the GPU KV-cache tests once.
 - [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) (MEDIUM)'s asynchronous uploads and [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) (MEDIUM)'s vectorized update loops, measured on ai-machine (section 1).
 - [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) (MEDIUM): GPU replays match losses but not the last bits of the weights (float atomics); make the device reductions
@@ -344,8 +348,6 @@ as TD-426 and TD-467 were:
   - [TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length)
   - [TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches)
   - [TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue)
-  - [TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
-  - [TD-394: GPU Kernel Tests Can't Run Without a GPU](#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
   - [TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers)
   - [TD-397: Hippocampal Swap File Grows Without Bound](#td-397-hippocampal-swap-file-grows-without-bound)
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
@@ -2840,6 +2842,11 @@ Found while tracing `MatrixGPU.cu`, by inspection:
 - **SYCL (October 12, 2026):** the SYCL batch helpers `q.memcpy` from the caller's **host** pointer
   arrays without waiting; unlike CUDA's pageable staging, SYCL doesn't guarantee the host buffer has
   been read when the call returns, so a temporary array could be read after it's freed.
+- **Verified November 22, 2026 (oneAPI CPU device, TD-394's `gpuKernelReferenceTests`):** `matrix_batch_multiply_gpu` returns
+  without computing anything; its outputs keep whatever the memory held. Waiting for `gemm_batch()` before returning makes it correct,
+  so oneMKL reads host memory after the call returns: the stack-local group parameters (`m64`, `k64`, `n64`, `lda`, `ldb`, `ldc`,
+  `group_size`, `trans_n`, `alpha`, `beta`) or the caller's pointer arrays. Its test is `DISABLED_BatchMultiply` until this item
+  decides; `matrix_batch_add_gpu` passes.
 
 Action Items:
 
@@ -3023,79 +3030,6 @@ earlier uses complete before it is reused.
 Compile-checked only (no CUDA device here). New CUDA-only tests, which skip without a device:
 - `CudaUsesTheStreamOrderedPoolWhenSupported`;
 - `CudaFreeKeepsStreamOrder`: a copy queued before its source is freed still reads the old data.
-
----
-
-### TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — code fix landed October 17, 2026 | GPU / Kernels | October 12, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `MatrixGPU_SYCL.cpp` and verified on the oneAPI CPU device.
-`workgroup_reduce_sum()` (used by `matrix_sum_gpu` and `matrix_count_below_threshold_gpu`) reduces
-within each sub-group, stores one partial per sub-group, and then has **only sub-group 0** combine the
-`256 / S` partials. That's correct only if `S ≥ 16`. No `reqd_sub_group_size` is set, so the compiler
-chooses `S`; the CPU device chose 8, so 8 of 32 partials were summed per level: 256 ones → 64,
-1,000 → 256, 1,000,000 → 65,536; the saturation count came out 427 instead of 1,667. The
-cross-entropy loss also goes through `matrix_sum_gpu`, so it's wrong once `seq_len > 64`.
-
-ai-machine's Arc B60 (Xe2/Battlemage) supports only sub-group sizes 16 and 32, so it's probably
-latent there, but nothing in the code guarantees it. Arc A-series (Alchemist) and CPU devices can use
-8, and the CUDA version (warp 32) is unaffected.
-
-**Fix landed October 17, 2026:** sub-group 0 now loops over all partials
-(`for (i = lane; i < num_subgroups; i += S)`) before its final sub-group reduction, so the sum is
-exact for any `S`. Verified on the oneAPI CPU device (`S = 8`):
-- the new `MatrixGPUTD003Test.SumIsExactAcrossWorkGroupBoundaries` (1 to 100,000 ones, including
-  255/256/257) and `CountBelowThresholdIsExactForFullWorkGroup` pass;
-- the existing `CountBelowThresholdLargeMatrixMultiBlock` now passes too (it failed before).
-
-These tests skip without a device, so CI coverage still depends on TD-394.
-
-Action Items:
-
-- [x] Have sub-group 0 loop over all partials (`for (i = lane; i < num_subgroups; i += S)`), or pin `[[sycl::reqd_sub_group_size(16)]]` (or 32) on the reduction kernels.
-- [ ] Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6). The tests exist in `tests/matrixgpu_td003_test.cpp`; only the device-less CI mode is missing.
-
-Location in code: `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`workgroup_reduce_sum()`); previously tagged `TODO: See TD-393`, now a `TD-393:` fix comment.
-
-Files to Modify:
-
-- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
-
----
-
-### TD-394: GPU Kernel Tests Can't Run Without a GPU
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CPU-device opt-in landed October 19, 2026 | GPU / Testing | October 12, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `MatrixGPU_SYCL.cpp`. The GPU kernel tests (`gpuutilsTests`,
-`matrixgpuTd003Tests`, the GPU cases in `feedforward_test.cpp`/`multiheadattention_test.cpp`) skip
-whenever `GPUManager::probe()` finds no GPU, and the SYCL `GPUManager` enumerates GPU devices only. No
-development or CI environment used so far has a GPU, so **no GPU kernel had ever been run** by the
-test suite. A scratch harness that let the SYCL backend use the oneAPI CPU device ran every kernel in
-minutes and found two real bugs: TD-384 (verified deterministically) and TD-393. A CPU-device mode
-can't prove GPU timing behaviour, but it checks numerics and catches races that a sequential CPU
-schedule exposes.
-
-Action Items:
-
-- [ ] Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests` plus a kernel-vs-CPU-reference suite (every `matrix_*_gpu`) in `build/sycl-gputest`. (Opt-in done October 19, 2026 with TD-468: `ADAI_SYCL_ALLOW_CPU_DEVICE=1` makes `enumerate_gpu_devices()` list every device type. Used for `gpuOptimizerTests` and the trainer suites in a fresh SYCL tree, `build/sycl-cpudev`, configured with the current `icpx`. The older `build/sycl-gputest` no longer links against oneAPI 2026.2. A kernel-vs-reference suite for every `matrix_*_gpu` is still to do.)
-- [ ] Add LayerNorm forward/backward, softmax, cross-entropy and reduction-size cases (the harness from MatrixGPU_SYCL_cpp.md §2 is a ready template).
-- [ ] Optionally add a CI job using the oneAPI CPU runtime.
-
-Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`); tagged `TD-394` alongside TD-391's TODO.
-
-Files to Modify:
-
-- `src/gpu/sycl/GPUUtils_SYCL.hpp`
-- `tests/matrixgpu_td003_test.cpp`
-- `tests/CMakeLists.txt`
 
 ---
 

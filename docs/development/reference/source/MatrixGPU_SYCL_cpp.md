@@ -5,8 +5,9 @@
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-394, TD-395), `@adai-version: 0.18.0`, `@adai-reviewed: 2026-11-14` (TD-574 wait timeout)
-- **Last traced against the code:** 2026-11-14 (the TD-574 addenda; §2–§5 describe the October 17–19 state, since amended by the addenda below)
+- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-395), `@adai-version: 0.18.1`, `@adai-reviewed: 2026-11-22` (TD-394 closed)
+- **Tests:** [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (17, every `matrix_*_gpu` against a CPU reference, all pass on the oneAPI CPU device; 1 disabled, below); `matrixgpuTd003Tests` (22), `gpuOptimizerTests` (19), `gpuDebugSyncTests` (19); all skip without a device, and run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (`build/sycl-cpudev`)
+- **Last traced against the code:** 2026-11-14 (the TD-574 addenda; §2–§5 describe the October 17–19 state, since amended by the addenda below); tests 2026-11-22 (TD-394)
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
 > `.cpp`, linked against a copy of `GPUUtils_SYCL.hpp` patched to also accept the oneAPI **CPU**
@@ -118,10 +119,11 @@ kernels, and in the CUDA kernels too. New regression tests (`SoftmaxWideRowsMatc
 
 ## 6. Tests
 
-The repository's GPU tests (`gpuutilsTests`, `matrixgpuTd003Tests`) skip in `build/sycl-gputest`
-without a GPU, and `GPUManager` won't use the CPU device. So **none of these kernels has ever been
-run by the test suite**. The scratch harness above shows that a CPU-device test mode would have
-caught both bugs.
+*(Superseded; see the November 22, 2026 addendum.)* The repository's GPU tests (`gpuutilsTests`,
+`matrixgpuTd003Tests`) skipped in `build/sycl-gputest` without a GPU, and `GPUManager` wouldn't use the
+CPU device, so none of these kernels had been run by the test suite. The scratch harness above showed
+that a CPU-device test mode would have caught both bugs; TD-394 added it (October 19) and a
+kernel-versus-reference suite (November 22).
 
 ---
 
@@ -132,11 +134,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `workgroup_reduce_sum()` assumes sub-group size ≥ 16; at 8 it drops ¾ of the partials per level (§3) | Wrong sums, saturation fractions and (for `seq_len > 64`) losses on Alchemist-class GPUs and CPU devices; probably latent on ai-machine's Xe2 | **Verified** (CPU device, `S = 8`); **fixed in code October 17, 2026** | [TD-393](../../guides/TECHNICAL_DEBT.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) |
+| `workgroup_reduce_sum()` assumes sub-group size ≥ 16; at 8 it drops ¾ of the partials per level (§3) | Wrong sums, saturation fractions and (for `seq_len > 64`) losses on Alchemist-class GPUs and CPU devices; probably latent on ai-machine's Xe2 | **Verified** (CPU device, `S = 8`); **fixed October 17, 2026**, covered by `gpuKernelReferenceTests` November 22 | [TD-393](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) |
 | TD-384 race reproduces deterministically on the CPU device and disappears with the barrier fix (§4) | Confirms TD-384; its "can't reproduce on CPU" note is wrong | **Verified**; **fixed in code October 17, 2026** | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
-| No way to run the GPU kernel tests without a GPU (§6) | Both bugs above went undetected | **Verified** (harness) | [TD-394](../../guides/TECHNICAL_DEBT.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) |
+| No way to run the GPU kernel tests without a GPU (§6) | Both bugs above went undetected | **Fixed**: CPU-device opt-in October 19, kernel-versus-reference suite November 22, 2026 | [TD-394](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) |
 | Every entry point records itself for TD-574's diagnostics, and three kernel families have host versions (addendum below) | Diagnostics only; off by default | Tested (`gpuDebugSyncTests`, oneAPI CPU device) | TD-574 |
-| Batch helpers read host pointer arrays asynchronously; per-call allocation/waits in reductions; unchecked inputs (§5) | Latent use-after-free in dead code; stalls; out-of-bounds on bad input | By inspection (overlaps TD-385, TD-386, TD-390) | TD-385, TD-386 (amended), TD-390 |
+| Batch helpers read host memory after returning; per-call allocation/waits in reductions; unchecked inputs (§5) | `matrix_batch_multiply_gpu` computes nothing (dead code); stalls; out-of-bounds on bad input | **Verified** for `matrix_batch_multiply_gpu` (November 22, 2026, CPU device); the rest by inspection (overlaps TD-385, TD-386, TD-390) | TD-385, TD-386 (amended), TD-390 |
 
 ## Addendum (October 19, 2026): optimizer kernels (TD-468)
 
@@ -201,3 +203,21 @@ and out-of-range targets), run on the oneAPI CPU device; the CUDA version is com
 `GPUManager::wait_for()`, which gives up after `GPU_WAIT_TIMEOUT_SECONDS` (60 s by default) on a GPU that stopped running work
 and throws, so the trainer fails the pass as on a lost device instead of hanging ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)). Kernels
 still don't wait.
+
+## Addendum (November 22, 2026): every kernel against a CPU reference (TD-394, TD-393)
+
+`gpuKernelReferenceTests` (`tests/gpu_kernel_reference_test.cpp`) runs each `matrix_*_gpu` entry point on the device and compares it
+with a double-precision CPU reference: the element-wise kernels at counts around the 4-wide vector pass and its tail (1, 3, 4, 5, 7,
+1,023, 4,099), the activations and GELU's derivative (against a central difference of the forward), transpose, `matrix_multiply_gpu`,
+`matrix_gemm_strided_gpu` (every transpose pair, views into wider matrices, columns outside C's view untouched), the row kernels
+(softmax and its backward, LayerNorm forward and backward with `dgamma`/`dbeta` accumulated, row entropy) at widths 1, 7, 255, 256,
+257, 1,000 and 3,000, cross-entropy loss and gradient (up to 300 rows and a 5,000-token vocabulary), `matrix_token_correct_gpu` (ties go
+to the lowest index; a target outside the vocabulary never counts), and the reductions at TD-393's sizes (1, 255–257, 65,535–65,537,
+1,000,003) plus `matrix_sum_squares_accumulate_gpu` past its 1,024-group grid. On the oneAPI CPU device (sub-group size 8, where
+TD-393's bug showed) all 17 pass. The suite builds against CUDA too (`build/cuda-gputest`, skipping without a device), and ai-machine's
+GPU test package runs it (`scripts/package_sycl_gpu_tests.sh`, `run_gpu_tests.sh`).
+
+It found one bug: **`matrix_batch_multiply_gpu` returns without computing anything** (C keeps what the memory held). Waiting for
+`gemm_batch()` before returning fixes it, so oneMKL reads host memory after the call returns: the stack-local group parameters
+(`m64`, `lda`, `group_size`, …) or the caller's pointer arrays the unwaited `memcpy()` reads. The function has no caller; fixing or
+removing it is TD-386's call, so its test is `DISABLED_BatchMultiply` (it fails when run). `matrix_batch_add_gpu` passes.

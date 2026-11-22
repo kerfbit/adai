@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.5.0
-# @adai-reviewed: 2026-11-14
+# @adai-version: 0.5.1
+# @adai-reviewed: 2026-11-22
 
 # Builds the SYCL GPU test binaries, the TD-171 benchmark, the trainer and its tools (the LeJEPA
 # passes, TD-572, need vocab_builder), and packs them with
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-TEST_TARGETS=(deviceSelectionTests gpuutilsTests matrixgpuTd003Tests gpuOptimizerTests matrixTests
+TEST_TARGETS=(deviceSelectionTests gpuutilsTests matrixgpuTd003Tests gpuKernelReferenceTests gpuOptimizerTests matrixTests
     feedforwardTests multiheadattentionTests crossattentionTests encoderdecoderTests initRngTests
     generationQualityAsyncTests chatbottrainerTests incrementaltrainerTests chatbotapiTests
     gpuDebugSyncTests)

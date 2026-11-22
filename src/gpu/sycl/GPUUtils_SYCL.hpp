@@ -2,8 +2,8 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-383 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.1
-// @adai-reviewed: 2026-11-18
+// @adai-version: 0.12.2
+// @adai-reviewed: 2026-11-22
 
 #include <algorithm>
 #include <atomic>
@@ -81,7 +81,6 @@ class GPUManager {
     // TD-391: one Arc card appears once per backend (Level Zero and OpenCL), so select_devices()
     // keeps one listing of it and numbers Level Zero first, whatever order the platforms come in.
     // ONEAPI_DEVICE_SELECTOR, if set, has already narrowed what the runtime lists here.
-    // TD-394: GPU-only selection also means no test can run these kernels without a GPU (add a CPU-device test mode)
     static std::vector<sycl::device> enumerate_gpu_devices() {
         // TD-394: ADAI_SYCL_ALLOW_CPU_DEVICE=1 also lists CPU devices (oneAPI's OpenCL CPU
         // device), so the real kernels can run in tests on a machine with no GPU. Off by

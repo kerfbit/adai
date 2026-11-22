@@ -4,7 +4,7 @@
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, `GPUMatrix`, `GPUKVCache`, `GPUDecoderKVCache`)
 - **Built into:** everything compiled with `ADAI_ENABLE_GPU`; implementations in [MatrixGPU_cu.md](MatrixGPU_cu.md) (CUDA) and `sycl/MatrixGPU_SYCL.cpp` (SYCL)
 - **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-13`
-- **Tests:** [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) → `matrixgpuTd003Tests` (13 tests, all skip without a GPU); GPU tests inside `feedforward_test.cpp` and `multiheadattention_test.cpp`; **no tests for `GPUKVCache`/`GPUDecoderKVCache`**
+- **Tests:** [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) → `matrixgpuTd003Tests` (22 tests) and [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (17, every `matrix_*_gpu` against a CPU reference, TD-394), both skipping without a device and passing on the oneAPI CPU device in a SYCL build; GPU tests inside `feedforward_test.cpp` and `multiheadattention_test.cpp`; **no tests for `GPUKVCache`/`GPUDecoderKVCache`**
 - **Last traced against the code:** 2026-10-12, with the addenda below; §3 re-traced 2026-11-13
 
 > Code-traced reference. No GPU device is available here (the CUDA test build skips all 13
