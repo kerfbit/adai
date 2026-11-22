@@ -16,7 +16,14 @@
    - [status](#status)
    - [list-pending / list-trained](#list-pending--list-trained)
    - [clear-pending](#clear-pending)
+   - [remove](#remove)
+   - [assign](#assign)
+   - [unassign](#unassign)
+   - [delete](#delete)
+   - [migrate](#migrate)
+   - [segment](#segment)
    - [requeue](#requeue)
+   - [models](#models)
 4. [File Layout](#file-layout)
 5. [Configuration](#configuration)
 6. [Distributed Mode](#distributed-mode)
@@ -60,6 +67,24 @@ The dataset manager maintains two lists in the session directory:
 
 `status`, `list-pending`, `list-trained`, `clear-pending` and `models` take no arguments. Fetch commands report the pairs actually
 queued, e.g. `(40 pairs of 50 requested)`.
+
+### Pools and `--kind`
+
+Every command works on one **pool**, a pending queue with its own trained registry:
+
+- **Locally** (no `REGISTRY_SERVER_URL`) the legacy pool is `SESSION_DIR` itself, and a kind's pool is `SESSION_DIR/<kind>/`.
+- **With a registry server** the pool is `/registry/<group>[/<kind>]` on `registry_server`, where `<group>` is decided once per
+  invocation (TD-329): when `NAME_SERVICE_URL` is set, the `run_group` of the model in MNS (`assign`, `unassign` and `requeue --model`
+  use the model they name, every other command `MODEL_NAME`); otherwise `RUN_GROUP`, or the `SESSION_DIR` name when that is unset. The
+  group it used is printed on stderr. If MNS can't be reached, the command changes nothing and exits 1.
+
+`--kind <encoder|decoder|world_model|chatbot>` selects that kind's pool for every command in the invocation; without it, the legacy pool.
+The trainer picks its pool from its training objective (`--objective=lejepa` trains `world_model`, everything else `chatbot`), so files
+for a model are normally queued with `--kind chatbot` or `--kind world_model`. `migrate` is the exception: it always reads the legacy pool,
+and its own argument names the destination.
+
+**"Omit = all"** (TD-321): `assign`, `unassign` and `migrate` act on every matching entry when no files and no `--count` are given;
+`--count` must be a whole number of at least 1, since 0 or a negative count used to mean "all" by accident.
 
 ---
 
@@ -372,6 +397,99 @@ Use this to abandon queued data before starting a fresh dataset composition. Fil
 pointing at `delete <file> ...` instead (since November 7, 2026, TD-327; `remove` used to report success there while the file stayed
 queued). Note that `delete` also removes the file's trained records, and needs `--force` for a file a run has claimed.
 
+### `remove`
+
+Remove one file from a local pending queue, leaving its trained records alone.
+
+```bash
+./build/bin/dataset_manager remove data/chat_week24.jsonl
+```
+
+A relative path is resolved the way `add` stored it (absolute, TD-328). Like `clear-pending`, `remove` works only on a local pool: with
+`REGISTRY_SERVER_URL` set it exits 1 and points at `delete`. Exit code 1 also when the file isn't queued.
+
+### `assign`
+
+Assign pending entries to a model, so only that model's trainer claims them.
+
+```bash
+# Every pending entry in the pool (whole files and segments)
+./build/bin/dataset_manager --kind chatbot assign bodacious-badger
+
+# Specific files
+./build/bin/dataset_manager --kind chatbot assign bodacious-badger /data/a.jsonl /data/b.jsonl
+
+# The first 3 unassigned files
+./build/bin/dataset_manager --kind chatbot assign bodacious-badger --count 3
+```
+
+- **Which entries:** with no files and no `--count`, every pending entry, segments included. File targets and `--count` pick
+  **whole-file entries only**, in local and remote mode alike (TD-205): a segmented file's segments are assigned only by the no-target
+  form (or by the Android dashboard, which can target one segment). `--count N` takes the first N whole files that have no model yet;
+  `--count` is ignored when files are given.
+- **The model:** with `NAME_SERVICE_URL` set, the model must be registered in MNS (`✅ Verified model: …`), and its `run_group` picks
+  the group. Without MNS the name is used as given.
+- A trainer only claims entries that are unassigned or assigned to its own `MODEL_NAME`; a file assigned to another model stays
+  pending for that model.
+- The output lists the files assigned; exit code 1 when nothing matched.
+
+### `unassign`
+
+Clear model assignments, so any model in the group can claim the entries again.
+
+```bash
+# Every entry assigned to the model
+./build/bin/dataset_manager --kind chatbot unassign bodacious-badger
+
+# Specific files, including ones a running pass has claimed
+./build/bin/dataset_manager --kind chatbot unassign bodacious-badger /data/a.jsonl --force
+```
+
+Only entries assigned to that model are touched. An entry a training run has claimed is skipped unless `--force`. Exit code 1 when
+nothing was unassigned or skipped.
+
+### `delete`
+
+Permanently purge files: their pending entry **and** every trained record of the path.
+
+```bash
+./build/bin/dataset_manager --kind world_model delete /data/old.jsonl
+./build/bin/dataset_manager delete /data/claimed.jsonl --force
+./build/bin/dataset_manager delete registry_sessions/g1/uploads/old.jsonl --delete-files
+```
+
+- Works locally and on a registry server (unlike `remove`/`clear-pending`).
+- A path matches only the file's **whole-file** entry, so a segmented file's segments aren't deleted by its path; the CLI has no
+  per-segment delete (the Android dashboard's Registry tab has one).
+- A pending entry a run has claimed is skipped unless `--force`.
+- `--delete-files` also unlinks the file (never for a segment): locally any path except the pool's own two files; on a registry server
+  only a file inside that group's directory, where its downloads and uploads go, never another path on its disk.
+- The output lists each file as `deleted`, `skipped_active_run` or `not_found`; exit code 1 when nothing was deleted.
+
+Because it erases trained records, `delete` makes a file trainable again only if it is queued again; to retrain files, `requeue` them
+instead.
+
+### `migrate`
+
+Move pending entries from the legacy (unkinded) pool into a kind's own pool, the one-time upgrade for data queued before kinds existed
+(TD-202).
+
+```bash
+# Everything in the legacy pool
+./build/bin/dataset_manager migrate chatbot
+
+# Specific files, or the first N legacy entries
+./build/bin/dataset_manager migrate world_model /data/books.jsonl
+./build/bin/dataset_manager migrate world_model --count 2
+```
+
+- The source is always the legacy pool; a global `--kind` is ignored (with a warning) and `<kind>` names the destination.
+- A file target moves every entry of that file, its whole-file entry and each segment, keeping segment ranges (TD-326). `--count N`
+  moves the first N legacy entries.
+- Each entry's model assignment moves with it. Every step is checked: if restoring the model or removing the legacy entry fails, the copy
+  in the destination is removed again, so an entry is never in both pools (where it would be trained twice).
+- Entries claimed by a run are moved too, and arrive unclaimed in the destination. Exit code 1 when nothing was migrated.
+
 ### `segment`
 
 Split a JSONL file's pairs into separately assignable pending entries, either N near-equal parts or explicit 0-based inclusive ranges:
@@ -411,6 +529,17 @@ scratch.
   (TD-540).
 
 The output lists each file as `requeued`, `already_pending` or `not_found`. The exit code is 1 if nothing was re-queued.
+
+### `models`
+
+List the models registered in the name service (`NAME_SERVICE_URL`), with their state and role:
+
+```bash
+./build/bin/dataset_manager models
+```
+
+It needs `NAME_SERVICE_URL` (exit code 1 without it) and a build with MNS support. Use it to check the names `assign` and the fetch
+commands' `[model]` argument accept.
 
 ---
 

@@ -455,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(87 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(86 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -482,7 +482,6 @@ reference doc that tracks it):
 | TD-296 (LOW) | ConversationContext Hygiene. Left: Check the stream and write via temp file + rename (and 1 more). See [ConversationContext.md](docs/development/reference/source/ConversationContext.md). |
 | TD-302 (LOW) | LoRA Adapters Aren't Persisted or Counted in Gradient Norms. Left: Persist adapters (e.g. extra SafeTensors entries) or document merge-before-save and enforce it (and 1 more). See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
 | TD-303 (LOW) | Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input. Left: Skip the cross-attention sub-layer in `DecoderBlock` when no encoder output is given (e.g. a null pointer), and fix the comment. See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
-| TD-332 (LOW) | Operator Guide Covers Only 8 of 15 `dataset_manager` Commands. Left: Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences. See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
 | TD-345 (LOW) | `DecoderBlock` Persistence Gaps for Gated State. Left: Check reads in `load()` and validate before assigning; add SafeTensors entries (and accessors) for the gates and gated sub-layers. See [DecoderBlock.md](docs/development/reference/source/DecoderBlock.md). |
 | TD-348 (LOW) | `LLMDecoder` Dead Code and Robustness Gaps. Left: Remove the empty loop, the unused copy and (if still unused) `forward_with_mask()`; check header reads; validate constructor arguments; guard the… See [Decoder.md](docs/development/reference/source/Decoder.md). |
 | TD-351 (LOW) | `DocumentStore` Embedding and Housekeeping Gaps. Left: Pool over content tokens only; add metadata filtering or drop the field; optionally cache embeddings on disk keyed by file checksum; treat NaN scores… See [DocumentStore.md](docs/development/reference/source/DocumentStore.md). |

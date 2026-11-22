@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.13.1
+// @adai-version: 1.13.2
 // @adai-reviewed: 2026-11-21
 
 #include <algorithm>
@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
         svc_config.dataset_kind = kind_flag;
     }
 
-    // TODO: See TD-332 in TECHNICAL_DEBT.md - the operator guide documents only 8 of these 15 commands
+    // TD-332: docs/operations/guides/dataset-manager-guide.md documents every command below.
     if (args.empty() || show_help) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] [--kind <kind>] <command> [options]\n\n";
         std::cout << "Global options (before the command):\n";
@@ -292,7 +292,9 @@ int main(int argc, char* argv[]) {
                      "live registry_server)\n";
         std::cout << "  assign <model> [file ...] [--count N]\n";
         std::cout << "                               Assign pending file(s) to a model (omit "
-                     "files/--count = all)\n";
+                     "files/--count = all,\n";
+        std::cout << "                               segments included; files and --count pick "
+                     "whole files only)\n";
         std::cout << "  unassign <model> [file ...] [--force]\n";
         std::cout << "                               Clear model assignment (omit files = every "
                      "file assigned to it)\n";

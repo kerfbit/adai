@@ -1,10 +1,48 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (497 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (498 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / dataset_manager CLI | Documentation (LOW, created October 11, 2026) |
+
+Description:
+Found alongside TD-326, by inspection. `docs/operations/guides/dataset-manager-guide.md` documents
+`add`, `gutenberg`, `gutenberg-batch`, `huggingface`, `status`, `list-pending`/`list-trained` and
+`clear-pending`. It doesn't cover `remove`, `assign`, `unassign`, `delete`, `migrate`, `segment`,
+`models` or the `--kind` flag, which are the commands that change pools and assignments. The usage
+text in `main()` is the only complete description.
+
+**Also to cover (November 21, 2026, found writing TD-331's tests):** `assign --count N` and `assign <model> <file>...` pick only
+whole-file entries, in local and remote mode alike (TD-205); a file's segments are assigned only by `assign <model>` with no targets.
+Neither the CLI's help nor the guide says so.
+
+Action Items:
+
+- [x] Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences.
+
+Location in code: `src/DatasetManagerTool.cpp` (usage text); tagged `TODO: See TD-332`.
+
+Files to Modify:
+
+- `docs/operations/guides/dataset-manager-guide.md`
+
+**Fix (November 21, 2026):** `docs/operations/guides/dataset-manager-guide.md` gained sections for `remove`, `assign`, `unassign`,
+`delete`, `migrate` and `models` (its table of contents now lists `segment` too), and a "Pools and `--kind`" section under Usage: the
+local pools (`SESSION_DIR[/<kind>]`), the remote ones (`/registry/<group>[/<kind>]`) with the TD-329 run group (MNS, else `RUN_GROUP`,
+else the `SESSION_DIR` name), how the trainer picks its kind, `migrate`'s exception, and "omit = all" (TD-321). Each section was checked
+against the code: `assign` (whole-file targets for files and `--count`, the MNS registration check), `unassign --force`, `delete` (a path
+matches only a whole-file entry; `--delete-files` unlinks on the server only inside the group's directory; status words), `migrate`
+(segments kept, model restored, rollback, claims arrive unclaimed) and `models` (needs `NAME_SERVICE_URL`). The usage text's `assign`
+entry now says files and `--count` pick whole files only, and the `TODO: See TD-332` tag points at the guide.
+
+---
 
 ### TD-331: `dataset_manager` Has No Tests for Its Commands
 
