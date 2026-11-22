@@ -762,3 +762,42 @@ TEST_F(TrainerAdminAPITest, LogsHonorsAndChecksTheLimit) {
     api->stop();
     thr.join();
 }
+
+// TD-582: httplib's stop() does nothing until listen() is under way, so a stop() that reached it first
+// was lost and start() then blocked forever; incremental_trainer's pass hung in PassAdminApi's join()
+// when the pass failed at once (an unreadable vocabulary). Each start() below must return soon after
+// stop(), however the two interleave. A start() that never returns is leaked and detached, so the
+// failure shows as a failed test instead of a hung binary.
+TEST_F(TrainerAdminAPITest, StopBeforeOrDuringStartAlwaysEndsStart) {
+    // One port for every round (a stopped listener frees it at once), not 200 new ones that a parallel
+    // test could have just picked.
+    int stuck = 0;
+    for (int i = -1; i < 200 && stuck == 0; ++i) {  // i = -1: stop() before start() is even called
+        auto* api = new TrainerAdminAPI(control, "127.0.0.1", port, "");
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        auto started = std::make_shared<std::atomic<bool>>(true);
+        if (i < 0)
+            api->stop();
+        std::thread t([api, done, started] {
+            *started = api->start();
+            *done = true;
+        });
+        if (i >= 0 && i % 2 == 1)
+            std::this_thread::sleep_for(std::chrono::microseconds(50 * (i % 20)));
+        if (i >= 0)
+            api->stop();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!*done && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (*done) {
+            t.join();
+            if (i < 0)
+                EXPECT_FALSE(*started) << "a start() after stop() must not listen";
+            delete api;
+        } else {
+            ++stuck;
+            t.detach();  // leaked: deleting it under a blocked listen() would be worse
+        }
+    }
+    EXPECT_EQ(stuck, 0) << "start() kept listening after stop()";
+}

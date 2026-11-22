@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-11-21
 
 
 #include <atomic>
@@ -74,7 +74,9 @@ class TrainerAdminAPI {
     /// Returns false if the listener failed to bind.
     bool start();
 
-    /// Stops the HTTP server. Safe to call multiple times / before start().
+    /// Stops the HTTP server. Safe to call multiple times, from another thread, and before or during
+    /// start() (TD-582): a start() under way returns false or stops listening, and a later start()
+    /// returns false at once.
     void stop();
     bool is_running() const;
     int get_port() const;
@@ -97,6 +99,8 @@ class TrainerAdminAPI {
     // TD-305: held by PUT /admin/config across saving and applying, so two PUTs can't interleave.
     std::mutex put_config_mutex_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> starting_{false};        // TD-582: start() between entry and return
+    std::atomic<bool> stop_requested_{false};  // TD-582: a stop() came; start() won't listen after it
 
     class ServerImpl;
     std::unique_ptr<ServerImpl> server_impl_;

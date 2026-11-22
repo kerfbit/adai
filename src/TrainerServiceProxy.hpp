@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-11-11
+// @adai-version: 0.4.2
+// @adai-reviewed: 2026-11-21
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
 // request from an in-process TrainerControlState it owns directly), this class is a thin reverse
@@ -79,7 +79,9 @@ class TrainerServiceProxy {
     /// called. Returns false if the listener failed to bind.
     bool start();
 
-    /// Stops the HTTP server. Safe to call multiple times / before start().
+    /// Stops the HTTP server. Safe to call multiple times, from another thread, and before or during
+    /// start() (TD-582): a start() under way returns false or stops listening, and a later start()
+    /// returns false at once.
     void stop();
     bool is_running() const;
 
@@ -110,6 +112,8 @@ class TrainerServiceProxy {
     TrainerAdminDefaults idle_defaults_;
     std::atomic<int> child_port_{0};
     std::atomic<bool> running_{false};
+    std::atomic<bool> starting_{false};        // TD-582: start() between entry and return
+    std::atomic<bool> stop_requested_{false};  // TD-582: a stop() came; start() won't listen after it
 
     class ServerImpl;
     std::unique_ptr<ServerImpl> server_impl_;

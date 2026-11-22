@@ -1,12 +1,12 @@
 # `TrainerAdminAPI` — Source File Reference
 
-- **Files:** [`src/TrainerAdminAPI.hpp`](../../../../src/TrainerAdminAPI.hpp) (101 lines), [`src/TrainerAdminAPI.cpp`](../../../../src/TrainerAdminAPI.cpp) (337 lines)
+- **Files:** [`src/TrainerAdminAPI.hpp`](../../../../src/TrainerAdminAPI.hpp) (109 lines), [`src/TrainerAdminAPI.cpp`](../../../../src/TrainerAdminAPI.cpp) (393 lines)
 - **Namespace:** `adai`
 - **Used by:** `incremental_trainer --admin-port <N> resume` (the single-pass child `trainer_service` launches; bound to `127.0.0.1:TRAINER_CHILD_ADMIN_PORT`). `trainer_service`'s own public listener, `TrainerServiceProxy`, proxies `/admin/*` to it (see CLAUDE.md, "Incremental trainer admin API")
 - **State:** an in-process [`TrainerControlState`](../../../../src/TrainerControlState.hpp) shared with that pass's `IncrementalTrainer`
-- **Status tag:** `@adai-status: stable`, `TrainerAdminAPI.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-19`; `.hpp` `1.0.0`, `2026-09-10`
-- **Tests:** [`tests/trainer_admin_api_test.cpp`](../../../../tests/trainer_admin_api_test.cpp) (16 tests, `trainerAdminApiTests`; all pass; the shared parser also has `trainerAdminConfigTests`, see [TrainerAdminConfig.md](TrainerAdminConfig.md))
-- **Last traced against the code:** 2026-10-19
+- **Status tag:** `@adai-status: stable`, `TrainerAdminAPI.cpp` `@adai-version: 1.6.2`, `.hpp` `1.3.1`; `@adai-reviewed: 2026-11-21`
+- **Tests:** [`tests/trainer_admin_api_test.cpp`](../../../../tests/trainer_admin_api_test.cpp) (24 tests, `trainerAdminApiTests`; all pass; the shared parser also has `trainerAdminConfigTests`, see [TrainerAdminConfig.md](TrainerAdminConfig.md))
+- **Last traced against the code:** 2026-10-19; `start()`/`stop()` 2026-11-21 (TD-582)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by starting the real class on a local port and calling it with `curl`.
 
@@ -27,7 +27,9 @@ A small httplib server exposing one training pass's control state.
 | `POST /admin/pause`, `POST /admin/resume` | Set/clear `paused` (resume also wakes the loop); 202 |
 
 `start()` opens `<config_store_dir>/daemon_config.db`, overlays the persisted tunables onto the control state (a failure only logs a warning), then
-blocks in `listen()` and returns false if the bind fails. `stop()` is idempotent. `PUT /admin/config` bodies are parsed as JSON by the shared `parse_trainer_admin_config()` (TD-519); responses are still hand-written JSON (TD-453).
+binds the port and blocks in `listen_after_bind()`; it returns false if the bind fails. `is_running()` is true only once the port is bound.
+`stop()` is idempotent and works at any point: a `start()` under way either gives up or stops listening, and a later `start()` returns
+false at once (TD-582). `PUT /admin/config` bodies are parsed as JSON by the shared `parse_trainer_admin_config()` (TD-519); responses are still hand-written JSON (TD-453).
 
 ---
 
@@ -85,6 +87,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | NaN `last_loss` streamed as `nan` (§2) | Invalid status JSON during divergence | **Verified** | [TD-520](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
 | Stale "serve" header; unbounded `wait_ms`; counter-based completion; unchecked persisted values (§2) | Misleading docs; admin API can be tied up | By inspection | [TD-521](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) |
 | Hand-written JSON responses; non-atomic multi-key persistence | Already tracked | — | TD-453, TD-305 (its validate-first half fixed here October 19, 2026) |
+| A `stop()` before `listen()` was under way was lost, and `start()` then blocked forever | A pass that failed at once hung in `PassAdminApi`'s `join()` | **Fixed November 21, 2026** (was verified by a test) | [TD-582](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) |
 
 ## Addendum (October 19, 2026): JSON request parsing (TD-519)
 
@@ -138,3 +141,15 @@ transaction. It holds `put_config_mutex_` while it saves and then sets the atomi
 worked. A failed save logs an `Error` entry and answers 500 with JSON (`could not save the admin config (<reason>); nothing
 was changed`). Before, the settings changed in memory first, then each key was saved with its own `set()`, and a throw
 escaped the handler as httplib's non-JSON 500 page.
+
+## Addendum (November 21, 2026): a `stop()` before `listen()` is no longer lost (TD-582)
+
+httplib 0.15.3's `Server::stop()` does nothing until `listen_internal()` has set `is_running_`. `start()` used to set `running_` and then
+call `listen()`, and `incremental_trainer`'s `PassAdminApi` waited only for `running_`. So a pass that threw at once (an unreadable
+vocabulary in `SighupTests`, under a loaded `ctest`) could run `stop()` before the listener existed; `listen()` then blocked for good, the
+pass never left `PassAdminApi`'s destructor, and the process hung instead of exiting 1. `start()` and `stop()` now use the handshake
+`TrainingMetricsAPI` adopted for TD-528: `start()` sets `starting_` before it checks `stop_requested_`; `stop()` sets `stop_requested_`,
+waits (at most 5 s) while a start is under way and not yet listening, then calls httplib's `stop()`. `start()` binds with `bind_to_port()`
+before setting `running_`, so `PassAdminApi`'s wait now means the port is bound. A stopped object can't be started again (no caller does).
+Test: `StopBeforeOrDuringStartAlwaysEndsStart` (a stop before `start()` and 200 stops at varying points in it; on the old code a `start()`
+never returned).

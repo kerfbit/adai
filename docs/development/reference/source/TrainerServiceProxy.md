@@ -1,11 +1,11 @@
 # `TrainerServiceProxy` — Source File Reference
 
-- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (118 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (379 lines)
+- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (122 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (403 lines)
 - **Namespace:** `adai`
 - **Used by:** `trainer_service` ([TrainerServiceMain.md](TrainerServiceMain.md)): its public admin listener on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` (127.0.0.1:8084 shipped), started only with `TRAINER_ADMIN_ENABLED=true`. Clients: `curl`, the Android ops dashboard's Trainer tab (via the `trainer.kerfbit.dev` tunnel)
-- **Status tags:** `@adai-status: beta`; `TrainerServiceProxy.cpp` `@adai-version: 0.8.0`, `.hpp` `0.4.1`; `@adai-reviewed: 2026-11-11`
-- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) → `trainerServiceProxyTests` (26, all pass)
-- **Last traced against the code:** 2026-11-11
+- **Status tags:** `@adai-status: beta`; `TrainerServiceProxy.cpp` `@adai-version: 0.8.1`, `.hpp` `0.4.2`; `@adai-reviewed: 2026-11-21`
+- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) → `trainerServiceProxyTests` (27, all pass)
+- **Last traced against the code:** 2026-11-11; `start()`/`stop()` 2026-11-21 (TD-582)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with the real proxy, in front of a real [`TrainerAdminAPI`](TrainerAdminAPI.md)
 > child or, on November 11, 2026, inside the real `trainer_service` with a stub pass.
@@ -65,7 +65,7 @@ the fields go on every status answer that is a JSON object, a 503/504 included, 
 
 ## 3. Tests
 
-`trainer_service_proxy_test.cpp` (26), against the real proxy and, for the proxied cases, a real `TrainerAdminAPI`:
+`trainer_service_proxy_test.cpp` (27), against the real proxy and, for the proxied cases, a real `TrainerAdminAPI`:
 
 - `/health` never proxied;
 - idle status, logs, checkpoint (409) and config (the config-file defaults, TD-525);
@@ -77,7 +77,8 @@ the fields go on every status answer that is a JSON object, a 503/504 included, 
 - valid JSON idle and with a diverged pass (`null` losses);
 - every supervisor field in `/admin/status`, TD-569's included;
 - a checkpoint wait longer than 5 s relayed; a malformed or oversized `wait_ms` → 400;
-- an unreachable pass's 503 carrying the supervisor fields (TD-571).
+- an unreachable pass's 503 carrying the supervisor fields (TD-571);
+- a `stop()` before or during `start()` always ending it (TD-582).
 
 ---
 
@@ -89,6 +90,7 @@ the fields go on every status answer that is a JSON object, a 503/504 included, 
 | Long checkpoint waits misreported, idle config ignoring the config file, unencoded `wait_ms`, ignored pause/resume failures | — | **Fixed November 2, 2026** | [TD-525](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Spaced JSON booleans, partial idle saves, `null` losses, `?limit=`, the shared `wait_ms` limit, a failing pass looking idle | — | **Fixed** | TD-519, TD-305, TD-520, TD-522, TD-521, TD-523 |
 | Browser writes, a second instance on the same port, a test harness abort | — | **Fixed** | TD-550, TD-551, TD-556 |
+| A `stop()` before `listen()` was under way was lost, and `start()` then blocked forever | — | **Fixed November 21, 2026** | [TD-582](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) |
 
 ## 5. History
 
@@ -98,3 +100,6 @@ the fields go on every status answer that is a JSON object, a 503/504 included, 
   saved settings (TD-521); `null` losses (TD-520); `?limit=` (TD-522); idle saves in one transaction (TD-305).
 - **November 11, 2026:** `total_passes_stalled` and `seconds_since_pass_progress` (TD-569); the fields on every status answer and nlohmann
   error bodies (TD-571). This document was re-traced against the code, replacing its October sections and folding in its addenda.
+- **November 21, 2026:** `start()` binds with `bind_to_port()` and then `listen_after_bind()`, and it and `stop()` use
+  [TrainerAdminAPI.md](TrainerAdminAPI.md)'s `starting_`/`stop_requested_` handshake (TD-582), so a `stop()` that comes before httplib is
+  listening (which httplib ignores) still ends `start()`. A stopped proxy can't be started again; `trainer_service` never does.

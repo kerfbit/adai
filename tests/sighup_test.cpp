@@ -749,7 +749,11 @@ TEST_F(SighupTest, AFirstTrainBuildsTheVocabularyAndExceptionsExitOne) {
         while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        if (done != pid_) return -1;
+        if (done != pid_) {
+            // TD-582: this was the hang the pass's admin API caused (a lost stop()); say so, not just -1.
+            ADD_FAILURE() << command.back() << " still running after 120 s (killed in TearDown)";
+            return -1;
+        }
         pid_ = -1;
         return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
     };

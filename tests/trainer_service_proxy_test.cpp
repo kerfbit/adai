@@ -847,3 +847,39 @@ TEST_F(TrainerServiceProxyTest, IdleConfigReportsTheConfigFileDefaults) {
     EXPECT_NE(res->body.find("\"auto_save_every_minutes\":12"), std::string::npos) << res->body;
     EXPECT_NE(res->body.find("\"auto_save_every_samples\":250"), std::string::npos) << res->body;
 }
+
+// TD-582: the same lost-stop race as TrainerAdminAPI's (a stop() before listen() was under way was a
+// no-op, and start() then blocked forever). A start() that never returns is leaked and detached.
+TEST_F(TrainerServiceProxyTest, StopBeforeOrDuringStartAlwaysEndsStart) {
+    // One port for every round (a stopped listener frees it at once), not 200 new ones that a parallel
+    // test could have just picked.
+    int stuck = 0;
+    for (int i = -1; i < 200 && stuck == 0; ++i) {  // i = -1: stop() before start() is even called
+        auto* proxy = new TrainerServiceProxy("127.0.0.1", proxy_port, test_dir.string(), control);
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        auto started = std::make_shared<std::atomic<bool>>(true);
+        if (i < 0)
+            proxy->stop();
+        std::thread t([proxy, done, started] {
+            *started = proxy->start();
+            *done = true;
+        });
+        if (i >= 0 && i % 2 == 1)
+            std::this_thread::sleep_for(std::chrono::microseconds(50 * (i % 20)));
+        if (i >= 0)
+            proxy->stop();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!*done && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (*done) {
+            t.join();
+            if (i < 0)
+                EXPECT_FALSE(*started) << "a start() after stop() must not listen";
+            delete proxy;
+        } else {
+            ++stuck;
+            t.detach();
+        }
+    }
+    EXPECT_EQ(stuck, 0) << "start() kept listening after stop()";
+}

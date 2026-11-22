@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 85 (7 high, 18 medium, 60 low)
+**Active Items:** 84 (7 high, 18 medium, 59 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 499 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 500 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 85 open items:
+**Where things stand.** Of the 84 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **64 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **63 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
+**November 21, 2026:** Closed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
+(LOW): the failure was a hang. A pass's admin API lost a `stop()` that came before httplib was listening, so a pass that failed at once
+never exited; `TrainerAdminAPI` and `TrainerServiceProxy` now use TD-528's start/stop handshake. Closed [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
 (LOW): `registry_ftp_confinement_test` takes kernel-assigned ports and starts `registry_server` again with new ones when another process
 took one first. Closed [TD-332](../archive/TECHNICAL_DEBT_RESOLVED.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
 (LOW): the `dataset_manager` guide covers every command and how pools, `--kind` and the run group are chosen. Closed [TD-331](../archive/TECHNICAL_DEBT_RESOLVED.md#td-331-dataset_manager-has-no-tests-for-its-commands)
@@ -42,7 +44,7 @@ connection, and `DataTransport.hpp` no longer leaks `using` declarations. Closed
 (LOW): `DatasetRegistry`'s dead helpers are gone, `MAX_FILES_PER_RUN` limits what a pass claims, acquired claims show in memory, and a
 trained file that changed is reported. Closed [TD-513](../archive/TECHNICAL_DEBT_RESOLVED.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls)
 (LOW): `startup_sweep()` no longer throws on filesystem errors, releases every segment this run claimed on an empty download, and leaves
-another run's. Filed [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW, `SighupTests` failing under a loaded parallel run),
+another run's. Filed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW, `SighupTests` failing under a loaded parallel run),
 [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](../archive/TECHNICAL_DEBT_RESOLVED.md#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
 commit message misstating that test's results; closed the same day: the owner left the message as is, with the TD as the correction).
 Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
@@ -181,7 +183,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (85 since TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (84 since TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -230,8 +232,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
-  and fix. [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
+- [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
 - [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
   with too few values) while still importing `roles.json`.
 
@@ -381,7 +382,6 @@ as TD-426 and TD-467 were:
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
   - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
-  - [TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
   - [TD-583: The Registry Lock Race Is Tested Only Across Threads](#td-583-the-registry-lock-race-is-tested-only-across-threads)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
@@ -3602,6 +3602,7 @@ Action Items:
 
 - [ ] Fail startup cleanly when the data directory can't be created (catch in `start()` or check in `main()` and exit 1).
 - [ ] Only set a flag in the signal handler; after `stop()`, re-check the flag once `listen()` has started (or use `wait_until_ready()` before stopping).
+      `TrainingMetricsAPI` (TD-528) and `TrainerAdminAPI`/`TrainerServiceProxy` (TD-582) have the `starting_`/`stop_requested_` handshake to copy.
 - [ ] Honour `LOG_LEVEL`; update the endpoint lists.
 
 Location in code: `src/ModelNameServiceServer.cpp` (`signal_handler()`, `main()`); `src/ModelNameService.cpp` (`start()`); tagged `TODO: See TD-464`.
@@ -4759,39 +4760,6 @@ Action Items:
       mentions this).
 
 Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `init_db()`'s "no rows yet" check).
-
----
-
-### TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Tests / `sighup_test.cpp` | November 21, 2026 | 1-3 hours |
-
-Description:
-Seen November 21, 2026 while testing TD-498: `ctest -R "Registry|Transport|DatasetManager|DataFetcher|Config|IncrementalTrainer|
-LeJEPATrainingPass|Sighup|TrainerService" -j8` (25 suites, `IncrementalTrainerTests` alone taking about 390 s) failed `SighupTests` after
-149.8 s, at `SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`'s last check, which expects `adai::kResumeExitFailed` from a
-`resume` pass with `--admin-port`. Run alone straight afterwards, `SighupTests` passed in 10.0 s. Its configs leave `REGISTRY_SERVER_URL`
-empty and set no `RUN_GROUP`, so TD-498's changes don't reach it.
-
-The exit code it got wasn't captured (the output was filtered). Two candidates from the code:
-- **The 120 s deadline.** The test's `run()` waits at most 120 s for each `incremental_trainer` child and returns -1 when the time runs
-  out (the child is then killed in `TearDown()`). The case runs three children in turn, the first a real training pass that builds a
-  vocabulary; under that load the whole suite took 15 times longer than alone.
-- **The admin port.** `free_port()` binds port 0, reads the port and closes the socket before the child binds it, so another parallel
-  test can take it in between (the ephemeral-range race [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) describes); how `resume` exits when its admin API can't bind decides
-  whether that changes the code.
-
-Action Items:
-
-- [ ] Reproduce under the same load (loop `sighupTests --gtest_filter=*AFirstTrain*` while the listed suites run with `-j8`), printing the
-      exit code `run()` returned and the child's log.
-- [ ] Fix the cause: a deadline that scales with load or no per-child deadline below ctest's own 1200 s `TIMEOUT`, and/or a port the
-      child picks itself (port 0, reported back) instead of `free_port()`'s pick.
-- [ ] Check the other `SighupTest` cases that wait on a child with a fixed deadline the same way.
-
-Location in code: `tests/sighup_test.cpp` (`AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`, `run()`, `free_port()`).
 
 ---
 

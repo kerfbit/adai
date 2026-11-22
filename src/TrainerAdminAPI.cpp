@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.1
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.6.2
+// @adai-reviewed: 2026-11-21
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
@@ -166,6 +166,19 @@ adai::TrainerAdminAPI::~TrainerAdminAPI() {
 }
 
 bool adai::TrainerAdminAPI::start() {
+    // TD-582: httplib's stop() does nothing until listen() is under way, so a stop() that came first was
+    // lost and this blocked forever. start() marks itself starting before it checks for a stop request,
+    // and stop() requests the stop before it checks for a start in progress, so one sees the other.
+    if (starting_.exchange(true)) {
+        return false;
+    }
+    struct ClearStarting {
+        std::atomic<bool>& flag;
+        ~ClearStarting() { flag = false; }
+    } clear_starting{starting_};
+    if (stop_requested_) {
+        return false;
+    }
     if (!config_store_dir_.empty()) {
         try {
             fs::create_directories(config_store_dir_);
@@ -193,15 +206,25 @@ bool adai::TrainerAdminAPI::start() {
         }
     }
 
-    running_ = true;
+    if (stop_requested_ || !server_impl_->server.bind_to_port(host_, port_)) {
+        return false;
+    }
+    running_ = true;  // bound: connections queue from here on
     control_->log(TrainerLogLevel::Info, "Admin API listening on " + host_ + ":" + std::to_string(port_));
-    const bool ok = server_impl_->server.listen(host_, port_);
+    const bool ok = server_impl_->server.listen_after_bind();
     running_ = false;
     return ok;
 }
 
 void adai::TrainerAdminAPI::stop() {
     if (server_impl_) {
+        stop_requested_ = true;
+        // A start() in progress: wait (briefly) until it is listening, when httplib's stop() works, or
+        // until it has given up after seeing stop_requested_ (TD-582, as TD-528 for TrainingMetricsAPI).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (starting_ && !server_impl_->server.is_running() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         server_impl_->server.stop();
     }
     running_ = false;

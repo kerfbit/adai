@@ -1,10 +1,64 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (499 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (500 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Tests / `sighup_test.cpp`; Trainer admin API | Code fix (LOW, created November 21, 2026) |
+
+Description:
+Seen November 21, 2026 while testing TD-498: `ctest -R "Registry|Transport|DatasetManager|DataFetcher|Config|IncrementalTrainer|
+LeJEPATrainingPass|Sighup|TrainerService" -j8` (25 suites, `IncrementalTrainerTests` alone taking about 390 s) failed `SighupTests` after
+149.8 s, at `SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`'s last check, which expects `adai::kResumeExitFailed` from a
+`resume` pass with `--admin-port`. Run alone straight afterwards, `SighupTests` passed in 10.0 s. Its configs leave `REGISTRY_SERVER_URL`
+empty and set no `RUN_GROUP`, so TD-498's changes don't reach it.
+
+The exit code it got wasn't captured (the output was filtered). Two candidates from the code:
+- **The 120 s deadline.** The test's `run()` waits at most 120 s for each `incremental_trainer` child and returns -1 when the time runs
+  out (the child is then killed in `TearDown()`). The case runs three children in turn, the first a real training pass that builds a
+  vocabulary; under that load the whole suite took 15 times longer than alone.
+- **The admin port.** `free_port()` binds port 0, reads the port and closes the socket before the child binds it, so another parallel
+  test can take it in between (the ephemeral-range race [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) describes); how `resume` exits when its admin API can't bind decides
+  whether that changes the code.
+
+Action Items:
+
+- [x] Reproduce under the same load (loop `sighupTests --gtest_filter=*AFirstTrain*` while the listed suites run with `-j8`), printing the
+      exit code `run()` returned and the child's log.
+- [x] Fix the cause: a deadline that scales with load or no per-child deadline below ctest's own 1200 s `TIMEOUT`, and/or a port the
+      child picks itself (port 0, reported back) instead of `free_port()`'s pick.
+- [x] Check the other `SighupTest` cases that wait on a child with a fixed deadline the same way.
+
+**Fix (November 21, 2026).** Neither candidate. The same load, and the whole suite at `-j12` (load average up to 72), didn't reproduce it
+in 51 runs; the slowest of them took 25 s for all three children, far inside 120 s. A bind failure couldn't explain it either: the pass's
+admin API only logs one, and the exit code comes from the vocabulary. What did explain it was a hang, found by reading the code:
+- httplib 0.15.3's `Server::stop()` does nothing until `listen()` is under way (`is_running_`). `TrainerAdminAPI::start()` set its own
+  `running_` and then called `listen()`, and `PassAdminApi` waited only for `running_`.
+- In this case the pass throws straight after `PassAdminApi` is built (the vocabulary path is a directory). Under load its destructor's
+  `stop()` could run before `listen()` had bound, so it was lost; `listen()` then blocked forever, the destructor's `join()` never returned,
+  and after 120 s `run()` returned -1. The same could hang a real pass that fails at once, until `trainer_service`'s stall timer (TD-569)
+  or a SIGTERM's 25 s escalation ended it.
+
+`TrainerAdminAPI` and `TrainerServiceProxy` (whose `start()`/`stop()` had the same shape; a SIGTERM to `trainer_service` before its
+listener was up was lost the same way) now use the handshake `TrainingMetricsAPI` adopted for TD-528: `start()` sets `starting_` before
+it checks `stop_requested_`, and `stop()` sets `stop_requested_`, waits at most 5 s while a start is under way and not yet listening, then
+calls httplib's `stop()`. `start()` binds with `bind_to_port()` before setting `running_`, so `PassAdminApi`'s wait means the port is bound.
+New tests in `trainerAdminApiTests` and `trainerServiceProxyTests` (`StopBeforeOrDuringStartAlwaysEndsStart`: a stop before `start()` and
+200 stops at varying points in it) fail on the old code, where a `start()` never returned, and pass on the fix. `run()` in the sighup test
+now names a child still running at its deadline. The other `SighupTest` cases wait on children with 10–120 s deadlines for work that
+takes seconds; with the hang gone they're bounds, not timings, and are left as they are. `ModelNameService` has the same lost-stop race;
+that is TD-464's early-SIGTERM hang, still open. `sighupTests` (25) passed, and the case 30 more times in a row.
+
+Location in code: `tests/sighup_test.cpp` (`AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`, `run()`); `src/TrainerAdminAPI.{hpp,cpp}`,
+`src/TrainerServiceProxy.{hpp,cpp}` (`start()`, `stop()`).
+
+---
 
 ### TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`
 
