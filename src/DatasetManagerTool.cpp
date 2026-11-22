@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.13.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 1.13.1
+// @adai-reviewed: 2026-11-21
 
 #include <algorithm>
 #include <filesystem>
@@ -168,7 +168,8 @@ bool resolve_run_group(adai::ServiceConfig& svc_config, const std::string& model
 }
 }  // namespace
 
-// TODO: See TD-331 in TECHNICAL_DEBT.md - no tests exercise the commands (only the parsers and DatasetRegistry)
+// TD-331: the commands are tested end to end by tests/dataset_manager_cli_test.cpp (local and remote) and
+// tests/registry_ftp_confinement_test.cpp, the parsers by datasetManagerArgsTests.
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     // Parse global --config <path> flag; build clean args list.

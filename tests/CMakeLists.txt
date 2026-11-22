@@ -863,6 +863,18 @@ if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
     add_test(NAME RegistryFtpConfinementTests COMMAND registryFtpConfinementTests)
 endif()
 
+# TD-331: the real dataset_manager's commands, locally and against a registry_server it starts.
+if(TARGET registry_server AND TARGET dataset_manager AND HTTPLIB_INCLUDE_DIR)
+    add_executable(datasetManagerCliTests dataset_manager_cli_test.cpp)
+    target_include_directories(datasetManagerCliTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(datasetManagerCliTests PRIVATE
+        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>"
+        DATASET_MANAGER_BINARY_PATH="$<TARGET_FILE:dataset_manager>")
+    target_link_libraries(datasetManagerCliTests adai_core pthread GTest::gtest_main)
+    add_dependencies(datasetManagerCliTests registry_server dataset_manager)
+    add_test(NAME DatasetManagerCliTests COMMAND datasetManagerCliTests)
+endif()
+
 # Model Name Service live-server integration tests.
 # Override target with: MNS_SERVER_HOST=<host> MNS_SERVER_PORT=<port>
 # Tests auto-skip when mns_server is unreachable.

@@ -1,10 +1,49 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (496 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (497 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-331: `dataset_manager` Has No Tests for Its Commands
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / dataset_manager CLI | Tests (LOW, created October 11, 2026) |
+
+Description:
+Found alongside TD-326. `main()` composes `DatasetRegistry` calls per command, but only the
+parsers (`datasetManagerArgsTests`) and `DatasetRegistry` itself are tested. TD-326 and TD-327 live
+exactly in that composition and went unnoticed. Both reproduced in seconds by running the binary
+against a scratch `SESSION_DIR` and a local `registry_server`.
+
+Action Items:
+
+- [x] Add a CLI-level test target that runs `dataset_manager` against a scratch `SESSION_DIR` (and a local `registry_server` for remote mode), covering `migrate` with segments, `remove`, `assign --count`, `delete` and `segment`.
+
+Location in code: `src/DatasetManagerTool.cpp` (`main()`); tagged `TODO: See TD-331`.
+
+Files to Modify:
+
+- `tests/CMakeLists.txt`
+- new test file
+
+**Fix (November 21, 2026):** new `tests/dataset_manager_cli_test.cpp` (`datasetManagerCliTests`, 4 tests) runs the real `dataset_manager`
+in local mode against a scratch `SESSION_DIR` and in remote mode against a `registry_server` it starts on a free port (its own child,
+stopped by its pid), and reads the queues back through `DatasetRegistry` and `RemoteTransport`:
+- local `segment --count` replaces an assigned whole-file entry with its segments, each keeping the model, and a range past the last pair
+  queues nothing;
+- local `assign --count 2`, `delete` and `remove` (and `remove` of a file no longer queued exits 1);
+- local `migrate` of segments keeps each range and model and empties the legacy pool (the TD-326 bug);
+- remote `segment` of a local file (uploaded first), `add`, `assign --count`, `remove` refused (the TD-327 bug), `migrate` of segments and a
+  file with its model, and `delete`.
+
+Writing them showed one thing worth documenting, not a bug: `assign --count` and file targets pick only whole-file entries, in both
+transports (TD-205); segments are assigned only by `assign <model>` without targets. The CLI help doesn't say so; added to TD-332.
+All 4 pass, five times in a row; `registryFtpConfinementTests` and `datasetManagerArgsTests` still pass.
+
+---
 
 ### TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps
 

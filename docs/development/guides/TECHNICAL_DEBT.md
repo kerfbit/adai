@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 88 (7 high, 18 medium, 63 low)
+**Active Items:** 87 (7 high, 18 medium, 62 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 496 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 497 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 88 open items:
+**Where things stand.** Of the 87 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **67 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **66 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-472](../archive/TECHNICAL_DEBT_RESOLVED.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
+**November 21, 2026:** Closed [TD-331](../archive/TECHNICAL_DEBT_RESOLVED.md#td-331-dataset_manager-has-no-tests-for-its-commands)
+(LOW): `datasetManagerCliTests` runs the real `dataset_manager` locally and against a `registry_server` it starts (`segment`,
+`assign --count`, `delete`, `remove`, `migrate` with segments). Closed [TD-472](../archive/TECHNICAL_DEBT_RESOLVED.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
 (LOW): every Parquet fixture is compared with pyarrow's reading on every build, which found that doubles were written to 6 significant
 digits and NaN as invalid JSON; fixed. Closed [TD-340](../archive/TECHNICAL_DEBT_RESOLVED.md#td-340-datatransport-robustness-and-header-hygiene)
 (LOW): FTP downloads initialize libcurl once at startup, keep a failed transfer's partial file for the next pass, retry a refused
@@ -176,7 +178,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (88 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (87 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -225,7 +227,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
+- `dataset_manager`: [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
 - [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
   and fix. [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
@@ -317,7 +319,6 @@ as TD-426 and TD-467 were:
   - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
   - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
-  - [TD-331: `dataset_manager` Has No Tests for Its Commands](#td-331-dataset_manager-has-no-tests-for-its-commands)
   - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
   - [TD-345: `DecoderBlock` Persistence Gaps for Gated State](#td-345-decoderblock-persistence-gaps-for-gated-state)
   - [TD-348: `LLMDecoder` Dead Code and Robustness Gaps](#td-348-llmdecoder-dead-code-and-robustness-gaps)
@@ -2288,31 +2289,6 @@ Files to Modify:
 - `src/DecoderBlock.{hpp,cpp}`
 ---
 
-### TD-331: `dataset_manager` Has No Tests for Its Commands
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
-
-Description:
-Found alongside TD-326. `main()` composes `DatasetRegistry` calls per command, but only the
-parsers (`datasetManagerArgsTests`) and `DatasetRegistry` itself are tested. TD-326 and TD-327 live
-exactly in that composition and went unnoticed. Both reproduced in seconds by running the binary
-against a scratch `SESSION_DIR` and a local `registry_server`.
-
-Action Items:
-
-- [ ] Add a CLI-level test target that runs `dataset_manager` against a scratch `SESSION_DIR` (and a local `registry_server` for remote mode), covering `migrate` with segments, `remove`, `assign --count`, `delete` and `segment`.
-
-Location in code: `src/DatasetManagerTool.cpp` (`main()`); tagged `TODO: See TD-331`.
-
-Files to Modify:
-
-- `tests/CMakeLists.txt`
-- new test file
-
----
-
 ### TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2325,6 +2301,10 @@ Found alongside TD-326, by inspection. `docs/operations/guides/dataset-manager-g
 `clear-pending`. It doesn't cover `remove`, `assign`, `unassign`, `delete`, `migrate`, `segment`,
 `models` or the `--kind` flag, which are the commands that change pools and assignments. The usage
 text in `main()` is the only complete description.
+
+**Also to cover (November 21, 2026, found writing TD-331's tests):** `assign --count N` and `assign <model> <file>...` pick only
+whole-file entries, in local and remote mode alike (TD-205); a file's segments are assigned only by `assign <model>` with no targets.
+Neither the CLI's help nor the guide says so.
 
 Action Items:
 

@@ -1,9 +1,9 @@
 # `DatasetManagerTool` — Source File Reference
 
-- **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,185 lines; `main()` of the `dataset_manager` binary)
+- **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (1,190 lines; `main()` of the `dataset_manager` binary)
 - **Built into:** `dataset_manager` (with `DatasetManagerArgs.cpp` and `Config.cpp`, linking `DataFetcher`, `DatasetRegistry` and `adai_core`; `ModelNameClient` when `BUILD_MNS_SERVER`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.13.0`, `@adai-reviewed: 2026-11-19`
-- **Tests:** `registryFtpConfinementTests` runs the real binary against a `registry_server` it starts (11 cases, §5); the parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.13.1`, `@adai-reviewed: 2026-11-21`
+- **Tests:** `datasetManagerCliTests` (4, TD-331) and `registryFtpConfinementTests` (11) run the real binary, locally and against a `registry_server` they start (§5); the parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
 - **Operator guide:** [dataset-manager-guide.md](../../../operations/guides/dataset-manager-guide.md) (§6)
 - **Last traced against the code:** 2026-11-12; the usage text's `[pairs] = all` lines 2026-11-17 (TD-575); `huggingface --config` 2026-11-19 (TD-314); Gutenberg mirrors in local mode 2026-11-19 (TD-579)
 
@@ -135,8 +135,20 @@ The Android `RegistryRepository.createSegments()` follows the same steps.
 | `DatasetManagerGlobalOptionsAndHelp`, `DatasetManagerReportsThePairsActuallyQueued` | TD-330 |
 | `DatasetManagerAddOverwriteReplacesQueuedAndTrainedFiles`, `DatasetManagerAddOverwriteNeedsARegistryServer` | `add --overwrite` against queued, trained and claimed files, and locally (TD-552) |
 
-**Not covered:** `gutenberg*`/`huggingface` (they download), `assign`/`unassign`/`delete`/`requeue`
-output beyond the MNS case, `migrate`, `status`/`list-*` formatting, and local-mode `segment` (TD-331).
+`datasetManagerCliTests` (`tests/dataset_manager_cli_test.cpp`, TD-331) runs the real binary in local mode against a scratch
+`SESSION_DIR`, and in remote mode against a `registry_server` it starts on a free port, and reads the queues back (`DatasetRegistry`
+locally, `RemoteTransport` remotely):
+
+| Test | Checks |
+|---|---|
+| `LocalSegmentReplacesTheWholeEntryAndKeepsItsModel` | `segment --count` replaces an assigned whole-file entry with its segments, each keeping the model (TD-542); a range past the last pair queues nothing |
+| `LocalAssignCountDeleteAndRemove` | `assign --count 2` assigns exactly two files; `delete` and `remove` drop their file; `remove` of a file no longer queued exits 1 |
+| `LocalMigrateMovesSegmentsWithTheirModel` | `migrate` moves each segment with its range and model and leaves the legacy pool empty (TD-326) |
+| `RemoteSegmentAssignCountMigrateAndDelete` | Remote `segment` of a local file (uploaded first), `add`, `assign --count` (whole files only, TD-205), `remove` refused (TD-327), `migrate` of segments and a file with its model, and `delete` (a path matches only a whole-file entry) |
+
+**Not covered:** `gutenberg*`/`huggingface` (they download), `unassign`/`requeue` beyond `DatasetRegistry`'s own tests, and
+`status`/`list-*` formatting. Note for the guide (TD-332): `assign --count` and file targets pick only whole-file entries; segments
+are assigned only by `assign <model>` with no targets.
 
 ---
 
@@ -155,7 +167,7 @@ is their only full description.
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `unassign` exits 0 when every match was skipped as claimed | A no-op looks like success unless the "skipped" line is read | By inspection | [TD-330](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) (not in its action items) |
-| Commands without tests (§5) | Composition bugs go unnoticed (`migrate` and `remove` had them) | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
+| Commands without tests (§5) | Composition bugs go unnoticed (`migrate` and `remove` had them) | **Fixed November 21, 2026** (`datasetManagerCliTests`) | [TD-331](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | The guide lacks `assign`, `unassign`, `delete`, `migrate`, `models` (§6) | Pool-changing commands documented only in the usage text | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
 | `migrate --count N` counts entries, not files | A file's segments may be split between pools | By inspection | — |
 
