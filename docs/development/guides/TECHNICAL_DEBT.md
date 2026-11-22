@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 93 (7 high, 18 medium, 68 low)
+**Active Items:** 92 (7 high, 18 medium, 67 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 491 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 492 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,12 +17,11 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 93 open items:
-- **22 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+**Where things stand.** Of the 92 open items:
+- **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
-  releases and devices, a deployment cutover and a walk-through against a live server; and 1 on an owner decision about pushed history
-  (TD-584).
+  releases and devices, a deployment cutover and a walk-through against a live server.
 - **71 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
@@ -31,8 +30,9 @@ that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
 **November 21, 2026:** Filed [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW, `SighupTests` failing under a loaded parallel run),
-[TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
-commit message misstating that test's results). Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
+[TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](../archive/TECHNICAL_DEBT_RESOLVED.md#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
+commit message misstating that test's results; closed the same day: the owner left the message as is, with the TD as the correction).
+Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
 (LOW): `LocalTransport` commits as `registry_server` does and keeps the registry under its lock (a race test lost commits before),
 remote assign/unassign read segments, `https://` and bad group names are refused, and uploads stream; `model_id` moved to TD-462. Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
 Registry tab can re-queue trained files (one, or all, optionally assigned to a model); the deployment re-queue isn't needed, since
@@ -168,7 +168,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (93 since TD-269, TD-540, TD-498, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (92 since TD-269, TD-540, TD-498, TD-584, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -214,7 +214,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 - [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): the Android `stable` bar; its three setup steps are code work, the rest needs the release and a device.
 - [TD-172](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands) (MEDIUM): cut a live host over to `trainer_service` (unit file and binaries).
 - [TD-164](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass) (LOW): walk `chatbot-guide.md` against a live `chatbot_api_server` and `chatbot` pair.
-- [TD-584](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW): decide whether to correct `1d4a87af`'s pushed commit message (a note, or a force push) or leave it.
 
 ### 4. Code work: training and data
 
@@ -383,7 +382,6 @@ as TD-426 and TD-467 were:
   - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
   - [TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
   - [TD-583: The Registry Lock Race Is Tested Only Across Threads](#td-583-the-registry-lock-race-is-tested-only-across-threads)
-  - [TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5025,28 +5023,6 @@ Action Items:
 - [ ] Confirm it fails with the lock scope TD-498 replaced (as the thread test was checked), then keep both tests.
 
 Location in code: `tests/RegistryTransportTests.cpp`; `src/RegistryTransport.cpp` (`lock_pending()`, `delete_paths()`, `requeue_trained()`).
-
----
-
-### TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Repository history | November 21, 2026 | 15 minutes, after an owner decision |
-
-Description:
-Commit `1d4a87af` ("Fix TD-498: registry transport divergence and client hygiene", pushed to `origin` and `kerfbit`) says the new race
-test "lost 0-33 of 60 commits on the old code". The three runs actually **kept** 0, 27 and 0 of 60, so they lost 60, 33 and 60. The
-archive's TD-498 entry and `RegistryTransport.md` have the right numbers. A pushed commit message can only be changed by rewriting
-`main` on both remotes, which needs a force push.
-
-Action Items:
-
-- [ ] Owner decision: leave the message (this entry and the archive are the correction), or attach a correction with `git notes`
-      (`git notes add 1d4a87af`, then push `refs/notes/commits` to both remotes; notes aren't shown by default on GitHub), or rewrite
-      history (a force push to both remotes, not recommended for a message). Then do it and close this item.
-
-Location: commit `1d4a87af` on `main` (`origin`, `kerfbit`).
 
 ---
 

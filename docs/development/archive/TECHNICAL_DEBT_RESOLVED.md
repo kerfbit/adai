@@ -1,10 +1,36 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (491 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (492 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Repository history | Owner decision (LOW, filed November 21, 2026): left as is |
+
+Description:
+Commit `1d4a87af` ("Fix TD-498: registry transport divergence and client hygiene", pushed to `origin` and `kerfbit`) says the new race
+test "lost 0-33 of 60 commits on the old code". The three runs actually **kept** 0, 27 and 0 of 60, so they lost 60, 33 and 60. The
+archive's TD-498 entry and `RegistryTransport.md` have the right numbers. A pushed commit message can only be changed by rewriting
+`main` on both remotes, which needs a force push.
+
+Action Items:
+
+- [x] Owner decision: leave the message (this entry and the archive are the correction), or attach a correction with `git notes`
+      (`git notes add 1d4a87af`, then push `refs/notes/commits` to both remotes; notes aren't shown by default on GitHub), or rewrite
+      history (a force push to both remotes, not recommended for a message). Then do it and close this item.
+
+Location: commit `1d4a87af` on `main` (`origin`, `kerfbit`).
+
+**Resolution (November 21, 2026):** the owner chose to leave `1d4a87af`'s message alone; this entry is the correction. The right figures
+(the old code kept 0, 27 and 0 of 60 commits) are also in TD-498's archive entry and `RegistryTransport.md`. No history was rewritten
+and no note was added.
+
+---
 
 ### TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene
 

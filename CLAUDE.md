@@ -454,7 +454,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(93 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(92 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -551,4 +551,3 @@ reference doc that tracks it):
 | TD-581 (LOW) | MNS's Legacy JSONL Import Drops Every Model. Left: Insert with named columns (as `training_history`'s inserts do), binding `kind`, `connection_json`, `run_group` and the progress… (and 4 more). See [ModelNameService.md](docs/development/reference/source/ModelNameService.md). |
 | TD-582 (LOW) | `SighupTests` Fails Under a Loaded Parallel `ctest`. Left: Reproduce under the same load (loop `sighupTests --gtest_filter=*AFirstTrain*` while the listed suites run with `-j8`), printing the exit code… (and 2 more). |
 | TD-583 (LOW) | The Registry Lock Race Is Tested Only Across Threads. Left: Add a test that forks: the child commits while the parent deletes and re-queues (as the thread test does), and the parent… (and 1 more). See [RegistryTransport.md](docs/development/reference/source/RegistryTransport.md). |
-| TD-584 (LOW) | Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results. Left: Owner decision: leave the message (this entry and the archive are the correction), or attach a correction with `git notes`… |
