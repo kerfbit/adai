@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 86 (7 high, 18 medium, 61 low)
+**Active Items:** 85 (7 high, 18 medium, 60 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 498 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 499 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 86 open items:
+**Where things stand.** Of the 85 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **65 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **64 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-332](../archive/TECHNICAL_DEBT_RESOLVED.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
+**November 21, 2026:** Closed [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
+(LOW): `registry_ftp_confinement_test` takes kernel-assigned ports and starts `registry_server` again with new ones when another process
+took one first. Closed [TD-332](../archive/TECHNICAL_DEBT_RESOLVED.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
 (LOW): the `dataset_manager` guide covers every command and how pools, `--kind` and the run group are chosen. Closed [TD-331](../archive/TECHNICAL_DEBT_RESOLVED.md#td-331-dataset_manager-has-no-tests-for-its-commands)
 (LOW): `datasetManagerCliTests` runs the real `dataset_manager` locally and against a `registry_server` it starts (`segment`,
 `assign --count`, `delete`, `remove`, `migrate` with segments). Closed [TD-472](../archive/TECHNICAL_DEBT_RESOLVED.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
@@ -179,7 +181,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (86 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (85 since TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -228,7 +230,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
 - [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
   and fix. [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
 - [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
@@ -373,7 +374,6 @@ as TD-426 and TD-467 were:
   - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
   - [TD-553: Per-File Versions Have No Build Number](#td-553-per-file-versions-have-no-build-number)
   - [TD-554: No Aggregate Version per CMake Build](#td-554-no-aggregate-version-per-cmake-build)
-  - [TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
   - [TD-558: Android Ops Dashboard Doesn't Show Per-Sample Quality Reports](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports)
   - [TD-559: Tizen Dashboard Doesn't Show Per-Sample Quality Reports](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports)
   - [TD-562: Vocabulary Sizing and Tools Assume Lowercase Text](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text)
@@ -4392,44 +4392,6 @@ Location in code: `CMakeLists.txt`, `src/CMakeLists.txt`, `CMakePresets.json`, `
 
 ---
 
-### TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open — code fix landed October 26, 2026 | Tests / Trainer admin API | October 26, 2026 | 1-2 hours |
-
-Description:
-Found October 26, 2026. `TrainerServiceProxyTests` once ended with "Subprocess aborted" in a full `ctest -j8` run, and
-`TrainerAdminAPITests` did earlier the same day; both passed when run alone. Reproduced by looping `trainerServiceProxyTests` while the
-rest of the suite ran with `-j12`: **46 of 673 runs aborted** (about 7%), each with a failed
-`ASSERT_TRUE(wait_until_reachable(...))` followed by "terminate called without an active exception". There were two causes:
-- **The abort.** Each test ran the server's blocking `start()` on a raw `std::thread`. A failed `ASSERT` returns from the test with the
-  thread still joinable, and `std::thread`'s destructor then calls `std::terminate()`, which kills the whole binary instead of failing
-  one test.
-- **The trigger.** Ports came from fixed ranges, 43900 + pid % 200 and 43700 + pid % 100. Both sit inside Linux's ephemeral range
-  (32768–60999), where the outgoing connections of other parallel tests can hold them. Since exclusive listening ports (TD-551) a bind
-  on a taken port fails, so `start()` returns false and the server never comes up. `start()` doesn't log the failure, and the tests
-  ignored its result. The readiness wait was also 3 s, short under load.
-
-Action Items:
-
-- [x] Run the servers through an RAII holder that stops and joins on destruction, so a failed assertion fails the test.
-- [x] Use kernel-assigned free ports, fail the readiness wait as soon as `start()` returns false, and allow 10 s.
-- [ ] `registry_ftp_confinement_test.cpp` still picks fixed HTTP/FTP ports from 44100 upwards, inside the ephemeral range. It runs
-  `registry_server` as a subprocess, so a taken port fails a test rather than aborting.
-
-**Fix (October 26, 2026).**
-- **`trainer_service_proxy_test.cpp`.** `ServerThread<Server>` replaces the 22 raw server threads, `free_port_pair()` provides the
-  ports, and `wait_until_reachable(port, thread)` stops waiting when `start()` has failed. The "unreachable child" test uses the free
-  `child_port` instead of another fixed port.
-- **`trainer_admin_api_test.cpp`.** `AdminThread` and `free_port()` do the same, for 17 server threads.
-
-Looping both binaries under the same full-suite load ran 632 times with no failures, and the remaining suite passed 137/137 alongside.
-
-Location in code: `tests/trainer_service_proxy_test.cpp`, `tests/trainer_admin_api_test.cpp`.
-
----
-
 ### TD-558: Android Ops Dashboard Doesn't Show Per-Sample Quality Reports
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -4818,7 +4780,7 @@ The exit code it got wasn't captured (the output was filtered). Two candidates f
   out (the child is then killed in `TearDown()`). The case runs three children in turn, the first a real training pass that builds a
   vocabulary; under that load the whole suite took 15 times longer than alone.
 - **The admin port.** `free_port()` binds port 0, reads the port and closes the socket before the child binds it, so another parallel
-  test can take it in between (the ephemeral-range race TD-556 describes); how `resume` exits when its admin API can't bind decides
+  test can take it in between (the ephemeral-range race [TD-556](../archive/TECHNICAL_DEBT_RESOLVED.md#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) describes); how `resume` exits when its admin API can't bind decides
   whether that changes the code.
 
 Action Items:

@@ -24,7 +24,10 @@
  * specific fix without that larger refactor.
  */
 
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <gtest/gtest.h>
 #include <httplib.h>
 #include <signal.h>
@@ -47,12 +50,43 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr int kBasePort = 44100;
-constexpr int kPortSpan = 100;
-
-int pick_port(int seed, int offset) {
-    return kBasePort + offset * kPortSpan + (seed % kPortSpan);
+// TD-556: a port the kernel just handed out, in place of fixed ports from 44100 upwards. Those sat in
+// the ephemeral range (32768-60999), where a parallel test's outgoing connection could hold one, and
+// registry_server then failed to bind. Another process can still take the port between this call
+// and the server's bind, so the callers start the server again with new ports when that happens.
+int free_port() {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    ::close(fd);
+    return ntohs(addr.sin_port);
 }
+
+enum class ServerStart { kReady, kExited, kTimedOut };
+
+// Polls /health until the server at @p port answers, process @p pid exits (reaped here; e.g. its
+// port was taken before it bound it), or 5 s pass.
+ServerStart wait_for_server(pid_t pid, int port) {
+    httplib::Client probe("127.0.0.1", port);
+    probe.set_connection_timeout(std::chrono::milliseconds(200));
+    probe.set_read_timeout(std::chrono::milliseconds(200));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        int status = 0;
+        if (::waitpid(pid, &status, WNOHANG) == pid)
+            return ServerStart::kExited;
+        if (auto res = probe.Get("/health"); res && res->status == 200)
+            return ServerStart::kReady;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return ServerStart::kTimedOut;
+}
+
+constexpr int kStartAttempts = 3;
 
 // REGISTRY_SERVER_BINARY_PATH is baked in at compile time via CMake's
 // $<TARGET_FILE:registry_server> -- an absolute path into *this machine's*
@@ -100,11 +134,6 @@ class RegistryFtpConfinementTest : public ::testing::Test {
                          << " — build it first, or point ADAI_REGISTRY_SERVER_BINARY at it";
             return;
         }
-        const auto seed =
-            static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(this));
-        http_port_ = pick_port(seed, 0);
-        ftp_port_ = pick_port(seed, 1);
-
         scratch_root_ =
             fs::temp_directory_path() / ("adai_td040_regress_" + std::to_string(::getpid()) + "_" +
                                          std::to_string(reinterpret_cast<uintptr_t>(this)));
@@ -126,48 +155,51 @@ class RegistryFtpConfinementTest : public ::testing::Test {
             f << "legit training data\n";
         }
 
-        server_pid_ = ::fork();
-        ASSERT_GE(server_pid_, 0) << "fork() failed: " << strerror(errno);
-        if (server_pid_ == 0) {
-            // Child: exec the real registry_server with a fully test-owned
-            // config. execv wants a mutable argv of char*; const_cast is
-            // safe here since execv never actually modifies these strings.
-            const std::string port_str = std::to_string(http_port_);
-            const std::string ftp_port_str = std::to_string(ftp_port_);
-            const std::string data_dir_str = data_dir_.string();
-            char* argv[] = {
-                const_cast<char*>(registry_server_binary.c_str()),
-                const_cast<char*>("--port"),
-                const_cast<char*>(port_str.c_str()),
-                const_cast<char*>("--data-dir"),
-                const_cast<char*>(data_dir_str.c_str()),
-                const_cast<char*>("--ftp-enabled"),
-                const_cast<char*>("--ftp-port"),
-                const_cast<char*>(ftp_port_str.c_str()),
-                nullptr,
-            };
-            // Quiet the child's stdout/stderr so test output isn't
-            // interleaved with the server's own logging.
-            const int devnull = ::open("/dev/null", O_WRONLY);
-            if (devnull >= 0) {
-                ::dup2(devnull, STDOUT_FILENO);
-                ::dup2(devnull, STDERR_FILENO);
+        for (int attempt = 0; attempt < kStartAttempts && !server_ready_; ++attempt) {
+            http_port_ = free_port();
+            do {
+                ftp_port_ = free_port();
+            } while (ftp_port_ == http_port_);
+            server_pid_ = ::fork();
+            ASSERT_GE(server_pid_, 0) << "fork() failed: " << strerror(errno);
+            if (server_pid_ == 0) {
+                // Child: exec the real registry_server with a fully test-owned
+                // config. execv wants a mutable argv of char*; const_cast is
+                // safe here since execv never actually modifies these strings.
+                const std::string port_str = std::to_string(http_port_);
+                const std::string ftp_port_str = std::to_string(ftp_port_);
+                const std::string data_dir_str = data_dir_.string();
+                char* argv[] = {
+                    const_cast<char*>(registry_server_binary.c_str()),
+                    const_cast<char*>("--config"),  // ignore any config.registry.conf nearby
+                    const_cast<char*>("/dev/null"),
+                    const_cast<char*>("--port"),
+                    const_cast<char*>(port_str.c_str()),
+                    const_cast<char*>("--data-dir"),
+                    const_cast<char*>(data_dir_str.c_str()),
+                    const_cast<char*>("--ftp-enabled"),
+                    const_cast<char*>("--ftp-port"),
+                    const_cast<char*>(ftp_port_str.c_str()),
+                    nullptr,
+                };
+                // Quiet the child's stdout/stderr so test output isn't
+                // interleaved with the server's own logging.
+                const int devnull = ::open("/dev/null", O_WRONLY);
+                if (devnull >= 0) {
+                    ::dup2(devnull, STDOUT_FILENO);
+                    ::dup2(devnull, STDERR_FILENO);
+                }
+                ::execv(registry_server_binary.c_str(), argv);
+                ::_exit(127);  // execv only returns on failure
             }
-            ::execv(registry_server_binary.c_str(), argv);
-            ::_exit(127);  // execv only returns on failure
-        }
-
-        // Parent: poll /health until the server is reachable or 5s elapse.
-        httplib::Client probe("127.0.0.1", http_port_);
-        probe.set_connection_timeout(std::chrono::milliseconds(200));
-        probe.set_read_timeout(std::chrono::milliseconds(200));
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (auto res = probe.Get("/health"); res && res->status == 200) {
+            const ServerStart started = wait_for_server(server_pid_, http_port_);
+            if (started == ServerStart::kReady) {
                 server_ready_ = true;
+            } else if (started == ServerStart::kExited) {
+                server_pid_ = -1;  // reaped; a port was taken meanwhile, so try new ones
+            } else {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         if (!server_ready_) {
             TearDown();
@@ -307,7 +339,6 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
         return;
     }
 
-    const int http_port = pick_port(static_cast<int>(::getpid()), 2);
     const fs::path scratch_root =
         fs::temp_directory_path() / ("adai_td040_relroot_" + std::to_string(::getpid()));
     fs::create_directories(scratch_root / "data" / "g2");
@@ -317,48 +348,46 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
     }
     const fs::path log_path = scratch_root / "server.log";
 
-    const pid_t pid = ::fork();
-    ASSERT_GE(pid, 0) << "fork() failed: " << strerror(errno);
-    if (pid == 0) {
-        if (::chdir(scratch_root.c_str()) != 0) {
-            ::_exit(126);
+    int http_port = 0;
+    pid_t pid = -1;
+    ServerStart started = ServerStart::kExited;
+    for (int attempt = 0; attempt < kStartAttempts && started == ServerStart::kExited; ++attempt) {
+        http_port = free_port();
+        pid = ::fork();
+        ASSERT_GE(pid, 0) << "fork() failed: " << strerror(errno);
+        if (pid == 0) {
+            if (::chdir(scratch_root.c_str()) != 0) {
+                ::_exit(126);
+            }
+            const std::string port_str = std::to_string(http_port);
+            // Deliberately relative --data-dir, matching the real default
+            // ("registry_sessions") — the exact shape that exposed the bug.
+            char* argv[] = {
+                const_cast<char*>(registry_server_binary.c_str()),
+                const_cast<char*>("--config"),
+                const_cast<char*>("/dev/null"),
+                const_cast<char*>("--port"),
+                const_cast<char*>(port_str.c_str()),
+                const_cast<char*>("--data-dir"),
+                const_cast<char*>("data"),
+                nullptr,
+            };
+            const int log_fd = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (log_fd >= 0) {
+                ::dup2(log_fd, STDOUT_FILENO);
+                ::dup2(log_fd, STDERR_FILENO);
+            }
+            ::execv(registry_server_binary.c_str(), argv);
+            ::_exit(127);
         }
-        const std::string port_str = std::to_string(http_port);
-        // Deliberately relative --data-dir, matching the real default
-        // ("registry_sessions") — the exact shape that exposed the bug.
-        char* argv[] = {
-            const_cast<char*>(registry_server_binary.c_str()),
-            const_cast<char*>("--port"),
-            const_cast<char*>(port_str.c_str()),
-            const_cast<char*>("--data-dir"),
-            const_cast<char*>("data"),
-            nullptr,
-        };
-        const int log_fd = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (log_fd >= 0) {
-            ::dup2(log_fd, STDOUT_FILENO);
-            ::dup2(log_fd, STDERR_FILENO);
-        }
-        ::execv(registry_server_binary.c_str(), argv);
-        ::_exit(127);
+        started = wait_for_server(pid, http_port);
     }
-
-    httplib::Client probe("127.0.0.1", http_port);
-    probe.set_connection_timeout(std::chrono::milliseconds(200));
-    probe.set_read_timeout(std::chrono::milliseconds(200));
-    bool ready = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (auto res = probe.Get("/health"); res && res->status == 200) {
-            ready = true;
-            break;
+    if (started != ServerStart::kReady) {
+        if (started == ServerStart::kTimedOut) {
+            ::kill(pid, SIGKILL);  // our own child only (pid > 0 here)
+            int status = 0;
+            ::waitpid(pid, &status, 0);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    if (!ready) {
-        ::kill(pid, SIGKILL);
-        int status = 0;
-        ::waitpid(pid, &status, 0);
         std::error_code ec;
         fs::remove_all(scratch_root, ec);
         GTEST_SKIP() << "registry_server did not become ready within 5s";
@@ -403,7 +432,6 @@ TEST(RegistryDiskFullTest, FailedQueueSaveIsAnErrorAndKeepsTheWholeQueue) {
         GTEST_SKIP() << "registry_server binary not available";
         return;
     }
-    const int http_port = pick_port(static_cast<int>(::getpid()), 3);
     const fs::path root = fs::temp_directory_path() / ("adai_td495_" + std::to_string(::getpid()));
     fs::remove_all(root);
     const fs::path group_dir = root / "data" / "td495";
@@ -420,52 +448,52 @@ TEST(RegistryDiskFullTest, FailedQueueSaveIsAnErrorAndKeepsTheWholeQueue) {
         f << "{\"input\":\"a\",\"response\":\"b\"}\n";
     }
 
-    const pid_t pid = ::fork();
-    ASSERT_GE(pid, 0);
-    if (pid == 0) {
-        ::signal(SIGXFSZ,
-                 SIG_IGN);  // writes past the limit fail with EFBIG instead of killing the server
-        rlimit limit{4096, 4096};
-        ::setrlimit(RLIMIT_FSIZE, &limit);
-        const std::string port_str = std::to_string(http_port);
-        const std::string data_str = (root / "data").string();
-        char* argv[] = {const_cast<char*>(registry_server_binary.c_str()),
-                        const_cast<char*>("--port"),
-                        const_cast<char*>(port_str.c_str()),
-                        const_cast<char*>("--data-dir"),
-                        const_cast<char*>(data_str.c_str()),
-                        nullptr};
-        const int devnull = ::open("/dev/null", O_WRONLY);
-        if (devnull >= 0) {
-            ::dup2(devnull, STDOUT_FILENO);
-            ::dup2(devnull, STDERR_FILENO);
+    int http_port = 0;
+    pid_t pid = -1;
+    ServerStart started = ServerStart::kExited;
+    for (int attempt = 0; attempt < kStartAttempts && started == ServerStart::kExited; ++attempt) {
+        http_port = free_port();
+        pid = ::fork();
+        ASSERT_GE(pid, 0);
+        if (pid == 0) {
+            ::signal(SIGXFSZ,
+                     SIG_IGN);  // writes past the limit fail with EFBIG instead of killing the server
+            rlimit limit{4096, 4096};
+            ::setrlimit(RLIMIT_FSIZE, &limit);
+            const std::string port_str = std::to_string(http_port);
+            const std::string data_str = (root / "data").string();
+            char* argv[] = {const_cast<char*>(registry_server_binary.c_str()),
+                            const_cast<char*>("--config"),
+                            const_cast<char*>("/dev/null"),
+                            const_cast<char*>("--port"),
+                            const_cast<char*>(port_str.c_str()),
+                            const_cast<char*>("--data-dir"),
+                            const_cast<char*>(data_str.c_str()),
+                            nullptr};
+            const int devnull = ::open("/dev/null", O_WRONLY);
+            if (devnull >= 0) {
+                ::dup2(devnull, STDOUT_FILENO);
+                ::dup2(devnull, STDERR_FILENO);
+            }
+            ::execv(registry_server_binary.c_str(), argv);
+            ::_exit(127);
         }
-        ::execv(registry_server_binary.c_str(), argv);
-        ::_exit(127);
+        started = wait_for_server(pid, http_port);
     }
     auto stop = [&] {
         ::kill(pid, SIGKILL);  // our own child only
         int status = 0;
         ::waitpid(pid, &status, 0);
     };
-
-    httplib::Client cli("127.0.0.1", http_port);
-    cli.set_connection_timeout(std::chrono::milliseconds(200));
-    bool ready = false;
-    for (auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-         std::chrono::steady_clock::now() < deadline;) {
-        if (auto r = cli.Get("/health"); r && r->status == 200) {
-            ready = true;
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    if (!ready) {
-        stop();
+    if (started != ServerStart::kReady) {
+        if (started == ServerStart::kTimedOut)
+            stop();
         fs::remove_all(root);
         GTEST_SKIP() << "registry_server did not become ready within 5s";
     }
 
+    httplib::Client cli("127.0.0.1", http_port);
+    cli.set_connection_timeout(std::chrono::milliseconds(200));
     const std::string body = "{\"path\":\"" + (group_dir / "new.jsonl").string() + "\"}";
     auto res = cli.Post("/registry/td495/pending/add", body, "application/json");
     stop();

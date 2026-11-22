@@ -455,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(86 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(85 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -536,7 +536,6 @@ reference doc that tracks it):
 | TD-547 (MEDIUM) | GPU Training Does the Token Embeddings on the Host. Code fix landed October 19, 2026. Left: Verify on the oneAPI CPU device against the host path, as for TD-468; measure on ai-machine. (CPU device done; ai-machine open.). |
 | TD-553 (LOW) | Per-File Versions Have No Build Number. Left: Get the owner's decision on BUILD's reset behavior (monotonic recommended) (and 5 more). |
 | TD-554 (LOW) | No Aggregate Version per CMake Build. Left: Owner decision: the aggregation rules above (bump-from-baseline vs. another derivation), the build-metadata contents, and where the released… (and 5 more). |
-| TD-556 (LOW) | Admin-API Test Binaries Abort Under a Parallel `ctest`. Code fix landed October 26, 2026. Left: `registry_ftp_confinement_test.cpp` still picks fixed HTTP/FTP ports from 44100 upwards, inside the ephemeral range. It runs `registry_server` as a… |
 | TD-558 (LOW) | Android Ops Dashboard Doesn't Show Per-Sample Quality Reports. Left: `MetricsApiService.sampleQuality(key)` for `GET api/sessions/{key}/metrics/sample-quality`, with `SampleQualityResponseDto`/… (and 4 more). |
 | TD-559 (LOW) | Tizen Dashboard Doesn't Show Per-Sample Quality Reports. Left: Fetch `…/metrics/sample-quality` with `fetchJSON()` for the selected session, less often than the live metrics (reports arrive once per epoch, so… (and 5 more). |
 | TD-562 (LOW) | Vocabulary Sizing and Tools Assume Lowercase Text. Code fix landed November 4, 2026 (real-data measurement pending). Left: Re-measure the token cost on the real training data (the registry pool) at the chosen vocabulary size before the rebuild, and record it next to the… |

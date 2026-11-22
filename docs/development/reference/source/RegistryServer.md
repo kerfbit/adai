@@ -4,9 +4,9 @@
 - **Binary:** `registry_server` (port 8082), built from `RegistryServer.cpp`, `Config.cpp` and `RegistryServerArgs.cpp`
 - **Clients:** `RemoteTransport` ([DatasetRegistry.md](DatasetRegistry.md)) in `incremental_trainer` and `dataset_manager`; the Android ops dashboard's Registry tab; `mns_server`'s dataset proxy
 - **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.34.1`, `@adai-reviewed: 2026-11-21`
-- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (107 tests against a running server; **all pass** against a local instance, November 19, 2026), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
+- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (107 tests against a running server; **all pass** against a local instance, November 19, 2026), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (19, spawns the binary on kernel-assigned ports; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
 - **Related:** [FtpDataServer.md](FtpDataServer.md), [DataFetcher.md](DataFetcher.md), [ParquetReader.md](ParquetReader.md), [DaemonConfigStore.md](DaemonConfigStore.md), [DataTransport.md](DataTransport.md)
-- **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314); `fetch/gutenberg`'s mirrors 2026-11-19 (TD-579)
+- **Last traced against the code:** 2026-10-19; `fetch/huggingface`'s `config` 2026-11-19 (TD-314); `fetch/gutenberg`'s mirrors 2026-11-19 (TD-579); tests 2026-11-21 (TD-556)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against the real `registry_server` binary (`build/debug/bin`), started with
 > `--config /dev/null` and a scratch `--data-dir`, using `curl`.
@@ -146,7 +146,10 @@ trained again as the same unit is never recorded a second time either (records a
 
 - `dataset_registry_live_test.cpp` (86 tests, against a running server; skipped when none is reachable): every endpoint's success and validation paths,
   TD-202 kind isolation, TD-205 segments, assign/unassign/delete modes, session numbering, admin config.
-- `registry_ftp_confinement_test.cpp` (4 tests): spawns the binary with FTP and checks that out-of-tree entries never get FTP tokens (TD-040).
+- `registry_ftp_confinement_test.cpp` (19 tests): spawns the binary with FTP and checks that out-of-tree entries never get FTP tokens (TD-040),
+  that a relative `--data-dir` doesn't warn about in-tree paths, and that a failed queue save answers 500 (TD-495). It starts the binary with
+  `--config /dev/null` on kernel-assigned ports, and starts it again with new ports, up to three times, when it exits because another
+  process took a port first (TD-556).
 
 **Not covered:** group names such as `..` or `.`, concurrent fetches, uploads over claimed files, `trained` from a different run, bind failure.
 
@@ -365,3 +368,11 @@ responses are unchanged: a book no source can serve still answers `502 fetch_fai
 `valid_group_name()` now calls `valid_registry_group_name()` in `RegistryTransport.hpp`, the same TD-490 rule, so `RemoteTransport`,
 `DatasetRegistry` and `ConfigLoader::validate()` check a run group exactly as these routes do before it goes into a URL. Behaviour is
 unchanged: `datasetRegistryLiveTests` (107) pass against a local server.
+
+## Addendum (November 21, 2026): the spawning tests use free ports (TD-556)
+
+`registry_ftp_confinement_test.cpp` used fixed ports from 44100 upwards, inside Linux's ephemeral range, where a parallel test's
+outgoing connection can hold one. It now asks the kernel for free ports. Another process can still take one before `registry_server`
+binds it; the server then logs "could not listen on port N (already in use?)" and exits 1 at once (checked by hand against a held
+port), and the test starts it again with new ports, up to three times. An FTP port taken that way isn't detected, since the FTP
+listener fails silently (TD-376); these tests transfer no FTP data, so it doesn't change their results. The server code is unchanged.
