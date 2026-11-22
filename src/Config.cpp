@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.35.0
+// @adai-version: 1.36.0
 // @adai-reviewed: 2026-11-21
 
 #include "Config.hpp"
@@ -550,6 +550,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.download_dir = value;
             } else if (key == "MAX_PARALLEL_DOWNLOADS") {
                 config.max_parallel_downloads = parse_int(value);
+            } else if (key == "MAX_FILES_PER_RUN") {
+                config.max_files_per_run = parse_int(value);
             } else if (key == "LARGE_FILE_WARN_THRESHOLD_MB") {
                 config.large_file_warn_threshold_mb = parse_int(value);
             } else if (key == "FTPS_CA_FILE") {
@@ -1071,6 +1073,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("MAX_PARALLEL_DOWNLOADS")) {
         config.max_parallel_downloads = *val;
+    }
+    if (auto val = get_env_int("MAX_FILES_PER_RUN")) {
+        config.max_files_per_run = *val;
     }
     if (auto val = get_env_int("LARGE_FILE_WARN_THRESHOLD_MB")) {
         config.large_file_warn_threshold_mb = *val;
@@ -1702,6 +1707,7 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     at_least(config.registry_max_concurrent_fetches, 1, "registry_max_concurrent_fetches");
     at_least(config.ftp_token_ttl_minutes, 1, "ftp_token_ttl_minutes");
     at_least(config.max_parallel_downloads, 1, "max_parallel_downloads");
+    at_least(config.max_files_per_run, 0, "max_files_per_run");
     at_least(config.large_file_warn_threshold_mb, 0, "large_file_warn_threshold_mb");
     at_least(config.ftp_max_sessions_per_run, 0, "ftp_max_sessions_per_run");
     at_least(config.name_service_timeout_ms, 1, "name_service_timeout_ms");
@@ -1913,6 +1919,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GUTENBERG_MIRRORS", c.gutenberg_mirrors);
     item("DOWNLOAD_DIR", c.download_dir);
     item("MAX_PARALLEL_DOWNLOADS", num(c.max_parallel_downloads));
+    item("MAX_FILES_PER_RUN", num(c.max_files_per_run));
     item("LARGE_FILE_WARN_THRESHOLD_MB", num(c.large_file_warn_threshold_mb));
     section("FTP");
     item("FTP_SERVER_ENABLED", flag(c.ftp_server_enabled));

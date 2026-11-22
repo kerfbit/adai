@@ -1,10 +1,54 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (493 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (494 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / DatasetRegistry | Code fix (LOW, created October 11, 2026; the pair counting fixed November 7 with TD-543) |
+
+Description:
+Found alongside TD-333, by inspection:
+- `compute_checksum()` (`size_mtime`) is stored in every `DataVersion` but never compared anywhere.
+- `count_pairs()` materializes every pair (all text) just to count them. (Fixed November 7, 2026, with TD-543: it counts without storing.)
+- The private `registry_file_path()`/`pending_file_path()` are unused and ignore the TD-202 kind
+  subdirectory; `add_files()` and `print_run_assignments()` have no callers.
+- `make_config()` never copies `max_files_per_run` (always 0 = claim all) or `data_registry_file`.
+- `acquire_pending()` doesn't update the in-memory `run_id` of entries already in `pending_`.
+
+Action Items:
+
+- [x] Use the checksum (warn when a queued/trained file changed) or drop it; ~~count pairs without storing them~~ (done with TD-543); delete the unused helpers; map the missing config fields; refresh in-memory claims after acquire.
+
+Location in code: `src/DatasetRegistry.cpp` (`compute_checksum()`, `make_config()`, `acquire_pending()`), `src/DatasetRegistry.hpp` (private helpers); tagged `TODO: See TD-335`.
+
+Files to Modify:
+
+- `src/DatasetRegistry.{hpp,cpp}`
+- `src/Config.{hpp,cpp}`
+
+**Fix (November 21, 2026):**
+- **Checksum used.** `add_file()` and `add_pending_path_unchecked()` refuse an already-trained file as before, but `warn_already_trained()`
+  compares the file's size_mtime checksum with the latest trained record's: when they differ the warning says the file changed since
+  it was trained and that `dataset_manager requeue` queues it again. (A remote registry path isn't on the trainer's disk, so its
+  checksum is `MISSING` and the plain warning stays.)
+- **Dead code removed:** the private `registry_file_path()`/`pending_file_path()`, and the public `add_files()` (only its own tests
+  called it) and `print_run_assignments()` (no caller), hence `DatasetRegistry.hpp` 3.0.0.
+- **Config.** `MAX_FILES_PER_RUN` (`ServiceConfig::max_files_per_run`, file or environment, at least 0, default 0) is mapped into
+  `DatasetConfig::max_files_per_run`, so a pass can claim fewer than every pending file; `config.trainer.conf` documents it.
+  `data_registry_file` stays fixed rather than a setting: `dataset_manager`, the trainer's reset and `registry_server` all use
+  `data_registry.txt`, and a per-binary name would let them disagree.
+- **Claims in memory.** `acquire_pending()` sets the run's claim on an entry already in `pending_`; it used to keep the old `run_id`.
+- **Tests:** `AddFileSaysWhenATrainedFileChangedSinceTraining`, `AcquireUpdatesTheClaimOfAnEntryAlreadyInMemory`,
+  `MaxFilesPerRunLimitsAPassesClaims`, `MakeConfigCopiesFields` (now `max_files_per_run`), `ConfigTest.MaxFilesPerRunKey`; the two
+  `add_files()` tests went with it. 88 `datasetRegistryTests` and 114 `configTests` pass, and the 11 suites using the registry.
+
+---
 
 ### TD-513: `startup_sweep()` Basename Matching and Unchecked Filesystem Calls
 

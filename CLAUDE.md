@@ -351,6 +351,7 @@ Other architecturally significant keys:
 | `NAME_SERVICE_URL`, `MODEL_NAME`, `MODEL_ROLE` | MNS connection |
 | `WORLD_MODEL_ARTIFACT_PATH` | Overrides the default `<session_dir>/world_model_checkpoint` checkpoint directory (`<session_dir>/world_model` before TD-548, still read if only it has one); honored by `--objective=lejepa` too since TD-548; normally set automatically from a linked world model's own MNS `artifact.path` (TD-196), not by hand |
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
+| `MAX_FILES_PER_RUN` | TD-335, `config.trainer.conf`: pending files one training pass claims from the registry (default 0 = every file in the pool; it was never mapped before, so every pass claimed all) |
 | `DATASET_KIND` | TD-202: per-trainable-piece sub-pool within `RUN_GROUP` (`encoder`/`decoder`/`world_model`/`chatbot`); empty = legacy shared pool. Read by `dataset_manager` (falls back to it when `--kind` isn't passed); **ignored by `incremental_trainer`** (TD-204), which always derives it from the training objective unless `--dataset-kind` overrides — see "Distributed Dataset Registry" above |
 | `METRICS_API_CORS_ALLOWED_ORIGINS` | TD-526: comma-separated browser origins allowed cross-origin access to `metrics_api_server` (reads and writes; `*` = any origin may read, never write). Empty by default. Clients that aren't browsers send no `Origin` and are unaffected. `config.metrics.conf`, or `--cors-allowed-origins` |
 | `FTPS_PINNED_PUBLIC_KEY`, `FTPS_CA_FILE` | TD-339: how the trainer authenticates `registry_server`'s FTPS certificate — the `sha256//…` pin `registry_server` logs at startup, or a CA bundle that signs it (hostname checked). Either one makes the trainer refuse plain FTP; with neither, FTPS is unverified and logs a warning. `config.trainer.conf` |
@@ -454,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(91 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(90 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -483,7 +484,6 @@ reference doc that tracks it):
 | TD-303 (LOW) | Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input. Left: Skip the cross-attention sub-layer in `DecoderBlock` when no encoder output is given (e.g. a null pointer), and fix the comment. See [CrossAttention.md](docs/development/reference/source/CrossAttention.md). |
 | TD-331 (LOW) | `dataset_manager` Has No Tests for Its Commands. Left: Add a CLI-level test target that runs `dataset_manager` against a scratch `SESSION_DIR` (and a local `registry_server` for remote mode), covering… See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
 | TD-332 (LOW) | Operator Guide Covers Only 8 of 15 `dataset_manager` Commands. Left: Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences. See [DatasetManagerTool.md](docs/development/reference/source/DatasetManagerTool.md). |
-| TD-335 (LOW) | `DatasetRegistry` Dead Code and Unused Integrity Data. Left: Use the checksum (warn when a queued/trained file changed) or drop it; ~~count pairs without storing them~~ (done with TD-543); delete the unused… See [DatasetRegistry.md](docs/development/reference/source/DatasetRegistry.md). |
 | TD-340 (LOW) | `DataTransport` Robustness and Header Hygiene. Left: Call `curl_global_init()` once at trainer startup; keep partial files on failure; treat `COULDNT_CONNECT` as retryable with backoff; move the… See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
 | TD-345 (LOW) | `DecoderBlock` Persistence Gaps for Gated State. Left: Check reads in `load()` and validate before assigning; add SafeTensors entries (and accessors) for the gates and gated sub-layers. See [DecoderBlock.md](docs/development/reference/source/DecoderBlock.md). |
 | TD-348 (LOW) | `LLMDecoder` Dead Code and Robustness Gaps. Left: Remove the empty loop, the unused copy and (if still unused) `forward_with_mask()`; check header reads; validate constructor arguments; guard the… See [Decoder.md](docs/development/reference/source/Decoder.md). |

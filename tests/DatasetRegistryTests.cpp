@@ -4,7 +4,7 @@
  * Covers:
  *   - DatasetConfig defaults and make_config()
  *   - Static helpers: compute_checksum(), load_conversation_pairs()
- *   - Pending queue: add_file(), add_files(), pending_files(), clear_pending()
+ *   - Pending queue: add_file(), pending_files(), clear_pending()
  *   - Trained set: is_trained(), trained_files(), mark_trained() (single-run)
  *   - total_samples_trained()
  *   - Persistence: load_registry(), save_registry(), load_pending_list(), save_pending_list()
@@ -23,7 +23,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
 #include "../src/Config.hpp"
+#include "../src/Logger.hpp"
 #include "../src/DatasetRegistry.hpp"
 #include "../src/RegistryTransport.hpp"
 
@@ -195,8 +198,10 @@ TEST(DatasetConfigTest, MakeConfigCopiesFields) {
     svc.run_id = "host_1234";
     svc.registry_timeout_ms = 3000;
     svc.dataset_kind = "world_model";
+    svc.max_files_per_run = 3;
 
     const DatasetConfig cfg = DatasetRegistry::make_config(svc);
+    EXPECT_EQ(cfg.max_files_per_run, 3);  // TD-335: it used to stay 0
 
     EXPECT_EQ(cfg.session_dir, svc.session_dir);
     EXPECT_EQ(cfg.registry_server_url, svc.registry_server_url);
@@ -880,15 +885,57 @@ TEST_F(DatasetRegistryTest, AddFileSkipsAlreadyTrainedFile) {
     EXPECT_TRUE(reg.pending_files().empty());
 }
 
-TEST_F(DatasetRegistryTest, AddFilesReturnsTrueIfAtLeastOneAdded) {
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() { adai::Logger::get()->sinks().push_back(sink); }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+}  // namespace
+
+// TD-335: the size_mtime checksum a trained record keeps is compared when the file is queued again,
+// so a file that changed after it was trained says so instead of a plain "already trained".
+TEST_F(DatasetRegistryTest, AddFileSaysWhenATrainedFileChangedSinceTraining) {
     DatasetRegistry reg(make_cfg());
-    EXPECT_TRUE(reg.add_files({"/missing/file.txt", data_file_}));
-    EXPECT_EQ(reg.pending_files().size(), 1u);
+    reg.mark_trained({data_file_}, {10});
+    {
+        LogCapture log;
+        EXPECT_FALSE(reg.add_file(data_file_));
+        EXPECT_EQ(log.out.str().find("changed since it was trained"), std::string::npos) << log.out.str();
+    }
+    std::ofstream(data_file_, std::ios::app) << "INPUT: one more\nRESPONSE: pair\n";
+    LogCapture log;
+    EXPECT_FALSE(reg.add_file(data_file_)) << "still not queued automatically";
+    EXPECT_NE(log.out.str().find("changed since it was trained"), std::string::npos) << log.out.str();
+    EXPECT_NE(log.out.str().find("requeue"), std::string::npos);
 }
 
-TEST_F(DatasetRegistryTest, AddFilesReturnsFalseIfNoneAdded) {
+// TD-335: an entry already in the in-memory list takes the claim when acquired; it used to keep its
+// old (empty) run_id, so pending_entries() showed it unclaimed.
+TEST_F(DatasetRegistryTest, AcquireUpdatesTheClaimOfAnEntryAlreadyInMemory) {
     DatasetRegistry reg(make_cfg());
-    EXPECT_FALSE(reg.add_files({"/missing1_adai.txt", "/missing2_adai.txt"}));
+    ASSERT_TRUE(reg.add_file(data_file_));
+    ASSERT_EQ(reg.pending_entries().front().run_id, "");
+    ASSERT_EQ(reg.acquire_pending("run-1").files.size(), 1u);
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_EQ(reg.pending_entries().front().run_id, "run-1");
+}
+
+// TD-335: max_files_per_run (MAX_FILES_PER_RUN) limits what one pass claims; 0 claims everything.
+TEST_F(DatasetRegistryTest, MaxFilesPerRunLimitsAPassesClaims) {
+    const std::string second = (tmp_dir_ / "second.txt").string();
+    write_file(second, kSimplePairs);
+    DatasetConfig cfg = make_cfg();
+    cfg.max_files_per_run = 1;
+    DatasetRegistry reg(cfg);
+    ASSERT_TRUE(reg.add_file(data_file_));
+    ASSERT_TRUE(reg.add_file(second));
+    EXPECT_EQ(reg.acquire_pending("run-1").files.size(), 1u);
+    EXPECT_EQ(reg.acquire_pending("run-2").files.size(), 1u) << "the other file is left for the next pass";
 }
 
 TEST_F(DatasetRegistryTest, ClearPendingEmptiesInMemoryList) {

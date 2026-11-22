@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.2.0
+// @adai-version: 2.3.0
 // @adai-reviewed: 2026-11-21
 
 #include "DatasetRegistry.hpp"
@@ -164,7 +164,8 @@ DatasetRegistry::DatasetRegistry(DatasetRegistry&&) noexcept = default;
 DatasetRegistry& DatasetRegistry::operator=(DatasetRegistry&&) noexcept = default;
 
 /*static*/
-// TODO: See TD-335 in TECHNICAL_DEBT.md - max_files_per_run and data_registry_file are never mapped
+// TD-335: data_registry_file deliberately isn't a setting: dataset_manager, the trainer's reset and
+// registry_server all use "data_registry.txt", and a per-binary name would let them disagree.
 DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     DatasetConfig cfg;
     if (!svc.session_dir.empty()) {
@@ -182,22 +183,11 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     cfg.model_name = svc.model_name;
     cfg.download_dir = svc.download_dir;
     cfg.max_parallel_downloads = svc.max_parallel_downloads;
+    cfg.max_files_per_run = svc.max_files_per_run;  // TD-335: MAX_FILES_PER_RUN
     cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
     cfg.ftps_ca_file = svc.ftps_ca_file;
     cfg.ftps_pinned_public_key = svc.ftps_pinned_public_key;
     return cfg;
-}
-
-// ============================================================================
-// Private helpers
-// ============================================================================
-
-std::string DatasetRegistry::registry_file_path() const {
-    return config_.session_dir + "/" + config_.data_registry_file;
-}
-
-std::string DatasetRegistry::pending_file_path() const {
-    return config_.session_dir + "/pending_files.txt";
 }
 
 // ============================================================================
@@ -211,6 +201,28 @@ std::string DatasetRegistry::absolute_local_path(const std::string& path) {
     return ec ? path : absolute.lexically_normal().string();
 }
 
+// TD-335: a trained record keeps the file's size_mtime checksum. When the file on disk no longer
+// matches it, the file changed after it was trained, which a plain "already trained" hides.
+void DatasetRegistry::warn_already_trained(const std::string& path, int segment_start,
+                                           int segment_count) const {
+    std::string recorded;
+    for (const auto& dv : registry_) {
+        if (dv.trained && dv.checksum != "MISSING" && !dv.checksum.empty() &&
+            (trained_matches(dv, path, -1, -1) ||
+             trained_matches(dv, path, segment_start, segment_count)))
+            recorded = dv.checksum;  // the latest record
+    }
+    const std::string now = recorded.empty() ? std::string() : compute_checksum(path);
+    if (!recorded.empty() && now != "MISSING" && now != recorded) {
+        Logger::warn("Data file already trained, skipping: {} — but it changed since it was "
+                     "trained (size/mtime {} then, {} now); `dataset_manager requeue` queues it "
+                     "again",
+                     path, recorded, now);
+    } else {
+        Logger::warn("Data file already trained, skipping: {}", path);
+    }
+}
+
 bool DatasetRegistry::add_file(const std::string& given_path, int segment_start,
                                int segment_count) {
     if (!fs::exists(given_path)) {
@@ -222,7 +234,7 @@ bool DatasetRegistry::add_file(const std::string& given_path, int segment_start,
     const std::string path = absolute_local_path(given_path);
 
     if (is_trained(path, segment_start, segment_count)) {
-        Logger::warn("Data file already trained, skipping: {}", path);
+        warn_already_trained(path, segment_start, segment_count);
         return false;
     }
 
@@ -251,7 +263,7 @@ bool DatasetRegistry::add_file(const std::string& given_path, int segment_start,
 bool DatasetRegistry::add_pending_path_unchecked(const std::string& path, int segment_start,
                                                  int segment_count) {
     if (is_trained(path, segment_start, segment_count)) {
-        Logger::warn("Data file already trained, skipping: {}", path);
+        warn_already_trained(path, segment_start, segment_count);
         return false;
     }
     const bool already_pending =
@@ -272,18 +284,6 @@ bool DatasetRegistry::add_pending_path_unchecked(const std::string& path, int se
     entry.segment_count = segment_count;
     pending_.push_back(std::move(entry));
     return true;
-}
-
-// TODO: See TD-335 in TECHNICAL_DEBT.md - no caller outside this class
-bool DatasetRegistry::add_files(const std::vector<std::string>& paths) {
-    int added = 0;
-    for (const auto& file : paths) {
-        if (add_file(file)) {
-            ++added;
-        }
-    }
-    Logger::info("Added {}/{} new data files", added, paths.size());
-    return added > 0;
 }
 
 void DatasetRegistry::clear_pending() {
@@ -559,7 +559,6 @@ void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<
 // Multi-run API (Phase 9)
 // ============================================================================
 
-// TODO: See TD-335 in TECHNICAL_DEBT.md - in-memory run_id of entries already in pending_ isn't updated
 AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
     auto resp = transport_->acquire(run_id, limit, config_.model_name);
@@ -570,13 +569,16 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
         claim_renewer_ =
             std::make_unique<ClaimRenewer>(transport_.get(), run_id, resp.claim_lease_seconds);
 
-    // Reflect acquisition in in-memory pending_
+    // Reflect acquisition in in-memory pending_. TD-335: an entry already there takes the claim too
+    // (it used to keep its old run_id, so pending_entries() showed the file unclaimed).
     for (const auto& f : resp.files) {
-        const bool already_in = std::any_of(
+        const auto existing = std::find_if(
             pending_.begin(), pending_.end(), [&](const PendingEntry& e) {
                 return segment_matches(e, f.registry_path, f.segment_start, f.segment_count);
             });
-        if (!already_in) {
+        if (existing != pending_.end()) {
+            existing->run_id = run_id;
+        } else {
             PendingEntry entry;
             entry.path = f.registry_path;
             entry.run_id = run_id;
@@ -694,20 +696,6 @@ UploadResult DatasetRegistry::remote_upload(const std::string& local_path, bool 
         pending_.push_back({result.path, {}, {}});
     }
     return result;
-}
-
-// TODO: See TD-335 in TECHNICAL_DEBT.md - no caller
-void DatasetRegistry::print_run_assignments() {
-    std::vector<PendingEntry> entries;
-    transport_->load_pending(entries);
-
-    std::cout << COLOR_INFO << "\nRun Assignments:" << COLOR_RESET << '\n';
-    std::cout << "Run ID                         | File\n";
-    std::cout << "-------------------------------|-----\n";
-    for (const auto& e : entries) {
-        std::cout << std::setw(31) << (e.run_id.empty() ? "<unassigned>" : e.run_id) << " | "
-                  << e.path << '\n';
-    }
 }
 
 // ============================================================================
@@ -942,7 +930,8 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
 // ============================================================================
 
 /*static*/
-// TODO: See TD-335 in TECHNICAL_DEBT.md - stored in every DataVersion but never compared
+// Size and modification time, not a content hash; also part of the tokenized-cache key. TD-335:
+// add_file() compares it with a trained record's to say a file changed since it was trained.
 std::string DatasetRegistry::compute_checksum(const std::string& path) {
     if (!fs::exists(path)) {
         return "MISSING";

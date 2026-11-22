@@ -1751,6 +1751,22 @@ TEST_F(ConfigTest, GutenbergMirrorsKey) {
     }));
 }
 
+// TD-335: MAX_FILES_PER_RUN, the pending files one pass claims (0 = all).
+TEST_F(ConfigTest, MaxFilesPerRunKey) {
+    EXPECT_EQ(adai::ServiceConfig{}.max_files_per_run, 0);
+    {
+        std::ofstream file(test_file);
+        file << "MAX_FILES_PER_RUN=2\n";
+    }
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).max_files_per_run, 2);
+    adai::ServiceConfig c;
+    c.max_files_per_run = -1;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(ConfigLoader::validate(c, errors));
+    EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
+                            [](const std::string& e) { return e.find("max_files_per_run") != std::string::npos; }));
+}
+
 // TD-498: the registry client has no TLS and puts RUN_GROUP into URLs unencoded.
 TEST_F(ConfigTest, RegistryUrlMustBeHttpAndRunGroupAName) {
     adai::ServiceConfig c;

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.34.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 1.35.0
+// @adai-reviewed: 2026-11-21
 
 #include <climits>
 #include <cstdint>
@@ -494,6 +494,9 @@ struct ServiceConfig {
 
     /// Maximum concurrent FTP connections in fetch_all() (default: 4)
     int max_parallel_downloads = 4;
+
+    /// TD-335: pending files one training pass claims from the registry; 0 = all of them (default: 0)
+    int max_files_per_run = 0;
 
     /// Log a warning when a file transfer exceeds this size in MB; 0 = disabled (default: 500)
     int large_file_warn_threshold_mb = 500;

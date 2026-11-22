@@ -1,12 +1,12 @@
 # `Config` — Source File Reference
 
-- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,040 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,110 lines)
+- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,063 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,117 lines)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
-- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.34.0` (reviewed 2026-11-19), `Config.cpp` `1.35.0` (reviewed 2026-11-21)
-- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (113); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
+- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.35.0`, `Config.cpp` `1.36.0`, both reviewed 2026-11-21
+- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (114); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579); the registry URL and `RUN_GROUP` checks 2026-11-21 (TD-498)
+- **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579); the registry URL and `RUN_GROUP` checks 2026-11-21 (TD-498); `MAX_FILES_PER_RUN` 2026-11-21 (TD-335)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `ConfigLoader` (a scratch program compiled against
 > `Config.cpp`) or the binaries.
@@ -150,3 +150,10 @@ messages reaching the log file.
   (declared in `DataFetcher.hpp`, which `Config.hpp` now includes), from the file or the environment, each comma-separated entry
   validated as `https://`, empty allowed (the main site only), printed by `to_string()`. Read by `registry_server` at startup and by
   `dataset_manager` ([DataFetcher.md](DataFetcher.md)). Test: `ConfigTest.GutenbergMirrorsKey`.
+
+## Addendum (November 21, 2026): `MAX_FILES_PER_RUN` (TD-335)
+
+`ServiceConfig::max_files_per_run` (`MAX_FILES_PER_RUN`, file or environment, at least 0, default 0) is the number of pending files one
+training pass claims from the registry; 0 claims every file in the pool, which is what every pass did before, since
+`DatasetRegistry::make_config()` never mapped `DatasetConfig::max_files_per_run`. `config.trainer.conf` sets it to 0 with a comment. Test:
+`ConfigTest.MaxFilesPerRunKey`.

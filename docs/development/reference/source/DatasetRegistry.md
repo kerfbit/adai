@@ -1,10 +1,10 @@
 # `DatasetRegistry` — Source File Reference
 
-- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (507 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (959 lines)
+- **Files:** [`src/DatasetRegistry.hpp`](../../../../src/DatasetRegistry.hpp) (493 lines), [`src/DatasetRegistry.cpp`](../../../../src/DatasetRegistry.cpp) (948 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_core`; used by `incremental_trainer` (including `trainer_service`'s passes), `dataset_manager`, `vocab_builder`'s loader and their tests
-- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` `@adai-version: 2.2.0` (reviewed 2026-11-21), `.hpp` `2.1.0` (2026-11-19) (2.0.0 was MAJOR, TD-552: `remote_upload()` returns an `UploadResult`; 2.1.0 adds `remote_fetch_huggingface()`'s `config`, TD-314)
-- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (87), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (107, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
+- **Status tags:** `@adai-status: stable`; `DatasetRegistry.cpp` `@adai-version: 2.3.0`, `.hpp` `3.0.0` (MAJOR, TD-335: `add_files()` and `print_run_assignments()` removed), both reviewed 2026-11-21 (2.0.0 was MAJOR, TD-552: `remote_upload()` returns an `UploadResult`; 2.1.0 adds `remote_fetch_huggingface()`'s `config`, TD-314)
+- **Tests:** [`tests/DatasetRegistryTests.cpp`](../../../../tests/DatasetRegistryTests.cpp) → `datasetRegistryTests` (88), [`tests/dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) → `datasetRegistryLiveTests` (107, against a real `registry_server`), [`tests/incremental_trainer_registry_test.cpp`](../../../../tests/incremental_trainer_registry_test.cpp) (14, in `incrementalTrainerDecouplingTests`)
 - **Design:** [dataset_manager_separation.md](../../archive/dataset_manager_separation.md) (TD-028, archived); TD-202 (kinds), TD-205 (segments)
 - **Last traced against the code:** 2026-11-12; `remote_fetch_huggingface()`'s `config` 2026-11-19 (TD-314)
 
@@ -40,8 +40,9 @@ trains on, keeps two trainers off the same unit, and records what's done.
 
 `DatasetConfig`: `session_dir`, `data_registry_file`; `registry_server_url`, `run_group`, `dataset_kind`, `run_id`, `registry_timeout_ms`;
 `model_name`, `max_files_per_run`; `download_dir`, `max_parallel_downloads`, `large_file_warn_threshold_mb`; the FTPS verification (TD-339); and
-the tokenized-cache settings. `make_config(ServiceConfig)` copies the matching fields, but **neither `max_files_per_run`** (so it is always 0 =
-all) **nor `data_registry_file`** (TD-335).
+the tokenized-cache settings. `make_config(ServiceConfig)` copies the matching fields, `max_files_per_run` from `MAX_FILES_PER_RUN` too
+(TD-335; it was never mapped, so a pass always claimed every pending file). `data_registry_file` is deliberately not a setting:
+`dataset_manager`, the trainer's reset and `registry_server` all use `data_registry.txt`.
 
 ---
 
@@ -53,7 +54,6 @@ all) **nor `data_registry_file`** (TD-335).
 |---|---|
 | `add_file(path, seg_start = -1, seg_count = -1)` | The path must exist locally, the unit must not be trained (`is_trained()` of that unit) or already pending (`segment_matches()` on `(path, range)`); persisted through `transport_->add_pending()`. Stored as given (callers make it absolute, TD-328) |
 | `add_pending_path_unchecked(…)` | The same without the existence check (`migrate`/`segment`, where the path lives on the server) |
-| `add_files(paths)` | Loops `add_file()`; no caller outside the class |
 | `clear_pending()` | Memory only; the caller must save, which is a no-op on `RemoteTransport` |
 | `remove_pending(path)` | Erases the first entry with that path, saves, returns the save result (TD-327) |
 | `assign_model(…)` / `unassign_model(…)` / `delete_entries(…)` | Delegate to the transport (both modes), then mirror the result into `pending_` with segment-exact matching. `count` 0 with no paths assigns **all**; a negative count is refused (TD-321) |
@@ -67,14 +67,13 @@ all) **nor `data_registry_file`** (TD-335).
 
 | Method | Behaviour |
 |---|---|
-| `acquire_pending(run_id, max_files)` | `transport_->acquire(run_id, limit, model_name)`: claims unclaimed (or this run's own) entries that are unassigned or assigned to this model, and returns `FileToken`s with segment ranges. With a claim lease, starts a `ClaimRenewer` (TD-494). New units are added to `pending_`; entries already there don't get their `run_id` updated in memory (TD-335) |
+| `acquire_pending(run_id, max_files)` | `transport_->acquire(run_id, limit, model_name)`: claims unclaimed (or this run's own) entries that are unassigned or assigned to this model, and returns `FileToken`s with segment ranges. With a claim lease, starts a `ClaimRenewer` (TD-494). New units are added to `pending_`, and an entry already there takes the run's claim (TD-335; it used to keep its old `run_id` in memory) |
 | `ClaimRenewer` (private) | A thread calling `transport_->renew_claims(run_id)` every third of the lease (at least every 5 s), logging once if the claims are gone; stopped by `mark_trained()`, `release_pending()`, the next acquire and the destructor |
 | `next_session(model, run_id)` | The registry's per-run session counter ([DaemonConfigStore.md](DaemonConfigStore.md), TD-304) |
 | `mark_trained(run_id, units, counts)` | The production overload, with an acquired batch's `PendingFileRange`s (`resp.file_ranges()`). `build_new_versions()` adds a `DataVersion` per unit, keyed by (path, segment), with its pair count (TD-334); with a run id a unit already recorded is sent again (TD-493) and the transport records only units this run claimed. `commit_trained()` removes exactly those units from pending |
 | `mark_trained(run_id, paths, counts)` | Whole-file overload |
 | `mark_trained(paths, counts)` | Run-less overload: saves and drops the paths from `pending_`; test-only, skips units already recorded |
 | `release_pending(run_id, units)` / `release_pending(run_id, paths, segments)` | `transport_->release()` of exactly the given units (TD-333) |
-| `print_run_assignments()` | Prints claims; no caller |
 
 ### Remote-only helpers
 
@@ -88,9 +87,10 @@ instead.
 
 - `load_registry()`/`save_registry()`, `load_pending_list()`/`save_pending_list()` through the transport.
 - `print_registry()` (an ANSI table to stdout), `total_samples_trained()` (the sum of `num_samples`).
-- `compute_checksum(path)` is `"<size>_<mtime>"`. Each `DataVersion` stores it, but nothing compares a stored one against the file
-  (TD-335); `IncrementalTrainer` uses the function in its tokenized-cache key.
-- The private `registry_file_path()`/`pending_file_path()` are unused and ignore the `<kind>` directory (TD-335).
+- `compute_checksum(path)` is `"<size>_<mtime>"` (not a content hash). Each `DataVersion` stores it; `add_file()` and
+  `add_pending_path_unchecked()` compare it when they refuse an already-trained file, and say when the file changed since it was trained
+  and that `dataset_manager requeue` queues it again (TD-335, `warn_already_trained()`). `IncrementalTrainer` uses the function in its
+  tokenized-cache key.
 
 ---
 
@@ -143,13 +143,14 @@ pass the pairs it loads (TD-334). A 20-pair file records 20.
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Stored checksums never verified; `count_pairs()` materializes every pair; unused private path helpers, `add_files()`, `print_run_assignments()`; `make_config()` drops `max_files_per_run`/`data_registry_file`; in-memory `run_id` not updated on acquire (§2–3, §5) | Dead code, an unused integrity field, memory spent counting | By inspection | [TD-335](../../guides/TECHNICAL_DEBT.md#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW) |
+| Stored checksums never verified; `count_pairs()` materializes every pair; unused private path helpers, `add_files()`, `print_run_assignments()`; `make_config()` drops `max_files_per_run`/`data_registry_file`; in-memory `run_id` not updated on acquire (§2–3, §5) | Dead code, an unused integrity field, memory spent counting | **Fixed** (counting November 7, 2026 with TD-543; the rest November 21, 2026) | [TD-335](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-335-datasetregistry-dead-code-and-unused-integrity-data) (LOW) |
 | Segments released and recorded by bare path | — | **Fixed October 19, 2026** | [TD-333](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments) |
 | All-zero sample counts | — | **Fixed October 19, 2026** | [TD-334](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-334-trained-sample-counts-are-always-zero) |
 | Legacy responses truncated to one line; a BOM breaking JSONL detection | — | **Fixed November 8, 2026** | [TD-336](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) |
 | `remove_pending()` ignoring its save; relative paths; `count <= 0`; unknown kinds; re-trained units; claim leases | — | **Fixed** | TD-327, TD-328, TD-321, TD-402, TD-493, TD-494 |
 
-`stable` stands: TD-335's items are dead code and an unused integrity field, not a gap a caller would trip over.
+`stable` stands: TD-335's items were dead code and an unused integrity field, not a gap a caller would trip over (fixed November 21,
+2026: the helpers removed, `MAX_FILES_PER_RUN` mapped, claims refreshed in memory, the checksum compared).
 
 ## 9. History
 

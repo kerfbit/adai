@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.1.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 3.0.0
+// @adai-reviewed: 2026-11-21
 
 #include <memory>
 #include <set>
@@ -42,7 +42,8 @@ struct DatasetConfig {
     /// Caller's model identity for assignment-aware acquire() filtering (empty =
     /// only unassigned entries are eligible; see RegistryTransport::acquire).
     std::string model_name;
-    /// Maximum pending files to acquire per run; 0 = claim all available (default: 0)
+    /// Maximum pending files one pass claims; 0 = claim all available (default: 0). TD-335:
+    /// MAX_FILES_PER_RUN, through make_config() (it was never mapped, so always 0).
     int max_files_per_run = 0;
 
     // ── FTP dataset transport (Phase 10) ──────────────────────────────────
@@ -115,14 +116,6 @@ class DatasetRegistry {
      * @return true if the file was added; false if skipped or missing.
      */
     bool add_file(const std::string& path, int segment_start = -1, int segment_count = -1);
-
-    /**
-     * @brief Add multiple files to the pending queue.
-     *
-     * Calls add_file() for each path and returns true if at least one
-     * file was successfully added.
-     */
-    bool add_files(const std::vector<std::string>& paths);
 
     /**
      * @brief Add a path directly to the pending queue, skipping the local
@@ -339,9 +332,6 @@ class DatasetRegistry {
     void mark_trained(const std::string& run_id, const std::vector<PendingFileRange>& units,
                       const std::vector<int>& sample_counts);
 
-    /** @brief Print which files are currently assigned to which run_id. */
-    void print_run_assignments();
-
     // ── Server-side dataset fetch (Phase 11) ────────────────────────────────
     //
     // These delegate to the transport; in local mode (LocalTransport) they
@@ -498,10 +488,6 @@ class DatasetRegistry {
     class ClaimRenewer;
     std::unique_ptr<ClaimRenewer> claim_renewer_;
 
-    /** @return Full path to the registry flat file. */
-    // TODO: See TD-335 in TECHNICAL_DEBT.md - registry_file_path()/pending_file_path() are unused and ignore the kind subdirectory
-    std::string registry_file_path() const;
-
-    /** @return Full path to the pending-files flat file. */
-    std::string pending_file_path() const;
+    // TD-335: the "already trained" warning, naming a file that changed since it was trained.
+    void warn_already_trained(const std::string& path, int segment_start, int segment_count) const;
 };
