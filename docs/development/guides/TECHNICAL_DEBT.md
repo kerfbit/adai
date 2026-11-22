@@ -6,7 +6,7 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 90 (7 high, 18 medium, 65 low)
+**Active Items:** 93 (7 high, 18 medium, 68 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
 **Resolved Items:** 491 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
@@ -17,19 +17,22 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 90 open items:
-- **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+**Where things stand.** Of the 93 open items:
+- **22 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
-  releases and devices, a deployment cutover and a walk-through against a live server.
-- **69 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+  releases and devices, a deployment cutover and a walk-through against a live server; and 1 on an owner decision about pushed history
+  (TD-584).
+- **71 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
+**November 21, 2026:** Filed [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW, `SighupTests` failing under a loaded parallel run),
+[TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW, the registry lock race tested only across threads) and [TD-584](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW, `1d4a87af`'s
+commit message misstating that test's results). Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
 (LOW): `LocalTransport` commits as `registry_server` does and keeps the registry under its lock (a race test lost commits before),
 remote assign/unassign read segments, `https://` and bad group names are refused, and uploads stream; `model_id` moved to TD-462. Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
 Registry tab can re-queue trained files (one, or all, optionally assigned to a model); the deployment re-queue isn't needed, since
@@ -165,7 +168,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (90 since TD-269, TD-540, TD-498, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-581 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (93 since TD-269, TD-540, TD-498, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -211,6 +214,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 - [TD-573](#td-573-what-the-android-apps-need-to-reach-stable) (LOW): the Android `stable` bar; its three setup steps are code work, the rest needs the release and a device.
 - [TD-172](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands) (MEDIUM): cut a live host over to `trainer_service` (unit file and binaries).
 - [TD-164](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass) (LOW): walk `chatbot-guide.md` against a live `chatbot_api_server` and `chatbot` pair.
+- [TD-584](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results) (LOW): decide whether to correct `1d4a87af`'s pushed commit message (a note, or a force push) or leave it.
 
 ### 4. Code work: training and data
 
@@ -219,6 +223,8 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
   [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
+- [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
+  and fix. [TD-583](#td-583-the-registry-lock-race-is-tested-only-across-threads) (LOW): a multi-process version of TD-498's registry lock race test.
 - [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
   with too few values) while still importing `roles.json`.
 
@@ -375,6 +381,9 @@ as TD-426 and TD-467 were:
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
   - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
+  - [TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
+  - [TD-583: The Registry Lock Race Is Tested Only Across Threads](#td-583-the-registry-lock-race-is-tested-only-across-threads)
+  - [TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results](#td-584-commit-1d4a87afs-message-misstates-the-td-498-race-tests-results)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4956,6 +4965,88 @@ Action Items:
       mentions this).
 
 Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `init_db()`'s "no rows yet" check).
+
+---
+
+### TD-582: `SighupTests` Fails Under a Loaded Parallel `ctest`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tests / `sighup_test.cpp` | November 21, 2026 | 1-3 hours |
+
+Description:
+Seen November 21, 2026 while testing TD-498: `ctest -R "Registry|Transport|DatasetManager|DataFetcher|Config|IncrementalTrainer|
+LeJEPATrainingPass|Sighup|TrainerService" -j8` (25 suites, `IncrementalTrainerTests` alone taking about 390 s) failed `SighupTests` after
+149.8 s, at `SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`'s last check, which expects `adai::kResumeExitFailed` from a
+`resume` pass with `--admin-port`. Run alone straight afterwards, `SighupTests` passed in 10.0 s. Its configs leave `REGISTRY_SERVER_URL`
+empty and set no `RUN_GROUP`, so TD-498's changes don't reach it.
+
+The exit code it got wasn't captured (the output was filtered). Two candidates from the code:
+- **The 120 s deadline.** The test's `run()` waits at most 120 s for each `incremental_trainer` child and returns -1 when the time runs
+  out (the child is then killed in `TearDown()`). The case runs three children in turn, the first a real training pass that builds a
+  vocabulary; under that load the whole suite took 15 times longer than alone.
+- **The admin port.** `free_port()` binds port 0, reads the port and closes the socket before the child binds it, so another parallel
+  test can take it in between (the ephemeral-range race TD-556 describes); how `resume` exits when its admin API can't bind decides
+  whether that changes the code.
+
+Action Items:
+
+- [ ] Reproduce under the same load (loop `sighupTests --gtest_filter=*AFirstTrain*` while the listed suites run with `-j8`), printing the
+      exit code `run()` returned and the child's log.
+- [ ] Fix the cause: a deadline that scales with load or no per-child deadline below ctest's own 1200 s `TIMEOUT`, and/or a port the
+      child picks itself (port 0, reported back) instead of `free_port()`'s pick.
+- [ ] Check the other `SighupTest` cases that wait on a child with a fixed deadline the same way.
+
+Location in code: `tests/sighup_test.cpp` (`AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`, `run()`, `free_port()`).
+
+---
+
+### TD-583: The Registry Lock Race Is Tested Only Across Threads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tests / RegistryTransport | November 21, 2026 | 1-2 hours |
+
+Description:
+TD-498 moved `LocalTransport::delete_paths()`'s and `requeue_trained()`'s registry read and save inside the pending lock (`flock()` on
+`<pending>.lock`, `_locking()` on Windows). Its regression test,
+`LocalTransportPhase9Test.DeleteAndRequeueDoNotLoseConcurrentCommits`, races them against `commit_trained()` from **two threads of one
+process**, each with its own `LocalTransport` and so its own descriptor for the lock file. On Linux `flock()` locks belong to the open
+file description, so that behaves like two processes, and the test lost commits on the old code (0, 27 and 0 of 60 kept in three runs).
+But the case that matters in production is separate **processes**: standalone `incremental_trainer` passes and `dataset_manager`
+sharing one session directory. Nothing tests that, and the thread test wouldn't notice if the lock were ever changed to something
+per-process (POSIX `fcntl()` record locks, for example, don't exclude threads of one process). `RegistryTransport.md` lists it as not
+covered.
+
+Action Items:
+
+- [ ] Add a test that forks: the child commits while the parent deletes and re-queues (as the thread test does), and the parent checks
+      that every commit survived. The child must only exit (`_exit()`), never signal anything; the parent reaps its own child's pid.
+- [ ] Confirm it fails with the lock scope TD-498 replaced (as the thread test was checked), then keep both tests.
+
+Location in code: `tests/RegistryTransportTests.cpp`; `src/RegistryTransport.cpp` (`lock_pending()`, `delete_paths()`, `requeue_trained()`).
+
+---
+
+### TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Repository history | November 21, 2026 | 15 minutes, after an owner decision |
+
+Description:
+Commit `1d4a87af` ("Fix TD-498: registry transport divergence and client hygiene", pushed to `origin` and `kerfbit`) says the new race
+test "lost 0-33 of 60 commits on the old code". The three runs actually **kept** 0, 27 and 0 of 60, so they lost 60, 33 and 60. The
+archive's TD-498 entry and `RegistryTransport.md` have the right numbers. A pushed commit message can only be changed by rewriting
+`main` on both remotes, which needs a force push.
+
+Action Items:
+
+- [ ] Owner decision: leave the message (this entry and the archive are the correction), or attach a correction with `git notes`
+      (`git notes add 1d4a87af`, then push `refs/notes/commits` to both remotes; notes aren't shown by default on GitHub), or rewrite
+      history (a force push to both remotes, not recommended for a message). Then do it and close this item.
+
+Location: commit `1d4a87af` on `main` (`origin`, `kerfbit`).
 
 ---
 

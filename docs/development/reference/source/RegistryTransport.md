@@ -134,7 +134,7 @@ code). `SegmentMatchesTest` (3), `RegistryPathProblemTest` (2) |
 `requeue_trained()` is tested through `DatasetRegistryTests` ([DatasetRegistry.md](DatasetRegistry.md)).
 
 **Not covered:** releasing paths and segments in one call; concurrent local *processes* (the race test uses two threads, each with its
-own `LocalTransport` and so its own lock descriptor, which `flock()` treats like two processes).
+own `LocalTransport` and so its own lock descriptor, which `flock()` treats like two processes; [TD-583](../../guides/TECHNICAL_DEBT.md#td-583-the-registry-lock-race-is-tested-only-across-threads)).
 
 ---
 
