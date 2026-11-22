@@ -1,10 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-21
 
 #include "ParquetReader.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -1319,9 +1321,17 @@ void append_cell_json(const Cell& cell, std::string& out) {
             out += std::to_string(v.int_val);
             break;
         case ColumnValue::Kind::DOUBLE: {
-            std::ostringstream oss;
-            oss << v.dbl_val;
-            out += oss.str();
+            // TD-472: the shortest text that reads back as the same double, and null for NaN or
+            // infinity, which JSON can't represent. `oss << value` kept 6 significant digits
+            // (3.141592653589793 became 3.14159) and wrote "nan"/"inf", invalid JSON that made the
+            // whole row unreadable. Found by comparing with pyarrow's reading.
+            if (!std::isfinite(v.dbl_val)) {
+                out += "null";
+                break;
+            }
+            char buf[32];
+            const auto res = std::to_chars(buf, buf + sizeof(buf), v.dbl_val);
+            out.append(buf, res.ptr);
             break;
         }
         case ColumnValue::Kind::BOOLEAN:
@@ -1338,14 +1348,16 @@ void append_cell_json(const Cell& cell, std::string& out) {
 
 namespace {
 
-// TD-471: the most rows one row group may declare. The reader buffers a whole row
-// group (TD-472), and a constant column RLE-encodes any number of rows in a few
+// TD-471: the most rows one row group may declare. The reader buffers one whole row
+// group at a time, and a constant column RLE-encodes any number of rows in a few
 // bytes, so the file size can't bound this; 16Mi is 16x pyarrow's default row group.
 constexpr std::int64_t kMaxRowsPerRowGroup = std::int64_t{1} << 24;
 
 // Decodes the file and writes its rows to `out`; returns the row count or -1.
 // May throw (e.g. std::bad_alloc); convert_to_jsonl() catches that.
-// TODO: See TD-472 in TECHNICAL_DEBT.md - buffers a whole row group in memory
+// One row group's columns are decoded before its rows are written, so memory is bounded by a row
+// group (at most kMaxRowsPerRowGroup rows), not the file: rows are written row group by row group,
+// and convert_to_jsonl() keeps the "nothing written on failure" guarantee (TD-471, TD-472).
 long long convert_to_jsonl_impl(const std::string& parquet_path, std::ostream& out) {
     std::ifstream file(parquet_path, std::ios::binary);
     if (!file.is_open()) {

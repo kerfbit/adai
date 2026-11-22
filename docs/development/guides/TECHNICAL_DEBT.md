@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 89 (7 high, 18 medium, 64 low)
+**Active Items:** 88 (7 high, 18 medium, 63 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 495 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 496 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 89 open items:
+**Where things stand.** Of the 88 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **68 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **67 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-340](../archive/TECHNICAL_DEBT_RESOLVED.md#td-340-datatransport-robustness-and-header-hygiene)
+**November 21, 2026:** Closed [TD-472](../archive/TECHNICAL_DEBT_RESOLVED.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
+(LOW): every Parquet fixture is compared with pyarrow's reading on every build, which found that doubles were written to 6 significant
+digits and NaN as invalid JSON; fixed. Closed [TD-340](../archive/TECHNICAL_DEBT_RESOLVED.md#td-340-datatransport-robustness-and-header-hygiene)
 (LOW): FTP downloads initialize libcurl once at startup, keep a failed transfer's partial file for the next pass, retry a refused
 connection, and `DataTransport.hpp` no longer leaks `using` declarations. Closed [TD-335](../archive/TECHNICAL_DEBT_RESOLVED.md#td-335-datasetregistry-dead-code-and-unused-integrity-data)
 (LOW): `DatasetRegistry`'s dead helpers are gone, `MAX_FILES_PER_RUN` limits what a pass claims, acquired claims show in memory, and a
@@ -174,7 +176,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (89 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (88 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -223,7 +225,6 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- Registry and transport cleanup: [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
 - [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
@@ -355,7 +356,6 @@ as TD-426 and TD-467 were:
   - [TD-464: `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)
   - [TD-466: `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation)
   - [TD-468: GPU Training Round-Trips Every Gradient and Weight Through a 3× Slow CPU Optimizer](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer)
-  - [TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
   - [TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock)
   - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
   - [TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries)
@@ -3784,34 +3784,6 @@ Files to Modify:
 
 **Follow-up (October 19, 2026, TD-547).** The token embeddings are now device groups too, so a model without the gated paths has no
 host groups left, and GPU training no longer zeroes host gradients every window.
-
----
-
-### TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / ParquetReader | October 14, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `ParquetReader`, by inspection:
-- The header promises "returns −1 on any unsupported/corrupt input", but allocation failures throw (TD-471). *Fixed with TD-471: exceptions are caught, and a failure leaves the output unchanged.*
-- Every row of a part is decoded into memory before writing; very large parts cost their full decoded size in RAM.
-- The only end-to-end comparison with pyarrow (`DISABLED_TinyStoriesPartsMatchPythonReference`) is disabled; the only malformed-input test
-  is one "corrupt file" case. pyarrow is available in the dev environment (`tests/fixtures/parquet/generate_fixtures.py`).
-
-Action Items:
-
-- [x] Add adversarial tests (the TD-470 footers, oversized declared sizes, negative sizes) and a small committed fuzz corpus or a libFuzzer target. *(October 24, 2026, with TD-470/TD-471: crafted-footer and declared-size tests, and a deterministic in-test mutation run over every fixture; no libFuzzer target.)*
-- [ ] Re-enable the pyarrow comparison on generated fixtures (no network).
-- [ ] Stream rows per row group instead of buffering the whole part (keeping the "nothing written on failure" guarantee via a temp file + rename).
-
-Location in code: `src/ParquetReader.{hpp,cpp}`; `tests/parquet_reader_test.cpp`; tagged `TODO: See TD-472`.
-
-Files to Modify:
-
-- `src/ParquetReader.{hpp,cpp}`
-- `tests/parquet_reader_test.cpp`
 
 ---
 

@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 #include "../src/ParquetReader.hpp"
 
 namespace fs = std::filesystem;
@@ -91,6 +92,49 @@ class ParquetReaderTest : public ::testing::Test {
 };
 
 }  // namespace
+
+// TD-472: every fixture against pyarrow's own reading of it (fixtures/parquet/<name>.expected.jsonl,
+// written by generate_fixtures.py), compared value by value: same rows, same keys in the same order,
+// equal values (numbers compared as numbers, so 2.5e10 and 25000000000.0 agree). This is the pyarrow
+// comparison the disabled TinyStories test does on real data, run on every build without Python.
+TEST_F(ParquetReaderTest, EveryFixtureMatchesPyarrowsReading) {
+    int fixtures = 0;
+    for (const auto& entry : fs::directory_iterator(fixtures_dir())) {
+        if (entry.path().extension() != ".parquet")
+            continue;
+        const fs::path expected_path =
+            fs::path(entry.path()).replace_extension().string() + ".expected.jsonl";
+        ASSERT_TRUE(fs::exists(expected_path)) << "regenerate with generate_fixtures.py: " << expected_path;
+        ++fixtures;
+        const std::string name = entry.path().filename().string();
+
+        const long long rows =
+            ParquetReader::convert_to_jsonl(entry.path().string(), out_path_, /*append=*/false);
+        const std::vector<std::string> got = read_lines();
+        std::vector<std::string> want;
+        {
+            std::ifstream f(expected_path);
+            for (std::string line; std::getline(f, line);)
+                want.push_back(line);
+        }
+        ASSERT_EQ(rows, static_cast<long long>(want.size())) << name;
+        ASSERT_EQ(got.size(), want.size()) << name;
+        for (std::size_t i = 0; i < want.size(); ++i) {
+            const auto g = nlohmann::ordered_json::parse(got[i], nullptr, false);
+            const auto w = nlohmann::ordered_json::parse(want[i]);
+            ASSERT_FALSE(g.is_discarded()) << name << " row " << i << " isn't valid JSON: " << got[i];
+            ASSERT_EQ(g.size(), w.size()) << name << " row " << i;
+            auto gi = g.begin();
+            for (auto wi = w.begin(); wi != w.end(); ++wi, ++gi) {
+                EXPECT_EQ(gi.key(), wi.key()) << name << " row " << i;
+                EXPECT_EQ(gi.value(), wi.value())
+                    << name << " row " << i << " column " << wi.key() << ": got " << gi.value().dump()
+                    << ", pyarrow " << wi.value().dump();
+            }
+        }
+    }
+    EXPECT_GE(fixtures, 7);
+}
 
 TEST_F(ParquetReaderTest, PlainUncompressed) {
     const std::string in = (fixtures_dir() / "plain_uncompressed.parquet").string();

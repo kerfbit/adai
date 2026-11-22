@@ -1,10 +1,53 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (495 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (496 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / ParquetReader | Code fix (LOW, created October 14, 2026; partly fixed October 24 with TD-470/TD-471) |
+
+Description:
+Found while tracing `ParquetReader`, by inspection:
+- The header promises "returns −1 on any unsupported/corrupt input", but allocation failures throw (TD-471). *Fixed with TD-471: exceptions are caught, and a failure leaves the output unchanged.*
+- Every row of a part is decoded into memory before writing; very large parts cost their full decoded size in RAM.
+- The only end-to-end comparison with pyarrow (`DISABLED_TinyStoriesPartsMatchPythonReference`) is disabled; the only malformed-input test
+  is one "corrupt file" case. pyarrow is available in the dev environment (`tests/fixtures/parquet/generate_fixtures.py`).
+
+Action Items:
+
+- [x] Add adversarial tests (the TD-470 footers, oversized declared sizes, negative sizes) and a small committed fuzz corpus or a libFuzzer target. *(October 24, 2026, with TD-470/TD-471: crafted-footer and declared-size tests, and a deterministic in-test mutation run over every fixture; no libFuzzer target.)*
+- [x] Re-enable the pyarrow comparison on generated fixtures (no network). (November 21, 2026; see below.)
+- [x] Stream rows per row group instead of buffering the whole part (keeping the "nothing written on failure" guarantee via a temp file + rename).
+  (Done by TD-471, October 24, 2026: rows are written row group by row group, a fresh write goes to `<out>.tmp` and is renamed on success, and an append is cut back on failure. One row group, at most 2^24 rows, is still decoded at once; streaming within a row group would mean decoding every column page by page in step, not worth it for HuggingFace text.)
+
+Location in code: `src/ParquetReader.{hpp,cpp}`; `tests/parquet_reader_test.cpp`; tagged `TODO: See TD-472`.
+
+Files to Modify:
+
+- `src/ParquetReader.{hpp,cpp}`
+- `tests/parquet_reader_test.cpp`
+
+**Fix (November 21, 2026):**
+- **The pyarrow comparison runs on every build.** `generate_fixtures.py` also writes `<fixture>.expected.jsonl`, pyarrow's own reading of
+  each fixture (a non-finite float as `null`), and a new `all_types.parquet`: `INT32`, `INT64`, `FLOAT`, `DOUBLE`, `BOOLEAN` and string
+  columns with nulls in each, quotes, backslashes, control characters, non-ASCII text, extreme values, NaN and infinity.
+  `EveryFixtureMatchesPyarrowsReading` converts every fixture and compares it with that file value by value (same rows, same keys in
+  order, equal values). No Python or network at test time; the six existing fixtures regenerate byte-identical.
+- **It found a real bug: doubles.** `append_cell_json()` wrote doubles with `operator<<`, 6 significant digits (3.141592653589793 became
+  3.14159, every `FLOAT` was rounded), and NaN and infinity as `nan`/`inf`, which made the whole row invalid JSON. It now writes the
+  shortest text that reads back as the same double (`std::to_chars`) and `null` for a non-finite value.
+- The real-data TinyStories comparison stays disabled (it needs the downloaded parts); the fixtures' comparison covers the same code.
+- **Not covered** (recorded in `ParquetReader.md`): `BYTE_ARRAY` without a UTF-8 annotation (non-UTF-8 bytes written as they are) and
+  unsigned logical types (read as signed); nothing reads logical types today.
+- Tests: 19 in `parquetReaderTests` (18 run, 1 disabled) pass; `DataFetcher`'s pass.
+
+---
 
 ### TD-340: `DataTransport` Robustness and Header Hygiene
 

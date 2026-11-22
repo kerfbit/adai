@@ -13,12 +13,17 @@ being tested).
 Run manually, from the repo root:
     python3 tests/fixtures/parquet/generate_fixtures.py
 
+It also writes pyarrow's reading of each fixture as <name>.expected.jsonl (TD-472), the oracle
+parquet_reader_test.cpp compares ParquetReader's output with.
+
 Every fixture pins data_page_version="1.0" explicitly (pyarrow's current
 default, but pinned here so a future pyarrow upgrade can't silently start
 producing DataPageV2 fixtures — ParquetReader deliberately does not support
 V2, see src/ParquetReader.hpp).
 """
 
+import json
+import math
 import os
 
 import pyarrow as pa
@@ -93,5 +98,46 @@ write(
     use_dictionary=False,
     row_group_size=50,  # 200 rows / 50 per group = 4 row groups
 )
+
+# 7. TD-472: every physical type the reader decodes, with nulls in each, awkward strings (quotes,
+#    backslashes, control characters, non-ASCII) and doubles that need all 17 significant digits.
+write(
+    "all_types.parquet",
+    pa.table(
+        {
+            "i32": pa.array([0, -1, 2147483647, -2147483648, None, 42], type=pa.int32()),
+            "i64": pa.array([0, -1, 9223372036854775807, -9223372036854775808, 7, None],
+                            type=pa.int64()),
+            "f32": pa.array([0.1, -2.5, None, 3.4028234663852886e38, 1e-38, float("inf")],
+                            type=pa.float32()),
+            "f64": pa.array([3.141592653589793, -1e-300, 2.5e10, None, 0.1 + 0.2, float("nan")],
+                            type=pa.float64()),
+            "flag": pa.array([True, False, None, True, False, True], type=pa.bool_()),
+            "text": pa.array(['quote " and \\ backslash', "line\nbreak\ttab\x01ctl", "",
+                              None, "caf\u00e9 \u2014 \U0001F600", "plain"], type=pa.string()),
+        }
+    ),
+    compression="SNAPPY",
+    use_dictionary=["text"],
+)
+
+
+# TD-472: pyarrow's own reading of every fixture, as JSON Lines, so parquet_reader_test.cpp can
+# compare ParquetReader's output with it without Python or a network at test time. A non-finite
+# float is written as null: JSON has no NaN or infinity, and that is what ParquetReader writes.
+def expected_jsonl(name):
+    table = pq.read_table(os.path.join(HERE, name))
+    path = os.path.join(HERE, name.replace(".parquet", ".expected.jsonl"))
+    with open(path, "w", encoding="utf-8") as out:
+        for row in table.to_pylist():
+            row = {k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                   for k, v in row.items()}
+            out.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
+    print(f"wrote {path}")
+
+
+for name in sorted(os.listdir(HERE)):
+    if name.endswith(".parquet"):
+        expected_jsonl(name)
 
 print("done")

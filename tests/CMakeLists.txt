@@ -688,7 +688,7 @@ add_test(NAME SessionCounterStoreTests COMMAND sessionCounterStoreTests)
 
 # Native Parquet -> JSONL reader (replaces the Python pandas/pyarrow subprocess)
 add_executable(parquetReaderTests parquet_reader_test.cpp)
-target_include_directories(parquetReaderTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(parquetReaderTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external)
 target_link_libraries(parquetReaderTests
     adai_core
     GTest::gtest_main

@@ -455,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(89 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(88 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -521,7 +521,6 @@ reference doc that tracks it):
 | TD-464 (LOW) | `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level. Left: Fail startup cleanly when the data directory can't be created (catch in `start()` or check in `main()` and exit 1) (and 2 more). See [ModelNameServiceServer.md](docs/development/reference/source/ModelNameServiceServer.md). |
 | TD-466 (LOW) | `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation. Decision: make it T5-faithful. Left: Implement the export-side mappings above; stop labelling non-T5 models as `T5ForConditionalGeneration` (and 5 more). See [ModelSerializer.md](docs/development/reference/source/ModelSerializer.md). |
 | TD-468 (MEDIUM) | GPU Training Round-Trips Every Gradient and Weight Through a 3× Slow CPU Optimizer. Device-resident optimizer landed October 19, 2026. Left: Rewrite the update, norm and clip loops over raw row pointers (vectorizable); re-measure (and 1 more). See [Optimizer.md](docs/development/reference/source/Optimizer.md). |
-| TD-472 (LOW) | `ParquetReader` Contract, Memory Use and Test Coverage Gaps. Left: Re-enable the pyarrow comparison on generated fixtures (no network) (and 1 more). See [ParquetReader.md](docs/development/reference/source/ParquetReader.md). |
 | TD-473 (LOW) | `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock. Left: Use `std::chrono::steady_clock` (and 2 more). See [PerformanceProfiler.md](docs/development/reference/source/PerformanceProfiler.md). |
 | TD-477 (LOW) | Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions. Left: Add `parse_iso8601_utc()` returning `std::optional<time_point>`: strict digits and ranges, fractional seconds by digit position, `Z`/`±HH:MM`… (and 2 more). See [PortableTime.md](docs/development/reference/source/PortableTime.md). |
 | TD-480 (LOW) | `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries. Left: Bootstrap the schema on the first successful connection (any time), not just at construction (and 2 more). See [PostgresMetricsDatabase.md](docs/development/reference/source/PostgresMetricsDatabase.md). |
