@@ -1,10 +1,56 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (494 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (495 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-340: `DataTransport` Robustness and Header Hygiene
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Data / DataTransport | Code fix (LOW, created October 11, 2026) |
+
+Description:
+Found alongside TD-337, by inspection:
+- `curl_global_init()` is never called; implicit init from several `fetch_all()` threads at once is
+  safe only on a thread-safe-init libcurl (8.5.0 on the dev machine is; the deployed host wasn't
+  checked).
+- A final failure deletes the partial file, so resume can't help across failed passes.
+- `CURLE_COULDNT_CONNECT` isn't retried, so a registry restart mid-pass fails the pass immediately.
+- `using adai::Logger;` and `namespace fs = std::filesystem;` at global scope in a header leak into
+  every includer.
+
+Action Items:
+
+- [x] Call `curl_global_init()` once at trainer startup; keep partial files on failure; treat `COULDNT_CONNECT` as retryable with backoff; move the `using`/alias into a namespace or the .cpp.
+
+Location in code: `src/DataTransport.hpp` (top-level `using`, retry loop, failure cleanup); tagged `TODO: See TD-340`.
+
+Files to Modify:
+
+- `src/DataTransport.hpp`
+- `src/IncrementalTrainingTool.cpp`
+
+**Fix (November 21, 2026):**
+- **libcurl initialization.** `DataTransport::ensure_curl_initialized()` calls `curl_global_init(CURL_GLOBAL_DEFAULT)` once
+  (`std::call_once`). `incremental_trainer`'s `main()` calls it first, while the process has one thread; `fetch()` and `fetch_all()` (before
+  starting its threads) call it too, for any other user. `HttpDownload` and `MetricsPushClient` already guarded their own first use.
+- **Partial files kept.** A transfer that fails after its retries keeps the bytes it got and the checksum sidecar, so the next fetch
+  resumes it against the same version (TD-338), and `startup_sweep()` keeps a non-empty download of a pending file. An empty leftover is
+  removed, and a size mismatch after a transfer still deletes the file.
+- **Refused connections retried.** `CURLE_COULDNT_CONNECT` is transient, so a `registry_server` restarting mid-pass gets the 1, 2 and 4 s
+  retries instead of failing the pass. `set_retry_base_backoff_ms()` changes the 1 s base (the tests use 1 ms, so the suite still takes
+  0.1 s, not 35 s).
+- **Header hygiene.** The global `using adai::Logger;` and `namespace fs = std::filesystem;` are gone; the header names both in full. The
+  whole tree built unchanged, since every includer had its own alias (`DataTransport.hpp` 2.0.0 all the same, since one could have relied
+  on them). `FtpDataServer.hpp` still has the same two declarations at global scope.
+- **Tests:** `AFailedTransferKeepsAPartialFileToResume`, `ARefusedConnectionIsRetried` (three logged retries),
+  `IsTransientTest.CouldntConnectIsTransient` (it asserted the opposite); 34 `dataTransportFtpTests` pass, and the FTPS, FTP server,
+  registry confinement, `DatasetRegistry`, sweep and trainer suites.
+
+---
 
 ### TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data
 

@@ -1,7 +1,7 @@
 # `IncrementalTrainingTool` — Source File Reference
 
 - **File:** [`src/IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp) (1,184 lines): the `main()` of `incremental_trainer`
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.40.0`, `@adai-reviewed: 2026-11-15`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.41.0`, `@adai-reviewed: 2026-11-21`
 - **Built into:** the `incremental_trainer` executable, with `IncrementalTrainer.cpp`, `IncrementalTrainerArgs.cpp`, `LeJEPATrainingPass.cpp` and `TrainingPassFiles.cpp` (the LeJEPA pass and the shared download step, moved out of this file November 12, 2026) and the core libraries; the per-pass admin API (`TrainerAdminAPI.cpp`, `BUILD_TRAINER_ADMIN`) and metrics push when cpp-httplib is found; FTP downloads (`BUILD_FTP_TRANSPORT`) with libcurl
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (the class the chatbot commands drive), [LeJEPATrainingPass.md](LeJEPATrainingPass.md) (the LeJEPA pass and the download step), [IncrementalTrainerArgs.md](IncrementalTrainerArgs.md) (flag parsing and shared helpers), [TrainerServiceMain.md](TrainerServiceMain.md) (which runs `resume` as each pass), [PassHeartbeat.md](PassHeartbeat.md), [incremental-trainer-quick-reference.md](../../guides/quick-reference/incremental-trainer-quick-reference.md) (operator guide)
 - **Tests:** `retrainRemoteTests` ([`tests/retrain_remote_test.cpp`](../../../../tests/retrain_remote_test.cpp), TD-411) runs the real binary's `train` and `retrain` against a real `registry_server` with FTP on; otherwise none for this file itself. Its parser and helpers (`incrementalTrainerArgsTests`), `IncrementalTrainer` (four suites), the heartbeat (`passHeartbeatTests`), the LeJEPA pass (`lejepaTrainingPassTests`) and the real binary's exit on a bad flag and on `SIGHUP` (`sighupTests`) have their own
@@ -141,3 +141,9 @@ run with the fixed binary left no trained record and the claim cleared.
 - **November 14, 2026:** after the GPU initializes, the GPU queue bound is set from `GPU_QUEUE_DEPTH` (TD-574). Later that day,
   after ai-machine's third round, the bound became opt-in (default 0) and the wait timeout (`GPU_WAIT_TIMEOUT_SECONDS`) is set too.
   After the fourth round the default is 8 again, and `main()` exits without the GPU runtime's teardown once a wait has timed out.
+
+## Addendum (November 21, 2026): libcurl initialized first (TD-340)
+
+`main()` now starts with `DataTransport::ensure_curl_initialized()`, so `curl_global_init()` runs once while the process has one thread,
+before the FTP download threads (`fetch_all()`) and the metrics push client's thread use libcurl. Both also guard their own first use with
+`std::call_once`, so the order no longer depends on libcurl's thread-safe-init build option.

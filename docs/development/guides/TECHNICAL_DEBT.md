@@ -6,9 +6,9 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 ## Overview
 
 **Last Updated:** November 21, 2026
-**Active Items:** 90 (7 high, 18 medium, 65 low)
+**Active Items:** 89 (7 high, 18 medium, 64 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 494 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 495 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,19 +17,21 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 90 open items:
+**Where things stand.** Of the 89 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **69 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **68 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 21, 2026:** Closed [TD-335](../archive/TECHNICAL_DEBT_RESOLVED.md#td-335-datasetregistry-dead-code-and-unused-integrity-data)
+**November 21, 2026:** Closed [TD-340](../archive/TECHNICAL_DEBT_RESOLVED.md#td-340-datatransport-robustness-and-header-hygiene)
+(LOW): FTP downloads initialize libcurl once at startup, keep a failed transfer's partial file for the next pass, retry a refused
+connection, and `DataTransport.hpp` no longer leaks `using` declarations. Closed [TD-335](../archive/TECHNICAL_DEBT_RESOLVED.md#td-335-datasetregistry-dead-code-and-unused-integrity-data)
 (LOW): `DatasetRegistry`'s dead helpers are gone, `MAX_FILES_PER_RUN` limits what a pass claims, acquired claims show in memory, and a
 trained file that changed is reported. Closed [TD-513](../archive/TECHNICAL_DEBT_RESOLVED.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls)
 (LOW): `startup_sweep()` no longer throws on filesystem errors, releases every segment this run claimed on an empty download, and leaves
@@ -172,7 +174,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (90 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (89 since TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -221,8 +223,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- Registry and transport cleanup: [TD-340](#td-340-datatransport-robustness-and-header-hygiene) (LOW, `DataTransport` robustness),
-  [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
+- Registry and transport cleanup: [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) (LOW, `ParquetReader` streaming and tests).
 - `dataset_manager`: [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands) (LOW, command-level tests) and [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) (LOW, the operator guide's missing commands).
 - [TD-556](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest) (LOW): move `registry_ftp_confinement_test` off fixed ports in the ephemeral range.
 - [TD-582](#td-582-sighuptests-fails-under-a-loaded-parallel-ctest) (LOW): `SighupTests` failed once under a loaded `ctest -j8` (a 120 s child deadline or a reused port); reproduce
@@ -317,7 +318,6 @@ as TD-426 and TD-467 were:
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
   - [TD-331: `dataset_manager` Has No Tests for Its Commands](#td-331-dataset_manager-has-no-tests-for-its-commands)
   - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
-  - [TD-340: `DataTransport` Robustness and Header Hygiene](#td-340-datatransport-robustness-and-header-hygiene)
   - [TD-345: `DecoderBlock` Persistence Gaps for Gated State](#td-345-decoderblock-persistence-gaps-for-gated-state)
   - [TD-348: `LLMDecoder` Dead Code and Robustness Gaps](#td-348-llmdecoder-dead-code-and-robustness-gaps)
   - [TD-351: `DocumentStore` Embedding and Housekeeping Gaps](#td-351-documentstore-embedding-and-housekeeping-gaps)
@@ -2335,35 +2335,6 @@ Location in code: `src/DatasetManagerTool.cpp` (usage text); tagged `TODO: See T
 Files to Modify:
 
 - `docs/operations/guides/dataset-manager-guide.md`
-
----
-
-### TD-340: `DataTransport` Robustness and Header Hygiene
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / DataTransport | October 11, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-337, by inspection:
-- `curl_global_init()` is never called; implicit init from several `fetch_all()` threads at once is
-  safe only on a thread-safe-init libcurl (8.5.0 on the dev machine is; the deployed host wasn't
-  checked).
-- A final failure deletes the partial file, so resume can't help across failed passes.
-- `CURLE_COULDNT_CONNECT` isn't retried, so a registry restart mid-pass fails the pass immediately.
-- `using adai::Logger;` and `namespace fs = std::filesystem;` at global scope in a header leak into
-  every includer.
-
-Action Items:
-
-- [ ] Call `curl_global_init()` once at trainer startup; keep partial files on failure; treat `COULDNT_CONNECT` as retryable with backoff; move the `using`/alias into a namespace or the .cpp.
-
-Location in code: `src/DataTransport.hpp` (top-level `using`, retry loop, failure cleanup); tagged `TODO: See TD-340`.
-
-Files to Modify:
-
-- `src/DataTransport.hpp`
-- `src/IncrementalTrainingTool.cpp`
 
 ---
 

@@ -17,7 +17,10 @@
 #include <string>
 #include <vector>
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
 #include "../src/DataTransport.hpp"
+#include "../src/Logger.hpp"
 #include "../src/RegistryTransport.hpp"
 
 namespace fs = std::filesystem;
@@ -83,6 +86,7 @@ TEST(DataTransportConditionBTest, SkipsDownloadForCompleteFile) {
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     // host:port "127.0.0.1:19999" — nothing is listening there.
     // If Condition B is working, fetch() returns BEFORE making any connection.
@@ -106,6 +110,7 @@ TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeMismatch) {
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     // Condition B should NOT fire (sizes differ).
     // fetch() will try to make an FTP connection — which fails since nothing
@@ -125,6 +130,7 @@ TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeBytesIsZero) {
 
     FileToken tok = make_token(ftp_path, 0 /* size unknown */);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     // Should attempt a connection (and fail) — not skip
     EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir), std::runtime_error);
@@ -146,6 +152,7 @@ TEST(DataTransportConditionBTest, CreatesDownloadDirIfAbsent) {
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     fs::path result;
     EXPECT_NO_THROW(result = dt.fetch(tok, "127.0.0.1", 19999, dir));
@@ -174,6 +181,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsPreDownloadedPaths) {
     }
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     std::vector<fs::path> result;
     EXPECT_NO_THROW(result = dt.fetch_all(resp, dir));
 
@@ -200,6 +208,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsInOrder) {
     }
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     std::vector<fs::path> result;
     EXPECT_NO_THROW(result = dt.fetch_all(resp, dir, /*max_parallel=*/4));
 
@@ -216,6 +225,7 @@ TEST(DataTransportFetchAllTest, FetchAllEmptyResponseReturnsEmpty) {
     AcquireResponse resp;
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     EXPECT_TRUE(dt.fetch_all(resp, dir).empty());
 
     fs::remove_all(dir);
@@ -237,6 +247,7 @@ TEST(DataTransportFetchAllTest, FetchAllPropagatesFirstError) {
     resp.files.push_back(make_token("missing.bin", 200));
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     EXPECT_THROW(dt.fetch_all(resp, dir), std::runtime_error);
 
     fs::remove_all(dir);
@@ -260,6 +271,7 @@ TEST(DataTransportFetchAllTest, SingleThreadedFetchAllPreservesOrder) {
     }
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     std::vector<fs::path> result;
     EXPECT_NO_THROW(result = dt.fetch_all(resp, dir, /*max_parallel=*/1));
 
@@ -286,6 +298,7 @@ TEST(DataTransportFetchTest, CreatesMissingDownloadDir) {
 
     FileToken tok = make_token("f.bin", 512);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     EXPECT_NO_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir));
     EXPECT_TRUE(fs::exists(local_for(dir, "f.bin")));
@@ -322,6 +335,7 @@ TEST(DataTransportFetchAllTest, SegmentTokensOfOneFileDownloadOnce) {
     write_bytes(local_for(dir, "g/big.jsonl"), 300);
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     std::vector<fs::path> result;
     EXPECT_NO_THROW(result = dt.fetch_all(resp, dir, /*max_parallel=*/4));
     ASSERT_EQ(result.size(), 3u);
@@ -343,6 +357,7 @@ TEST(DataTransportConditionBTest, SameSizeFileWithDifferentChecksumIsDownloadedA
     std::ofstream(DataTransport::checksum_path_for(local)) << "1024_100";
 
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
     // Not reused, so fetch() tries the (absent) server and fails.
     EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir), std::runtime_error);
     EXPECT_FALSE(fs::exists(local)) << "the stale file must not survive to be trained on";
@@ -357,6 +372,50 @@ TEST(DataTransportConditionBTest, SameSizeFileWithDifferentChecksumIsDownloadedA
     fs::path result;
     EXPECT_NO_THROW(result = dt.fetch(tok, "127.0.0.1", 19999, dir));
     EXPECT_EQ(result, local);
+    fs::remove_all(dir);
+}
+
+// TD-340: a transfer that still fails after its retries keeps the bytes it got, with the checksum
+// sidecar, so the next fetch (the next pass) resumes; it used to delete them. An empty file, with
+// nothing to resume, is still removed (SameSizeFileWithDifferentChecksumIsDownloadedAgain).
+TEST(DataTransportFetchTest, AFailedTransferKeepsAPartialFileToResume) {
+    const auto dir = make_temp_dir("keep_partial");
+    FileToken tok = make_token("big.bin", 1024);
+    tok.checksum = "1024_300";
+    const fs::path local = local_for(dir, "big.bin");
+    write_bytes(local, 400);  // a partial download of this version
+    std::ofstream(DataTransport::checksum_path_for(local)) << "1024_300";
+
+    DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);
+    EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir), std::runtime_error);
+    ASSERT_TRUE(fs::exists(local)) << "the partial file is kept for the next fetch";
+    EXPECT_EQ(fs::file_size(local), 400u);
+    std::string recorded;
+    std::ifstream(DataTransport::checksum_path_for(local)) >> recorded;
+    EXPECT_EQ(recorded, "1024_300");
+    fs::remove_all(dir);
+}
+
+// TD-340: a refused connection (a registry_server restarting) is retried kMaxRetries times with
+// backoff instead of failing at once.
+TEST(DataTransportFetchTest, ARefusedConnectionIsRetried) {
+    std::ostringstream out;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    adai::Logger::get()->sinks().push_back(sink);
+    const auto dir = make_temp_dir("refused_retry");
+    DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);
+    EXPECT_THROW(dt.fetch(make_token("r.bin", 64), "127.0.0.1", 19999, dir), std::runtime_error);
+    auto& sinks = adai::Logger::get()->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+
+    const std::string log = out.str();
+    int retries = 0;
+    for (std::size_t pos = log.find("Transient error"); pos != std::string::npos;
+         pos = log.find("Transient error", pos + 1))
+        ++retries;
+    EXPECT_EQ(retries, DataTransport::kMaxRetries) << log;
     fs::remove_all(dir);
 }
 
@@ -402,6 +461,7 @@ TEST(DataTransportFetchTest, FtpPathWithSpaceDoesNotTriggerUrlMalformat) {
     // reach curl_easy_perform() against the real (encoded) URL.
     FileToken tok = make_token("some group/training data.jsonl", 100);
     DataTransport dt;
+    dt.set_retry_base_backoff_ms(1);  // a closed port is retried (TD-340); keep it quick
 
     try {
         dt.fetch(tok, "127.0.0.1", 19999, dir);
@@ -453,9 +513,10 @@ TEST(IsTransientTest, OkIsNotTransient) {
     EXPECT_FALSE(dt_detail::is_transient(CURLE_OK));
 }
 
-// Connection refused means the server is absent — not worth retrying.
-TEST(IsTransientTest, CouldntConnectIsNotTransient) {
-    EXPECT_FALSE(dt_detail::is_transient(CURLE_COULDNT_CONNECT));
+// TD-340: connection refused is retried — a registry_server restarting mid-pass refuses connections
+// for a few seconds, which used to fail the pass at once.
+TEST(IsTransientTest, CouldntConnectIsTransient) {
+    EXPECT_TRUE(dt_detail::is_transient(CURLE_COULDNT_CONNECT));
 }
 
 TEST(IsTransientTest, LoginDeniedIsNotTransient) {

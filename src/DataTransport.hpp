@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-11-11
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-21
 
 /**
  * DataTransport — trainer-side FTP download client.
@@ -23,6 +23,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -35,9 +36,9 @@
 #include <curl/curl.h>
 #endif
 
-// TODO: See TD-340 in TECHNICAL_DEBT.md - global using/namespace alias in a header leak into every includer
-using adai::Logger;
-namespace fs = std::filesystem;
+// TD-340: this header used to put `using adai::Logger;` and `namespace fs = std::filesystem;` at global
+// scope, into every file including it (DatasetRegistry.hpp does, so nearly all of them). It now names
+// both in full.
 
 /// TD-339: how fetch() authenticates the registry's FTPS server. With neither field set the
 /// server's certificate isn't checked (a warning is logged once per process).
@@ -62,29 +63,42 @@ class DataTransport {
 
     const FtpsVerification& ftps_verification() const { return verification_; }
 
+    /**
+     * TD-340: curl_global_init() exactly once per process. libcurl's implicit initialization in
+     * curl_easy_init() is only thread-safe on builds with thread-safe init, and fetch_all() starts
+     * its downloads from several threads at once. incremental_trainer calls this at startup, before
+     * any thread exists; fetch() and fetch_all() call it too, for any other user. A no-op without
+     * libcurl.
+     */
+    static void ensure_curl_initialized();
+
     // Phase 2: retry configuration constants
     static constexpr int kMaxRetries = 3;        // attempts = 1 + kMaxRetries
     static constexpr int kBaseBackoffMs = 1000;  // 1 s → 2 s → 4 s
+
+    /// The first retry's delay (each later one doubles it); kBaseBackoffMs unless changed. TD-340: a
+    /// refused connection is retried too, so tests against a closed port shorten it.
+    void set_retry_base_backoff_ms(int ms) { retry_base_backoff_ms_ = ms; }
 
     /**
      * @brief TD-337: local path of @p token's download in @p download_dir, named by
      *        download_file_name() from the token's registry_path (ftp_path when that is empty).
      */
-    static fs::path local_path_for(const FileToken& token, const fs::path& download_dir) {
+    static std::filesystem::path local_path_for(const FileToken& token, const std::filesystem::path& download_dir) {
         return download_dir / download_file_name(token.registry_path.empty() ? token.ftp_path
                                                                              : token.registry_path);
     }
 
     /// TD-338: the sidecar recording the token checksum @p local_path was downloaded against.
-    static fs::path checksum_path_for(const fs::path& local_path) {
-        return fs::path(local_path.string() + kDownloadChecksumSuffix);
+    static std::filesystem::path checksum_path_for(const std::filesystem::path& local_path) {
+        return std::filesystem::path(local_path.string() + kDownloadChecksumSuffix);
     }
 
     /// Removes a download and its checksum sidecar (missing files are ignored).
-    static void remove_download(const fs::path& local_path) {
+    static void remove_download(const std::filesystem::path& local_path) {
         std::error_code ec;
-        fs::remove(local_path, ec);
-        fs::remove(checksum_path_for(local_path), ec);
+        std::filesystem::remove(local_path, ec);
+        std::filesystem::remove(checksum_path_for(local_path), ec);
     }
 
     /**
@@ -104,6 +118,8 @@ class DataTransport {
      *   - Retry: on transient FTP errors (connection refused, timeout, etc.),
      *     retries up to kMaxRetries times with exponential backoff starting at
      *     kBaseBackoffMs.  Authentication failures are not retried.
+     *   - TD-340: when the transfer still fails, the partial file (and its checksum sidecar) is
+     *     kept for the next fetch to resume; only a size mismatch after a transfer deletes it.
      *
      * Phase 3 additions:
      *   - ftps_enabled: when true, enables FTPS (FTP over TLS with AUTH TLS)
@@ -116,8 +132,8 @@ class DataTransport {
      * @return Local filesystem path to the downloaded file.
      * @throws std::runtime_error on FTP error, size mismatch, or missing libcurl.
      */
-    fs::path fetch(const FileToken& token, const std::string& ftp_host, int ftp_port,
-                   const fs::path& download_dir, std::size_t large_file_warn_bytes = 0,
+    std::filesystem::path fetch(const FileToken& token, const std::string& ftp_host, int ftp_port,
+                   const std::filesystem::path& download_dir, std::size_t large_file_warn_bytes = 0,
                    bool ftps_enabled = false);
 
     /**
@@ -132,11 +148,12 @@ class DataTransport {
      * @return Local paths in the same order as resp.files.
      * @throws std::runtime_error if any single fetch fails.
      */
-    std::vector<fs::path> fetch_all(const AcquireResponse& resp, const fs::path& download_dir,
+    std::vector<std::filesystem::path> fetch_all(const AcquireResponse& resp, const std::filesystem::path& download_dir,
                                     int max_parallel = 4, std::size_t large_file_warn_bytes = 0);
 
    private:
     FtpsVerification verification_;
+    int retry_base_backoff_ms_ = kBaseBackoffMs;
 };
 
 // ============================================================================
@@ -196,12 +213,13 @@ inline std::string url_encode_ftp_path(const std::string& path) {
     return encoded;
 }
 
-// Returns true for errors that are worth retrying (transient network issues).
-// Connection refused (CURLE_COULDNT_CONNECT) and auth failures are NOT
-// transient — the server is either absent or rejected us deliberately.
-// TODO: See TD-340 in TECHNICAL_DEBT.md - CURLE_COULDNT_CONNECT isn't retried (a registry restart fails the pass)
+// Returns true for errors that are worth retrying (transient network issues). Auth failures are
+// not: the server rejected us deliberately. TD-340: connection refused is retried, since a
+// registry_server restarting mid-pass refuses connections for a few seconds; it used to fail the
+// pass at once.
 inline bool is_transient(CURLcode rc) {
     switch (rc) {
+        case CURLE_COULDNT_CONNECT:     // refused — the server may be restarting
         case CURLE_OPERATION_TIMEDOUT:  // connect/transfer timed out — server may be recovering
         case CURLE_RECV_ERROR:          // recv() failure — TCP drop mid-transfer
         case CURLE_SEND_ERROR:          // send() failure — TCP drop mid-transfer
@@ -216,23 +234,29 @@ inline bool is_transient(CURLcode rc) {
 
 }  // namespace dt_detail
 
-inline fs::path DataTransport::fetch(const FileToken& token, const std::string& ftp_host,
-                                     int ftp_port, const fs::path& download_dir,
+inline void DataTransport::ensure_curl_initialized() {
+    static std::once_flag once;
+    std::call_once(once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+
+inline std::filesystem::path DataTransport::fetch(const FileToken& token, const std::string& ftp_host,
+                                     int ftp_port, const std::filesystem::path& download_dir,
                                      std::size_t large_file_warn_bytes, bool ftps_enabled) {
-    fs::create_directories(download_dir);
+    ensure_curl_initialized();
+    std::filesystem::create_directories(download_dir);
     // TD-337: named from the full registry path, not the basename, so segment tokens of one file
     // share one download and same-named files in different directories don't collide.
-    const fs::path local_path = local_path_for(token, download_dir);
-    const fs::path checksum_path = checksum_path_for(local_path);
+    const std::filesystem::path local_path = local_path_for(token, download_dir);
+    const std::filesystem::path checksum_path = checksum_path_for(local_path);
 
     // TD-338: an existing file (complete or partial) is only reused when it was downloaded
     // against this token's checksum; a same-size stale copy used to be trained on. Tokens with no
     // checksum keep the size-only check.
-    if (!token.checksum.empty() && fs::exists(local_path)) {
+    if (!token.checksum.empty() && std::filesystem::exists(local_path)) {
         std::string recorded;
         std::ifstream(checksum_path) >> recorded;
         if (recorded != token.checksum) {
-            Logger::info(
+            adai::Logger::info(
                 "[DataTransport] '{}' on disk doesn't match the registry's checksum ({}); "
                 "downloading it again",
                 token.ftp_path, recorded.empty() ? "no record" : "changed");
@@ -241,10 +265,10 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     }
 
     // ── Condition B: file already fully downloaded — skip network call ────
-    if (token.size_bytes > 0 && fs::exists(local_path)) {
-        const std::size_t on_disk = fs::file_size(local_path);
+    if (token.size_bytes > 0 && std::filesystem::exists(local_path)) {
+        const std::size_t on_disk = std::filesystem::file_size(local_path);
         if (on_disk == token.size_bytes) {
-            Logger::info(
+            adai::Logger::info(
                 "[CLEANUP-B] Found previously downloaded file '{}' ({} bytes) "
                 "ready for training. Skipping re-download.",
                 token.ftp_path, token.size_bytes);
@@ -256,7 +280,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     const bool is_large = (large_file_warn_bytes > 0 && token.size_bytes >= large_file_warn_bytes);
     if (is_large) {
         const double size_mb = static_cast<double>(token.size_bytes) / (1024.0 * 1024.0);
-        Logger::warn(
+        adai::Logger::warn(
             "[DataTransport] Large file transfer beginning: '{}' ({:.1f} MB). "
             "This may take a while.",
             token.ftp_path, size_mb);
@@ -269,14 +293,14 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
             "FTPS_PINNED_PUBLIC_KEY) but the registry offered plain FTP for '" + token.ftp_path +
             "'; refusing to send credentials to an unverified server");
     }
-    if (!verification_.ca_file.empty() && !fs::is_regular_file(verification_.ca_file)) {
+    if (!verification_.ca_file.empty() && !std::filesystem::is_regular_file(verification_.ca_file)) {
         throw std::runtime_error("[DataTransport] FTPS_CA_FILE '" + verification_.ca_file +
                                  "' is not a readable file");
     }
     if (ftps_enabled && !verification_.configured()) {
         static std::atomic<bool> warned{false};
         if (!warned.exchange(true))
-            Logger::warn(
+            adai::Logger::warn(
                 "[DataTransport] FTPS is NOT verifying the registry's certificate: anyone who can "
                 "intercept the connection can impersonate registry_server, serve arbitrary training "
                 "data and collect download credentials. Set FTPS_PINNED_PUBLIC_KEY (registry_server "
@@ -304,18 +328,18 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     for (int attempt = 0; attempt <= kMaxRetries; ++attempt) {
         // ── Determine resume offset from current on-disk state ────────────
         std::size_t resume_from = 0;
-        if (fs::exists(local_path)) {
-            const std::size_t on_disk = fs::file_size(local_path);
+        if (std::filesystem::exists(local_path)) {
+            const std::size_t on_disk = std::filesystem::file_size(local_path);
             if (on_disk == 0) {
                 // Zero-byte sentinel file: start fresh
-                fs::remove(local_path);
+                std::filesystem::remove(local_path);
             } else if (token.size_bytes > 0 && on_disk >= token.size_bytes) {
                 // Unexpected overshoot (shouldn't reach here after Condition B check)
-                fs::remove(local_path);
+                std::filesystem::remove(local_path);
             } else {
                 // Genuine partial file: resume from current offset
                 resume_from = on_disk;
-                Logger::info(
+                adai::Logger::info(
                     "[DataTransport] Partial file '{}' ({}/{} bytes). "
                     "Resuming from offset {} (attempt {}/{}).",
                     token.ftp_path, on_disk, token.size_bytes, resume_from, attempt + 1,
@@ -337,8 +361,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
 
         dt_detail::WriteCtx ctx{&outfile, 0};
 
-        // TODO: See TD-340 in TECHNICAL_DEBT.md - no curl_global_init(); implicit init from parallel threads needs a thread-safe libcurl
-        CURL* curl = curl_easy_init();
+        CURL* curl = curl_easy_init();  // after ensure_curl_initialized() (TD-340)
         if (!curl)
             throw std::runtime_error("[DataTransport] curl_easy_init() failed");
 
@@ -383,8 +406,8 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
 
         const bool retryable = dt_detail::is_transient(rc) && (attempt < kMaxRetries);
         if (retryable) {
-            const int backoff_ms = kBaseBackoffMs << attempt;  // 1 s, 2 s, 4 s
-            Logger::warn(
+            const int backoff_ms = retry_base_backoff_ms_ << attempt;  // 1 s, 2 s, 4 s by default
+            adai::Logger::warn(
                 "[DataTransport] Transient error on attempt {}/{} for '{}': {}. "
                 "Retrying in {} ms.",
                 attempt + 1, kMaxRetries + 1, token.ftp_path, curl_easy_strerror(rc), backoff_ms);
@@ -394,16 +417,21 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
         }
     }
 
-    // TODO: See TD-340 in TECHNICAL_DEBT.md - deletes the partial file, so resume can't help across failed passes
+    // TD-340: a failed transfer keeps what it downloaded (when it got any bytes), with its checksum
+    // sidecar, so the next pass resumes it (fetch() resumes a partial file only against the same checksum, TD-338, and
+    // startup_sweep() keeps a non-empty one for a pending file). It used to be deleted, so every
+    // failed pass started the download over. A size mismatch after a transfer still deletes it.
     if (rc != CURLE_OK) {
-        remove_download(local_path);
+        std::error_code size_ec;
+        if (std::filesystem::file_size(local_path, size_ec) == 0 || size_ec)
+            remove_download(local_path);  // nothing to resume from
         throw std::runtime_error(std::string("[DataTransport] FTP transfer failed for '") +
                                  token.ftp_path + "': " + curl_easy_strerror(rc));
     }
 
     // ── Size verification against full on-disk file ───────────────────────
     if (token.size_bytes > 0) {
-        const std::size_t on_disk = fs::file_size(local_path);
+        const std::size_t on_disk = std::filesystem::file_size(local_path);
         if (on_disk != token.size_bytes) {
             remove_download(local_path);
             throw std::runtime_error("[DataTransport] Size mismatch for '" + token.ftp_path +
@@ -417,24 +445,25 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
         const double mb = static_cast<double>(token.size_bytes) / (1024.0 * 1024.0);
         const double mbps = (elapsed > 0.0) ? (mb / elapsed) : 0.0;
-        Logger::info(
+        adai::Logger::info(
             "[DataTransport] Large file transfer complete: '{}' "
             "({:.1f} MB in {:.1f}s, {:.2f} MB/s).",
             token.ftp_path, mb, elapsed, mbps);
     }
 
-    Logger::info("[DataTransport] Downloaded '{}' → '{}' ({} bytes)", token.ftp_path,
+    adai::Logger::info("[DataTransport] Downloaded '{}' → '{}' ({} bytes)", token.ftp_path,
                  local_path.string(), token.size_bytes);
     return local_path;
 }
 
-inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& resp,
-                                                      const fs::path& download_dir,
+inline std::vector<std::filesystem::path> DataTransport::fetch_all(const AcquireResponse& resp,
+                                                      const std::filesystem::path& download_dir,
                                                       int max_parallel,
                                                       std::size_t large_file_warn_bytes) {
     const std::size_t n = resp.files.size();
     if (n == 0)
         return {};
+    ensure_curl_initialized();  // TD-340: before the download threads start
 
     // TD-337: one download per local file. TD-205 segment tokens of one file used to download it
     // N times, concurrently, into the same path, where one thread's size check could delete
@@ -443,7 +472,7 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
     std::vector<std::size_t> unique;
     std::vector<std::size_t> owner(n);
     for (std::size_t i = 0; i < n; ++i) {
-        const fs::path p = local_path_for(resp.files[i], download_dir);
+        const std::filesystem::path p = local_path_for(resp.files[i], download_dir);
         std::size_t slot = 0;
         while (slot < unique.size() && local_path_for(resp.files[unique[slot]], download_dir) != p)
             ++slot;
@@ -453,7 +482,7 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
     }
 
     const std::size_t m = unique.size();
-    std::vector<fs::path> unique_paths(m);
+    std::vector<std::filesystem::path> unique_paths(m);
     std::vector<std::exception_ptr> errors(m);
 
     // Work-stealing thread pool: each thread atomically claims the next
@@ -488,7 +517,7 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
         if (e)
             std::rethrow_exception(e);
     }
-    std::vector<fs::path> local_paths(n);
+    std::vector<std::filesystem::path> local_paths(n);
     for (std::size_t i = 0; i < n; ++i)
         local_paths[i] = unique_paths[owner[i]];
     return local_paths;
@@ -496,14 +525,16 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
 
 #else  // BUILD_FTP_TRANSPORT not defined
 
-inline fs::path DataTransport::fetch(const FileToken&, const std::string&, int, const fs::path&,
+inline void DataTransport::ensure_curl_initialized() {}
+
+inline std::filesystem::path DataTransport::fetch(const FileToken&, const std::string&, int, const std::filesystem::path&,
                                      std::size_t, bool) {
     throw std::runtime_error(
         "[DataTransport] FTP transport not compiled (BUILD_FTP_TRANSPORT not set). "
         "Build with libcurl to enable remote dataset download.");
 }
 
-inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse&, const fs::path&, int,
+inline std::vector<std::filesystem::path> DataTransport::fetch_all(const AcquireResponse&, const std::filesystem::path&, int,
                                                       std::size_t) {
     throw std::runtime_error(
         "[DataTransport] FTP transport not compiled (BUILD_FTP_TRANSPORT not set). "

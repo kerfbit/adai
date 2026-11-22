@@ -216,7 +216,7 @@ None — every in-scope file carries a tag.
 | `src/HttpListenSocket.hpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/IncrementalTrainer.cpp` | beta | 0.25.0 | 2026-11-21 | TD-039 |
 | `src/IncrementalTrainer.hpp` | beta | 0.21.0 | 2026-11-10 | TD-039 |
-| `src/IncrementalTrainingTool.cpp` | beta | 0.40.0 | 2026-11-17 | TD-039 |
+| `src/IncrementalTrainingTool.cpp` | beta | 0.41.0 | 2026-11-21 | TD-039 |
 | `src/InitRng.cpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/InitRng.hpp` | beta | 0.1.0 | 2026-11-10 | — |
 | `src/LeJEPAEncoder.cpp` | beta | 0.12.0 | 2026-11-19 | TD-504 |

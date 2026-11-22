@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.40.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 0.41.0
+// @adai-reviewed: 2026-11-21
 
 #include <array>
 #include <atomic>
@@ -1157,6 +1157,8 @@ static int run_main(int argc, char* argv[]) {
 // with a clear message and exit 1. It used to reach std::terminate, which printed "terminate called
 // after throwing an instance of ..." and aborted with exit 134.
 int main(int argc, char* argv[]) {
+    // TD-340: libcurl's global initialization, before any thread (FTP downloads, metrics push) exists.
+    DataTransport::ensure_curl_initialized();
     int code = 1;
     try {
         code = run_main(argc, argv);
