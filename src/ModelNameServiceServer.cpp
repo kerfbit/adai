@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-22
 
 /**
  * mns_server — Model Name Service daemon
@@ -41,14 +41,13 @@
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> shutdown_requested{false};
-static adai::ModelNameService* g_service = nullptr;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
-// TODO: See TD-464 in TECHNICAL_DEBT.md - stop() from signal context; SIGTERM before listen() hangs main() in join()
+// TD-464: only sets the flag (a lock-free atomic store is async-signal-safe; stop() isn't). main() polls
+// it and calls stop(), which since TD-464 also ends a start() that hasn't reached listen() yet; a SIGTERM
+// straight after launch used to leave main() blocked in join().
 static void signal_handler(int) {
     shutdown_requested.store(true);
-    if (g_service)
-        g_service->stop();
 }
 
 static void print_usage(const char* prog) {
@@ -143,11 +142,12 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("Registry proxy: {} (group={})", registry_url, registry_group);
         }
         service.set_admin_enabled(admin_enabled);
-        g_service = &service;
 
         std::atomic<bool> server_error{false};
         std::thread server_thread([&] {
-            if (!service.start()) {
+            // start() also returns false when a stop came before it listened (TD-464); that's a
+            // shutdown, not a failure to start.
+            if (!service.start() && !shutdown_requested.load()) {
                 server_error.store(true);
                 shutdown_requested.store(true);
             }

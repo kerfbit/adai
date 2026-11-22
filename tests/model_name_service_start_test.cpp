@@ -7,11 +7,14 @@
 
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <memory>
 #include <string>
+#include <thread>
 
 #include "../src/ModelNameService.hpp"
 
@@ -60,4 +63,44 @@ TEST(ModelNameServiceStartTest, ServesWithAGoodDatabase) {
     EXPECT_FALSE(start_refuses(dir));
     EXPECT_TRUE(fs::exists(dir / "models.db"));
     fs::remove_all(dir);
+}
+
+// TD-464: httplib's stop() does nothing until listen() is under way, so a stop() that came first (an
+// early SIGTERM, or start_refuses() above giving up on a start slowed by a loaded machine) was lost
+// and start() served forever. Every start() below must return soon after stop(), however the two
+// interleave: before start() is called, during the database work, or around the bind. A start() that
+// never returns is leaked and detached, so the failure shows as a failed test, not a hung binary.
+TEST(ModelNameServiceStartTest, StopBeforeOrDuringStartAlwaysEndsStart) {
+    const fs::path dir = fresh_dir("stop_race");
+    int stuck = 0;
+    for (int i = -1; i < 100 && stuck == 0; ++i) {  // i = -1: stop() before start() is even called
+        auto* service = new adai::ModelNameService(dir.string(), 0);
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        auto started = std::make_shared<std::atomic<bool>>(true);
+        if (i < 0)
+            service->stop();
+        std::thread t([service, done, started] {
+            *started = service->start();
+            *done = true;
+        });
+        if (i > 0)
+            std::this_thread::sleep_for(std::chrono::microseconds(100 * (i % 40)));
+        if (i >= 0)
+            service->stop();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!*done && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (*done) {
+            t.join();
+            if (i < 0)
+                EXPECT_FALSE(*started) << "a start() after stop() must not serve";
+            delete service;
+        } else {
+            ++stuck;
+            t.detach();  // leaked: deleting it under a blocked listen() would be worse
+        }
+    }
+    EXPECT_EQ(stuck, 0) << "start() kept serving after stop()";
+    if (stuck == 0)
+        fs::remove_all(dir);
 }

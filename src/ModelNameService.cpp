@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-22
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -17,7 +17,9 @@
 #include <fstream>
 #include <mutex>
 #include <random>
+#include <set>
 #include <sstream>
+#include <thread>
 #include "Logger.hpp"
 #include "PortableTime.hpp"
 
@@ -572,6 +574,11 @@ static ModelRecord parse_record(const std::string& line) {
     r.model_name = json_string(line, "model_name");
     r.role = json_string(line, "role");
     r.run_group = json_string(line, "run_group");
+    // TD-581: serialize_record() writes these (TD-196); a record from before them keeps the defaults.
+    if (const std::string kind = json_string(line, "kind"); !kind.empty())
+        r.kind = kind;
+    if (const auto connection = extract_object(line, "connection"); connection != "{}")
+        r.connection = parse_connection(connection);
     r.state = json_string(line, "state");
     r.run_id = json_string(line, "run_id");
     r.created_utc = json_string(line, "created_utc");
@@ -780,6 +787,20 @@ adai::ModelNameService::~ModelNameService() {
 // ============================================================================
 
 bool adai::ModelNameService::start() {
+    // TD-464: httplib's stop() does nothing until listen() is under way, so a stop() that came first (a
+    // SIGTERM straight after launch, or a test giving up on a slow start) was lost and this served
+    // forever. start() marks itself starting before it checks for a stop request, and stop() requests
+    // the stop before it checks for a start in progress, so one sees the other (as TD-528, TD-582).
+    if (starting_.exchange(true)) {
+        return false;
+    }
+    struct ClearStarting {
+        std::atomic<bool>& flag;
+        ~ClearStarting() { flag = false; }
+    } clear_starting{starting_};
+    if (stop_requested_) {
+        return false;
+    }
     // TODO: See TD-464 in TECHNICAL_DEBT.md - throws on the server thread with no handler (std::terminate, core dump)
     fs::create_directories(data_dir_);
     // TD-463: without a database nothing would survive a restart, while /health said ok and
@@ -806,14 +827,25 @@ bool adai::ModelNameService::start() {
     }
 
     start_time_ = std::chrono::steady_clock::now();
+    // Checked again here, after the database work: a stop() during it waits only briefly.
+    if (stop_requested_ || !server_impl_->server.bind_to_port("0.0.0.0", port_)) {
+        return false;
+    }
     running_ = true;
     Logger::info("ModelNameService listening on port {} (data_dir={})", port_, data_dir_);
-    const bool ok = server_impl_->server.listen("0.0.0.0", port_);
+    const bool ok = server_impl_->server.listen_after_bind();
     running_ = false;
     return ok;
 }
 
 void adai::ModelNameService::stop() {
+    stop_requested_ = true;
+    // A start() in progress: wait (briefly) until it is listening, when httplib's stop() works, or until
+    // it has given up after seeing stop_requested_.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (starting_ && !server_impl_->server.is_running() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     server_impl_->server.stop();
     running_ = false;
 }
@@ -961,8 +993,8 @@ CREATE TABLE IF NOT EXISTS roles (
     // end regardless of where it's written in the CREATE TABLE literal above,
     // so migration call order here has to match that literal's column order
     // (run_group is the last column there) for a fresh vs. migrated DB to end
-    // up with the same physical layout — required for persist_model's
-    // positional `INSERT ... VALUES (?,?,...)` to bind correctly either way.
+    // up with the same physical layout. (persist_model() names its columns since TD-581, so it no longer
+    // depends on this; the rule keeps fresh and migrated databases identical.)
     add_column_if_missing("models", "run_group", "TEXT DEFAULT ''");
     // TD-196: same "must stay last, in this order" rule — kind/connection_json are now the last
     // two columns in the CREATE TABLE literal above, so they're the last two added here too.
@@ -1001,106 +1033,77 @@ void adai::ModelNameService::migrate_from_jsonl() {
     Logger::info("ModelNameService: migrating {} to SQLite", models_path);
     sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr);
 
-    // TD-054 (fixed): this INSERT's placeholder/bind count must track the `models`
-    // table's full column count (26, `run_group` last — see init_db()'s migration-
-    // guard comment) or sqlite3_prepare_v2 fails ("table models has N columns but
-    // M values were supplied") and the `if (... != SQLITE_OK) continue;` below
-    // silently drops every legacy record with no logging at all.
+    // TD-581: each record goes through persist_model(), the same named-column insert every update uses.
+    // This used its own positional INSERT, which TD-054 had matched to 26 columns; TD-196 and TD-269 added
+    // three, so every prepare failed and every record was skipped without a word.
     std::string line;
-    int imported = 0;
+    int line_number = 0;
+    int failed = 0;
+    std::set<std::string> imported;
     while (std::getline(f, line)) {
+        ++line_number;
         if (line.empty() || line[0] == '#')
             continue;
+        ModelRecord r;
         try {
-            ModelRecord r = parse_record(line);
-            if (r.model_name.empty())
-                continue;
-
-            const std::string sql =
-                "INSERT OR REPLACE INTO models VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-            sqlite3_stmt* st = nullptr;
-            if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK)
-                continue;
-            sqlite3_bind_text(st, 1, r.model_id.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 2, r.model_name.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 3, r.role.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 4, r.state.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 5, r.run_id.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 6, r.created_utc.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 7, r.updated_utc.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 8, r.artifact.host.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 9, r.artifact.path.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 10, r.artifact.checksum.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 11, r.artifact.format.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int64(st, 12, static_cast<sqlite3_int64>(r.d_model));
-            sqlite3_bind_int64(st, 13, static_cast<sqlite3_int64>(r.num_heads));
-            sqlite3_bind_int64(st, 14, static_cast<sqlite3_int64>(r.d_ff));
-            sqlite3_bind_int64(st, 15, static_cast<sqlite3_int64>(r.num_encoder_layers));
-            sqlite3_bind_int64(st, 16, static_cast<sqlite3_int64>(r.num_decoder_layers));
-            sqlite3_bind_int64(st, 17, static_cast<sqlite3_int64>(r.max_seq_length));
-            const std::string tags_j = tags_to_json(r.tags);
-            sqlite3_bind_text(st, 18, tags_j.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(st, 19, r.current_run_number);
-            sqlite3_bind_text(st, 20, r.run_started_utc.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 21, r.progress_session_id.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(st, 22, r.progress_epoch);
-            sqlite3_bind_double(st, 23, r.progress_loss);
-            sqlite3_bind_double(st, 24, r.progress_best_loss);
-            sqlite3_bind_text(st, 25, r.progress_updated_utc.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(st, 26, r.run_group.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_step(st);
-            sqlite3_finalize(st);
-
-            // History rows
-            for (const auto& h : r.training_history) {
-                const char* hsql =
-                    "INSERT INTO training_history "
-                    "(model_name,run_id,metrics_session_key,dataset_group,epochs,final_loss,"
-                    "started_utc,finished_utc,incomplete,global_step) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)";
-                sqlite3_stmt* hs = nullptr;
-                if (sqlite3_prepare_v2(db, hsql, -1, &hs, nullptr) == SQLITE_OK) {
-                    sqlite3_bind_text(hs, 1, r.model_name.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_text(hs, 2, h.run_id.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_text(hs, 3, h.metrics_session_key.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_text(hs, 4, h.dataset_group.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_int(hs, 5, h.epochs);
-                    sqlite3_bind_double(hs, 6, h.final_loss);
-                    sqlite3_bind_text(hs, 7, h.started_utc.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_text(hs, 8, h.finished_utc.c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_int(hs, 9, h.incomplete ? 1 : 0);
-                    sqlite3_bind_int64(hs, 10, static_cast<sqlite3_int64>(h.global_step));
-                    sqlite3_step(hs);
-                    sqlite3_finalize(hs);
-                }
-            }
-            ++imported;
-        } catch (...) {
+            r = parse_record(line);
+        } catch (const std::exception& e) {
+            Logger::warn("ModelNameService: {} line {} not imported: {}", models_path, line_number, e.what());
+            ++failed;
+            continue;
+        }
+        if (r.model_name.empty()) {
+            Logger::warn("ModelNameService: {} line {} has no model_name; not imported", models_path, line_number);
+            ++failed;
+            continue;
+        }
+        if (persist_model(r)) {
+            imported.insert(r.model_name);
+        } else {
+            Logger::warn("ModelNameService: model '{}' ({} line {}) not imported", r.model_name, models_path,
+                         line_number);
+            ++failed;
         }
     }
 
-    // Migrate roles.json
+    // roles.json: only roles naming a model that was imported; a role pointing at a missing record
+    // would answer "production model record not found".
     const std::string roles_path = data_dir_ + "/roles.json";
     std::ifstream rf(roles_path);
+    int roles_imported = 0;
     if (rf.is_open()) {
         const std::string content(std::istreambuf_iterator<char>(rf),
                                   std::istreambuf_iterator<char>{});
         const auto loaded_roles = parse_string_map(content);
         for (const auto& [role, name] : loaded_roles) {
-            sqlite3_stmt* rs = nullptr;
-            if (sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO roles VALUES (?,?)", -1, &rs,
-                                   nullptr) == SQLITE_OK) {
-                sqlite3_bind_text(rs, 1, role.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(rs, 2, name.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_step(rs);
-                sqlite3_finalize(rs);
+            if (imported.count(name) == 0) {
+                Logger::warn("ModelNameService: role '{}' names '{}', which wasn't imported; role not imported", role,
+                             name);
+                continue;
             }
+            sqlite3_stmt* rs = nullptr;
+            if (sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO roles (role, model_name) VALUES (?,?)", -1, &rs,
+                                   nullptr) != SQLITE_OK) {
+                Logger::warn("ModelNameService: role '{}' not imported: {}", role, sqlite3_errmsg(db));
+                continue;
+            }
+            sqlite3_bind_text(rs, 1, role.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(rs, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(rs) == SQLITE_DONE)
+                ++roles_imported;
+            else
+                Logger::warn("ModelNameService: role '{}' not imported: {}", role, sqlite3_errmsg(db));
+            sqlite3_finalize(rs);
         }
     }
 
     sqlite3_exec(db, "COMMIT", nullptr, nullptr, nullptr);
-    Logger::info("ModelNameService: migrated {} records from JSONL to SQLite", imported);
+    if (failed > 0)
+        Logger::warn("ModelNameService: migrated {} models and {} roles from JSONL to SQLite; {} records not imported",
+                     imported.size(), roles_imported, failed);
+    else
+        Logger::info("ModelNameService: migrated {} models and {} roles from JSONL to SQLite", imported.size(),
+                     roles_imported);
 }
 
 void adai::ModelNameService::load_from_disk() {
@@ -1241,18 +1244,25 @@ void adai::ModelNameService::load_from_disk() {
     Logger::info("ModelNameService: loaded {} models, {} roles from SQLite", loaded, roles_.size());
 }
 
-void adai::ModelNameService::persist_model(const ModelRecord& rec) {
+bool adai::ModelNameService::persist_model(const ModelRecord& rec) {
     sqlite3* db = server_impl_->db;
     if (!db)
-        return;
+        return false;
 
+    // TD-581: named columns, so a column added later (always appended, see init_db()) can't shift the binds
+    // or make the statement fail; it keeps its DEFAULT until it's added here.
     const char* sql =
-        "INSERT OR REPLACE INTO models VALUES "
-        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        "INSERT OR REPLACE INTO models (model_id,model_name,role,state,run_id,created_utc,updated_utc,"
+        "artifact_host,artifact_path,artifact_checksum,artifact_format,"
+        "d_model,num_heads,d_ff,num_encoder_layers,num_decoder_layers,max_seq_length,tags_json,"
+        "current_run_number,run_started_utc,progress_session_id,progress_epoch,progress_loss,"
+        "progress_best_loss,progress_updated_utc,run_group,kind,connection_json,progress_global_step) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
-        Logger::warn("ModelNameService: persist_model prepare failed: {}", sqlite3_errmsg(db));
-        return;
+        Logger::warn("ModelNameService: persist_model prepare failed for '{}': {}", rec.model_name,
+                     sqlite3_errmsg(db));
+        return false;
     }
     sqlite3_bind_text(st, 1, rec.model_id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(st, 2, rec.model_name.c_str(), -1, SQLITE_TRANSIENT);
@@ -1285,11 +1295,14 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     const std::string connection_j = serialize_connection(rec.connection);
     sqlite3_bind_text(st, 28, connection_j.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(st, 29, static_cast<sqlite3_int64>(rec.progress_global_step));
-    if (sqlite3_step(st) != SQLITE_DONE) {
+    const bool saved = sqlite3_step(st) == SQLITE_DONE;
+    if (!saved) {
         // TODO: See TD-462 in TECHNICAL_DEBT.md - failure only logged; the request still reports success
-        Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
+        Logger::warn("ModelNameService: persist_model step failed for '{}': {}", rec.model_name, sqlite3_errmsg(db));
     }
     sqlite3_finalize(st);
+    if (!saved)
+        return false;  // no history for a model whose row wasn't written
 
     if (!rec.last_request_id.empty()) {  // TD-457
         sqlite3_stmt* rq = nullptr;
@@ -1332,6 +1345,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
             sqlite3_finalize(hs);
         }
     }
+    return true;
 }
 
 void adai::ModelNameService::persist_roles() {

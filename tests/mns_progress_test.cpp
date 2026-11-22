@@ -2,7 +2,7 @@
  * @file mns_progress_test.cpp
  * @brief TD-269: MNS records a run's optimizer step (progress.global_step, and each history
  * entry's global_step), keeps it across a restart, resets it for a new run, and adds the columns to
- * a database created before they existed.
+ * a database created before they existed. TD-581: a pre-SQLite data directory is imported whole.
  *
  * Runs ModelNameService in-process on a free port with its own data directory, unlike
  * mnsLiveTests, which needs a running mns_server.
@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <memory>
 #include <string>
@@ -244,6 +245,79 @@ TEST(MnsProgressTest, HistoryEntriesRecordTheStepEpochsAndLossFromTheClient) {
         EXPECT_FALSE(history[0]["incomplete"].get<bool>());
         EXPECT_EQ(history[1]["global_step"], 75);
         EXPECT_TRUE(history[1]["incomplete"].get<bool>());
+    }
+    fs::remove_all(dir);
+}
+
+// TD-581: a data directory from before the SQLite store (models.jsonl, roles.json) is imported once,
+// when models.db has no rows. The import's positional INSERT had 26 values for a 29-column table, so
+// every model was dropped silently while roles.json still came in, pointing at nothing.
+TEST(MnsLegacyImportTest, ImportsEveryModelWithItsHistoryAndOnlyRolesForImportedModels) {
+    const fs::path dir = fresh_dir("legacy_import");
+    {
+        std::ofstream models(dir / "models.jsonl");
+        // A Phase 1 record: no kind, connection or global_step.
+        models << R"({"model_id":"id-legacy","model_name":"legacy-model","role":"chatbot","state":"production",)"
+               << R"("run_id":"run-02","created_utc":"2026-01-01T00:00:00Z","updated_utc":"2026-01-02T00:00:00Z",)"
+               << R"("artifact":{"host":"h1","path":"/models/legacy.bin","checksum":"abc","format":"adai-native"},)"
+               << kArch << R"(,"current_run_number":2,"run_group":"lg01",)"
+               << R"("training_history":[{"run_id":"run-01","metrics_session_key":"k1","dataset_group":"lg01",)"
+               << R"("epochs":3,"final_loss":0.75,"started_utc":"2026-01-01T00:00:00Z","finished_utc":"2026-01-01T01:00:00Z"}],)"
+               << R"("tags":{"owner":"ops"}})" << '\n';
+        // A record as serialize_record() writes it now: kind, connection, progress.global_step.
+        models << R"({"model_id":"id-wm","model_name":"newer-model","role":"","kind":"chatbot",)"
+               << R"("connection":{"world_model_name":"wm-1","world_model_inject_every_n_layers":4},)"
+               << R"("run_group":"nw01","state":"training","run_id":"run-01","created_utc":"2026-02-01T00:00:00Z",)"
+               << R"("updated_utc":"2026-02-01T00:00:00Z","artifact":{},)" << kArch
+               << R"(,"current_run_number":1,"progress":{"session_id":"session-03","epoch":2,"loss":0.5,)"
+               << R"("best_loss":0.4,"global_step":1234,"updated_utc":"2026-02-01T00:00:00Z"},"training_history":[],"tags":{}})"
+               << '\n';
+        models << "not json, and no model_name\n";
+        std::ofstream(dir / "roles.json") << R"({"chatbot":"legacy-model","decoder":"ghost-model"})";
+    }
+    {
+        RunningMns mns(dir);
+        ASSERT_TRUE(mns.ready());
+        auto c = mns.client();
+
+        const auto legacy = get_record(c, "legacy-model");
+        ASSERT_FALSE(legacy.is_null()) << "the legacy model was imported";
+        EXPECT_EQ(legacy.value("state", ""), "production");
+        EXPECT_EQ(legacy.value("kind", ""), "chatbot");
+        EXPECT_EQ(legacy.value("run_group", ""), "lg01");
+        EXPECT_EQ(legacy["artifact"].value("path", ""), "/models/legacy.bin");
+        EXPECT_EQ(legacy["arch"].value("d_model", 0), 64);
+        EXPECT_EQ(legacy["tags"].value("owner", ""), "ops");
+        ASSERT_EQ(legacy["training_history"].size(), 1u);
+        EXPECT_EQ(legacy["training_history"][0].value("run_id", ""), "run-01");
+        EXPECT_EQ(legacy["training_history"][0].value("epochs", 0), 3);
+
+        const auto newer = get_record(c, "newer-model");
+        ASSERT_FALSE(newer.is_null()) << "the newer model was imported";
+        EXPECT_EQ(newer.value("run_group", ""), "nw01");
+        EXPECT_EQ(newer["connection"].value("world_model_name", ""), "wm-1");
+        EXPECT_EQ(newer["connection"].value("world_model_inject_every_n_layers", 0), 4);
+        EXPECT_EQ(newer["progress"].value("global_step", 0), 1234);
+        EXPECT_EQ(newer["progress"].value("session_id", ""), "session-03");
+
+        auto role = c.Get("/roles/chatbot/production");
+        ASSERT_TRUE(role);
+        EXPECT_EQ(role->status, 200) << role->body;
+        EXPECT_NE(role->body.find("legacy-model"), std::string::npos) << role->body;
+        auto ghost = c.Get("/roles/decoder/production");
+        ASSERT_TRUE(ghost);
+        EXPECT_EQ(ghost->status, 404) << "a role naming a model that wasn't imported isn't imported: " << ghost->body;
+    }
+    // The database has rows now, so a second start doesn't import again: a model added to the file since stays out.
+    std::ofstream(dir / "models.jsonl", std::ios::app)
+        << R"({"model_id":"id-late","model_name":"late-model","state":"candidate","created_utc":"2026-03-01T00:00:00Z",)"
+        << R"("updated_utc":"2026-03-01T00:00:00Z",)" << kArch << "}\n";
+    {
+        RunningMns mns(dir);
+        ASSERT_TRUE(mns.ready());
+        auto c = mns.client();
+        EXPECT_FALSE(get_record(c, "legacy-model").is_null());
+        EXPECT_TRUE(get_record(c, "late-model").is_null());
     }
     fs::remove_all(dir);
 }

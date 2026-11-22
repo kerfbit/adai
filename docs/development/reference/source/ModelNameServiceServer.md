@@ -1,10 +1,10 @@
 # `ModelNameServiceServer` — Source File Reference
 
-- **File:** [`src/ModelNameServiceServer.cpp`](../../../../src/ModelNameServiceServer.cpp) (171 lines; `mns_server`'s `main()`)
+- **File:** [`src/ModelNameServiceServer.cpp`](../../../../src/ModelNameServiceServer.cpp) (174 lines; `mns_server`'s `main()`)
 - **Built into:** `mns_server` (with `Config.cpp`, [MnsServerArgs](MnsServerArgs.md) and `adai_mns`'s [ModelNameService](ModelNameService.md))
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-11`
-- **Tests:** none for `main()` itself; `mns_server_args_test.cpp` covers its argument layer, `model_name_service_live_test.cpp` the service
-- **Last traced against the code:** 2026-10-14
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.2.1`, `@adai-reviewed: 2026-11-22`
+- **Tests:** none for `main()` itself; `mns_server_args_test.cpp` covers its argument layer, `model_name_service_live_test.cpp` the service, `model_name_service_start_test.cpp` the start/stop race (TD-464); early `SIGTERM` checked by hand (below)
+- **Last traced against the code:** 2026-10-14; the signal handler and shutdown 2026-11-22 (TD-464)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `mns_server`.
 
@@ -20,10 +20,10 @@ config = load(discover_config_path(--config, "config.mns.conf"))
 data_dir = --data-dir or NAME_SERVICE_DIR
 create_directories(data_dir); read <data_dir>/daemon_config.db overrides   (failure → warning)
 effective = resolve_mns_server_config(cli, config, overrides)
-Logger::init(INFO, "mns_server");  SIGINT/SIGTERM → handler (sets a flag, calls service.stop())
+Logger::init(INFO, "mns_server");  SIGINT/SIGTERM → handler (sets a flag only, TD-464)
 ModelNameService service(data_dir, port); set_registry(url, group); set_admin_enabled(…)
 thread: service.start()            (create data_dir, open models.db, load, listen on 0.0.0.0:port)
-main: poll the flag every 100 ms → service.stop(); join; exit 1 if listen failed, else 0
+main: poll the flag every 100 ms → service.stop(); join; exit 1 if start() failed unasked, else 0
 ```
 
 ---
@@ -46,7 +46,7 @@ again on the server thread with no handler. With `--data-dir /proc/mnsx` the pro
 throwing an instance of 'std::filesystem::…::filesystem_error'` and **aborted (exit 134, core dumped)**. It does fail, but
 as a crash rather than a clear startup error.
 
-### SIGTERM during startup can hang the process
+### SIGTERM during startup can hang the process (fixed November 22, 2026)
 
 The signal handler calls `service.stop()` and `main()` calls it again, but if the signal arrives before the server thread
 has reached `listen()`, both `stop()` calls happen before there is anything to stop; the thread then enters `listen()` and
@@ -75,6 +75,15 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | Unopenable `models.db` → in-memory mode, `/health` ok, data lost on restart (§2) | MNS silently stops persisting what it's authoritative for | **Verified**; **fixed in code November 9, 2026**: `start()` returns false and the server exits 1 when `models.db` can't be opened, isn't a database, or is read-only | [TD-463](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) |
-| `SIGTERM` before `listen()` hangs the process; `stop()` from a signal handler (§2) | Occasional stop hangs until SIGKILL | **Verified** (1/30) | [TD-464](../../guides/TECHNICAL_DEBT.md#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) |
+| `SIGTERM` before `listen()` hangs the process; `stop()` from a signal handler (§2) | Occasional stop hung until SIGKILL | **Fixed November 22, 2026** (was verified, 1/30; 0/70 after) | [TD-464](../../guides/TECHNICAL_DEBT.md#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) (its other items open) |
 | Unusable data dir aborts with a core dump; `LOG_LEVEL` ignored; stale endpoint lists (§2, §3) | Ugly failure; fixed verbosity; misleading help | **Verified** (abort); by inspection | [TD-464](../../guides/TECHNICAL_DEBT.md#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) |
 | `SIGHUP` terminates | Already tracked | — | TD-283 |
+
+## Addendum (November 22, 2026): an early SIGTERM ends the process (TD-464)
+
+The signal handler only sets `shutdown_requested`; `main()`'s 100 ms poll calls `service.stop()`. `ModelNameService::start()`/`stop()`
+now use the `starting_`/`stop_requested_` handshake ([ModelNameService.md](ModelNameService.md)), so that `stop()` ends a `start()`
+that hasn't reached `listen()` yet instead of being lost. Such a `start()` returns false; the server thread counts that as a failure
+only when no shutdown was requested, so a stop during startup exits 0 and an unusable database still exits 1. **Verified:** 70
+launches of `mns_server` sent `SIGTERM` 0–120 ms after starting: none hung; each exited 0, or was ended by the signal itself when it
+came before the handler was installed. (Before the exit-code change, 4 of 30 exited 1.) The unused `g_service` pointer is gone.

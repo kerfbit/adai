@@ -1,10 +1,69 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (501 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (502 on November 22, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-581: MNS's Legacy JSONL Import Drops Every Model
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | MNS / ModelNameService | Code fix (LOW, created November 21, 2026) |
+
+Description:
+`mns_server` imports a data directory's pre-SQLite files (`models.jsonl`, `roles.json`) once, when `models.db` has no rows
+(`ModelNameService::migrate_from_jsonl()`). Its model insert is positional, `INSERT OR REPLACE INTO models VALUES (?,…)` with 26
+placeholders, but the `models` table has had 28 columns since TD-196 (`kind`, `connection_json`) and 29 since TD-269
+(`progress_global_step`). So `sqlite3_prepare_v2()` fails for every record, and the `continue` that follows skips it, with its history,
+without logging anything. TD-054 fixed the same mismatch once; the comment it left still says the table has 26 columns.
+
+**Verified November 21, 2026** with `mns_server` built from this tree, on a scratch data directory holding one `models.jsonl` record
+(a `candidate` chatbot with a history entry) and a `roles.json` naming it as `chatbot`'s production model:
+- the log says only "migrating …/models.jsonl to SQLite" and "migrated 0 records from JSONL to SQLite";
+- `GET /models/legacy-model` answers 404;
+- `roles.json` is imported anyway, so `GET /roles/chatbot/production` answers 404 "production model record not found": a role
+  pointing at a model that doesn't exist;
+- with still no rows in `models`, the import runs again on every start.
+
+It only matters for a data directory from before the SQLite store (MNS Phase 1). 192.168.1.16's MNS is already on SQLite, so no
+deployment is losing data today; the risk is an old backup or host being restored. The task chip suggested for this on November 9,
+2026 was never started.
+
+Action Items:
+
+- [x] Insert with named columns (as `training_history`'s inserts do), binding `kind`, `connection_json`, `run_group` and the progress
+      fields too, so a later column can't break it again; or build the record with `parse_record()` and reuse `persist_model()`.
+- [x] Log a failed prepare or step with the model's name, and count only the records actually imported.
+- [x] Import `roles.json` only for models that were imported (or log the ones skipped).
+- [x] Test: an in-process `mns_server` (as `tests/mns_progress_test.cpp` does) on a directory holding `models.jsonl` and `roles.json`
+      imports the model with its kind, connection, run group and history, and resolves the role; a second start doesn't import again.
+- [x] Correct the TD-054 comment, and update [ModelNameService.md](../reference/source/ModelNameService.md) (its TD-269 addendum
+      mentions this).
+
+**Fix (November 22, 2026).**
+- **`migrate_from_jsonl()`** builds each record with `parse_record()` and saves it with `persist_model()`, the insert (and history
+  rewrite) every update uses. `parse_record()` now reads `kind` and `connection` when a line has them, as `serialize_record()` writes
+  them; a Phase 1 record keeps `chatbot` and no connection.
+- **`persist_model()`** names its 29 columns (`INSERT OR REPLACE INTO models (model_id, …, progress_global_step) VALUES …`), so a
+  column added later keeps its default instead of breaking or shifting the binds. It returns false when the row isn't written (the
+  warning names the model) and then writes no history. Only the import checks the result; the handlers ignoring it is TD-462.
+- **Logging.** A parse error, a line with no `model_name` and a failed write are each logged with the line number (and model name); the
+  summary is "migrated N models and M roles", with the count of records not imported as a warning when there are any.
+- **Roles** are imported only for models that were imported; each skipped role is logged. The TD-054 comment, which still said 26
+  columns, is replaced, as is `init_db()`'s comment that the column order mattered to `persist_model()`.
+
+Test: `MnsLegacyImportTest.ImportsEveryModelWithItsHistoryAndOnlyRolesForImportedModels` (`mnsProgressTests`) starts an in-process
+`ModelNameService` on a directory with a Phase 1 record, a current record (kind, connection, run group, `progress.global_step`), an
+unparseable line, and a `roles.json` naming the first model and a missing one. Both models come through with their fields and history;
+the role naming the imported model (in `production`, which TD-460 requires to resolve) resolves, the other isn't imported; a second
+start doesn't import a model added to the file since. On the old code the log said "migrated 0 records" and the test failed.
+
+Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `parse_record()`, `persist_model()`, `init_db()`'s "no rows
+yet" check).
+
+---
 
 ### TD-583: The Registry Lock Race Is Tested Only Across Threads
 

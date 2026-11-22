@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-22
 
 
 #include <atomic>
@@ -198,6 +198,8 @@ class ModelNameService {
     ModelNameService& operator=(const ModelNameService&) = delete;
 
     bool start();  ///< Blocking — returns when stop() is called; false if it can't start (TD-463)
+    /// Ends start() whenever it's called, from another thread: a start() under way returns false or stops
+    /// listening, and a later start() returns false at once (TD-464). Not async-signal-safe.
     void stop();
     bool is_running() const;
     int get_port() const;
@@ -254,7 +256,7 @@ class ModelNameService {
 
     // ── Persistence ──────────────────────────────────────────────────────────
     void load_from_disk();
-    void persist_model(const ModelRecord& rec);
+    bool persist_model(const ModelRecord& rec);  ///< false if the model row wasn't written (TD-581)
     void persist_roles();
     void rewrite_models_jsonl();  ///< Hard-delete (Phase 1 compat); delegates to SQLite DELETE
     bool init_db();               ///< Open/create models.db, run migrations; false if unusable
@@ -278,6 +280,8 @@ class ModelNameService {
     std::unordered_map<std::string, std::string> roles_;   ///< role -> model_name
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> starting_{false};        // TD-464: start() between entry and return
+    std::atomic<bool> stop_requested_{false};  // TD-464: a stop() came; start() won't listen after it
     std::chrono::steady_clock::time_point start_time_;
 
     class ServerImpl;

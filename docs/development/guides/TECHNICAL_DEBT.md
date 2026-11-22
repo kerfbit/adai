@@ -5,10 +5,10 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 
 ## Overview
 
-**Last Updated:** November 21, 2026
-**Active Items:** 83 (7 high, 18 medium, 58 low)
+**Last Updated:** November 22, 2026
+**Active Items:** 82 (7 high, 18 medium, 57 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 501 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 502 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,17 +17,23 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 83 open items:
+**Where things stand.** Of the 82 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **62 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **61 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
+
+**November 22, 2026:** Closed [TD-581](../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model)
+(LOW): `mns_server`'s one-time import of a pre-SQLite `models.jsonl` saves each model through `persist_model()`, which now names its
+columns; roles are imported only for imported models, and every skipped record is logged. With it, [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)'s
+early-SIGTERM hang is fixed (the same lost `stop()` as TD-582, which hung two MNS test suites under load); its crash and `LOG_LEVEL`
+items remain.
 
 **November 21, 2026:** Closed [TD-583](../archive/TECHNICAL_DEBT_RESOLVED.md#td-583-the-registry-lock-race-is-tested-only-across-threads)
 (LOW): the registry lock race is also tested across a forked process, and fails with the lock scope TD-498 replaced. Closed [TD-582](../archive/TECHNICAL_DEBT_RESOLVED.md#td-582-sighuptests-fails-under-a-loaded-parallel-ctest)
@@ -52,7 +58,7 @@ Closed [TD-498](../archive/TECHNICAL_DEBT_RESOLVED.md#td-498-localtransportremot
 (LOW): `LocalTransport` commits as `registry_server` does and keeps the registry under its lock (a race test lost commits before),
 remote assign/unassign read segments, `https://` and bad group names are refused, and uploads stream; `model_id` moved to TD-462. Closed [TD-540](../archive/TECHNICAL_DEBT_RESOLVED.md#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM): the ops dashboard's
 Registry tab can re-queue trained files (one, or all, optionally assigned to a model); the deployment re-queue isn't needed, since
-`bb01` has no trained files. Filed [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
+`bb01` has no trained files. Filed [TD-581](../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s import of a pre-SQLite data directory
 drops every model, since TD-196 added columns its positional insert doesn't supply, and still imports the roles; verified with a real
 server. Closed [TD-269](../archive/TECHNICAL_DEBT_RESOLVED.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
 (MEDIUM): MNS now shows the run's optimizer step (`progress.global_step`, and each pass's history entry). Found on the way: every
@@ -184,7 +190,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (83 since TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (82 since TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-584 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -233,8 +239,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-- [TD-581](#td-581-mnss-legacy-jsonl-import-drops-every-model) (LOW): `mns_server`'s one-time import of pre-SQLite `models.jsonl` drops every model (a positional insert
-  with too few values) while still importing `roles.json`.
+None left: the last, TD-581, closed November 22, 2026.
 
 ### 5. Code work: GPU
 
@@ -381,7 +386,6 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
-  - [TD-581: MNS's Legacy JSONL Import Drops Every Model](#td-581-mnss-legacy-jsonl-import-drops-every-model)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3583,7 +3587,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+| LOW | Open — early-SIGTERM hang fixed November 22, 2026 | MNS / Server | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameServiceServer`:
@@ -3600,8 +3604,12 @@ Found while tracing `ModelNameServiceServer`:
 Action Items:
 
 - [ ] Fail startup cleanly when the data directory can't be created (catch in `start()` or check in `main()` and exit 1).
-- [ ] Only set a flag in the signal handler; after `stop()`, re-check the flag once `listen()` has started (or use `wait_until_ready()` before stopping).
-      `TrainingMetricsAPI` (TD-528) and `TrainerAdminAPI`/`TrainerServiceProxy` (TD-582) have the `starting_`/`stop_requested_` handshake to copy.
+- [x] Only set a flag in the signal handler; after `stop()`, re-check the flag once `listen()` has started (or use `wait_until_ready()` before stopping).
+      **Done November 22, 2026:** the handler only sets `shutdown_requested`, and `ModelNameService::start()`/`stop()` use the
+      `starting_`/`stop_requested_` handshake of `TrainingMetricsAPI` (TD-528) and `TrainerAdminAPI` (TD-582), so `main()`'s `stop()` ends
+      a start that hasn't reached `listen()`; a stop during startup exits 0. Found again as `ModelNameServiceStartTests` and
+      `MnsProgressTests` hanging to ctest's timeout under a loaded parallel run. `mns_server` sent `SIGTERM` 0–120 ms after launch: 0 of
+      70 hung (1 of 30 before). Test: `ModelNameServiceStartTest.StopBeforeOrDuringStartAlwaysEndsStart`, which fails on the old code.
 - [ ] Honour `LOG_LEVEL`; update the endpoint lists.
 
 Location in code: `src/ModelNameServiceServer.cpp` (`signal_handler()`, `main()`); `src/ModelNameService.cpp` (`start()`); tagged `TODO: See TD-464`.
@@ -4719,46 +4727,6 @@ Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokeni
 `src/IncrementalTrainingTool.cpp`.
 
 Related: TD-574 (archived), TD-563, TD-560.
-
----
-
-### TD-581: MNS's Legacy JSONL Import Drops Every Model
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / ModelNameService | November 21, 2026 | 1-2 hours |
-
-Description:
-`mns_server` imports a data directory's pre-SQLite files (`models.jsonl`, `roles.json`) once, when `models.db` has no rows
-(`ModelNameService::migrate_from_jsonl()`). Its model insert is positional, `INSERT OR REPLACE INTO models VALUES (?,…)` with 26
-placeholders, but the `models` table has had 28 columns since TD-196 (`kind`, `connection_json`) and 29 since TD-269
-(`progress_global_step`). So `sqlite3_prepare_v2()` fails for every record, and the `continue` that follows skips it, with its history,
-without logging anything. TD-054 fixed the same mismatch once; the comment it left still says the table has 26 columns.
-
-**Verified November 21, 2026** with `mns_server` built from this tree, on a scratch data directory holding one `models.jsonl` record
-(a `candidate` chatbot with a history entry) and a `roles.json` naming it as `chatbot`'s production model:
-- the log says only "migrating …/models.jsonl to SQLite" and "migrated 0 records from JSONL to SQLite";
-- `GET /models/legacy-model` answers 404;
-- `roles.json` is imported anyway, so `GET /roles/chatbot/production` answers 404 "production model record not found": a role
-  pointing at a model that doesn't exist;
-- with still no rows in `models`, the import runs again on every start.
-
-It only matters for a data directory from before the SQLite store (MNS Phase 1). 192.168.1.16's MNS is already on SQLite, so no
-deployment is losing data today; the risk is an old backup or host being restored. The task chip suggested for this on November 9,
-2026 was never started.
-
-Action Items:
-
-- [ ] Insert with named columns (as `training_history`'s inserts do), binding `kind`, `connection_json`, `run_group` and the progress
-      fields too, so a later column can't break it again; or build the record with `parse_record()` and reuse `persist_model()`.
-- [ ] Log a failed prepare or step with the model's name, and count only the records actually imported.
-- [ ] Import `roles.json` only for models that were imported (or log the ones skipped).
-- [ ] Test: an in-process `mns_server` (as `tests/mns_progress_test.cpp` does) on a directory holding `models.jsonl` and `roles.json`
-      imports the model with its kind, connection, run group and history, and resolves the role; a second start doesn't import again.
-- [ ] Correct the TD-054 comment, and update [ModelNameService.md](../reference/source/ModelNameService.md) (its TD-269 addendum
-      mentions this).
-
-Location in code: `src/ModelNameService.cpp` (`migrate_from_jsonl()`, `init_db()`'s "no rows yet" check).
 
 ---
 

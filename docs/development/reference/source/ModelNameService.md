@@ -1,12 +1,12 @@
 # `ModelNameService` — Source File Reference
 
-- **Files:** [`src/ModelNameService.hpp`](../../../../src/ModelNameService.hpp), [`src/ModelNameService.cpp`](../../../../src/ModelNameService.cpp) (2,488 lines together)
+- **Files:** [`src/ModelNameService.hpp`](../../../../src/ModelNameService.hpp), [`src/ModelNameService.cpp`](../../../../src/ModelNameService.cpp) (2,476 lines together)
 - **Namespace:** `adai` (`ModelNameService`, `ModelRecord`, `ModelConnection`, `ArtifactLocation`, `TrainingHistoryEntry`)
 - **Built into:** `adai_mns`; hosted by `mns_server` ([`ModelNameServiceServer.cpp`](../../../../src/ModelNameServiceServer.cpp), args in [MnsServerArgs.md](MnsServerArgs.md))
-- **Status tags:** `.hpp` `stable` 1.4.0, `.cpp` `stable` 1.6.0, both reviewed 2026-11-21
-- **Tests:** [`tests/model_name_service_live_test.cpp`](../../../../tests/model_name_service_live_test.cpp) (70 tests against a running server; **all 70 pass** against a local `mns_server`, November 21, 2026, and all skip in a plain `ctest` run without one); [`tests/mns_progress_test.cpp`](../../../../tests/mns_progress_test.cpp) (3 tests, in-process: the run's step in progress and history, a restart, an older `models.db`); [`tests/model_name_service_start_test.cpp`](../../../../tests/model_name_service_start_test.cpp) (start-up refusals)
+- **Status tags:** `.hpp` `stable` 1.5.0, `.cpp` `stable` 1.7.0, both reviewed 2026-11-22
+- **Tests:** [`tests/model_name_service_live_test.cpp`](../../../../tests/model_name_service_live_test.cpp) (70 tests against a running server; **all 70 pass** against a local `mns_server`, November 21, 2026, and all skip in a plain `ctest` run without one); [`tests/mns_progress_test.cpp`](../../../../tests/mns_progress_test.cpp) (4 tests, in-process: the run's step in progress and history, a restart, an older `models.db`, a pre-SQLite `models.jsonl`/`roles.json` import); [`tests/model_name_service_start_test.cpp`](../../../../tests/model_name_service_start_test.cpp) (4: start-up refusals, and a `stop()` before or during `start()`, TD-464)
 - **Clients:** [ModelNameClient](ModelNameClient.md) (trainer, chat server, `dataset_manager`), [MnsCliCommands](MnsCliCommands.md) (`mns_cli`), [MnsManagerGUI](MnsManagerGUI.md), the Android ops dashboard
-- **Last traced against the code:** 2026-10-14; progress, history and the number readers re-traced 2026-11-21 (TD-269)
+- **Last traced against the code:** 2026-10-14; progress, history and the number readers re-traced 2026-11-21 (TD-269); the JSONL import and `persist_model()` 2026-11-22 (TD-581); `start()`/`stop()` 2026-11-22 (TD-464)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against a real `mns_server` built from this tree.
 
@@ -111,8 +111,8 @@ calls fail confusingly (TD-453 is the umbrella fix).
 - **Data race on the registry settings.** `PUT /admin/config` writes `registry_url_`/`registry_group_` (`std::string`s)
   without a lock while `handle_datasets()` reads them on another httplib thread: undefined behaviour, in practice a rare
   crash or garbled URL.
-- **Persistence errors are swallowed.** `persist_model()`, `persist_roles()` and `handle_delete()` log (or ignore) SQLite
-  failures and still return success, so memory and disk can diverge until restart.
+- **Persistence errors are swallowed.** `persist_model()` (which returns false since TD-581, but only the JSONL import checks it),
+  `persist_roles()` and `handle_delete()` log (or ignore) SQLite failures and the handlers still return success, so memory and disk can diverge until restart.
 - **`request_id`** (TD-457): on a registration or `PUT …/state` to `training`, a repeat of the model's last id returns the original result without allocating anything; up to 128 bytes, kept in the `request_ids` table.
 - **Non-finite numbers** (TD-458, fixed November 9, 2026): a loss with no finite value is `null` in every record and NULL in SQLite; other numbers ignore non-finite input.
 - **Promote can leave a model in two roles**: promoting it to a new role rewrites its `role` but leaves the old role's
@@ -133,7 +133,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No architecture validation for legacy chatbots; no divisibility check for any kind (§3) | Permanently unusable registrations (all zeros, or `d_model % num_heads ≠ 0`) | **Verified** | [TD-461](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-461-mns-accepts-unbuildable-architectures-at-registration) |
 | Only compact JSON accepted (§3) | Standard JSON from scripts/tools rejected with misleading errors | **Verified** | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
 | Dead datasets proxy (no `model_id` ever recorded; wrong group; no kind); admin-settings data race; swallowed persistence errors; promote leaves stale role; `\u` escapes (§4) | Dead endpoint; rare crash; silent memory/disk divergence | By inspection | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
-| The legacy `models.jsonl` import drops every model (positional insert with 26 values for 29 columns) and still imports `roles.json` (addendum below) | An old pre-SQLite data directory comes up with no models and roles pointing at nothing | **Verified** | [TD-581](../../guides/TECHNICAL_DEBT.md#td-581-mnss-legacy-jsonl-import-drops-every-model) |
+| The legacy `models.jsonl` import drops every model (positional insert with 26 values for 29 columns) and still imports `roles.json` (addenda below) | An old pre-SQLite data directory came up with no models and roles pointing at nothing | **Fixed November 22, 2026** (was verified) | [TD-581](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model) |
 | Non-finite numbers; duplicated JSON code | Already tracked | — | TD-458, TD-453 |
 
 ---
@@ -165,7 +165,7 @@ values. The unlocked read in `handle_datasets()` is still TD-462.
   optimizer step `ChatbotTrainer` keeps across a run's passes. The record's `progress` object and every `training_history` entry
   have a `"global_step"`. `PUT …/progress` reads it with `json_int64()` and keeps the last value when a trainer sends none; a new run
   and the candidate transition zero it (the history entry keeps it). SQLite: `models.progress_global_step` is the last column (added
-  last by `add_column_if_missing()`, so a migrated database has the layout `persist_model()`'s positional `INSERT` expects) and
+  last by `add_column_if_missing()`, so a migrated database has the same layout as a new one; `persist_model()` names its columns since TD-581) and
   `training_history.global_step` (named inserts).
 - **Numbers sent as strings.** `ModelNameClient::set_candidate()` (and so `incremental_trainer` and `mns_cli candidate
   --summary`) sends every `training_summary` value as a JSON string (`"epochs":"3"`). `json_int()`, `json_int64()`,
@@ -174,4 +174,35 @@ values. The unlocked read in `handle_datasets()` is still TD-462.
   as the number. Entries already stored keep their zeros.
 - **Not changed:** the one-time JSONL migration's `INSERT` into `models` still has 26 placeholders for a table that now has 29
   columns (it had 28), so that import fails for every model; it only matters for a data directory that still has the pre-SQLite
-  JSONL files. Tracked as [TD-581](../../guides/TECHNICAL_DEBT.md#td-581-mnss-legacy-jsonl-import-drops-every-model).
+  JSONL files. Fixed by [TD-581](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-581-mnss-legacy-jsonl-import-drops-every-model) (next addendum).
+
+## Addendum (November 22, 2026): the pre-SQLite import works (TD-581)
+
+`init_db()` imports `models.jsonl` and `roles.json` once, when `models` has no rows (`migrate_from_jsonl()`). Its own positional
+`INSERT` had 26 values for the 29-column table, so every prepare failed and every model was skipped without a log line, while
+`roles.json` still came in. Now:
+- **Models** go through `persist_model()`, the insert every update uses, with its history. `parse_record()` also reads `kind` and
+  `connection` when a line has them (as `serialize_record()` writes them); a record from before TD-196 keeps `chatbot` and no
+  connection.
+- **`persist_model()`** names its 29 columns instead of relying on their order, so a column added later keeps its default rather than
+  breaking the statement, and returns false (with the model's name in the warning) when the row isn't written; it then writes no history.
+- **Failures are logged** per line: a parse error, a missing `model_name` or a failed write names the line (and model), and the
+  summary counts models and roles actually imported plus the records that weren't.
+- **Roles** are imported only when they name an imported model; each skipped role is logged. (A role resolves only to a model in
+  `production`, TD-460.)
+
+Test: `MnsLegacyImportTest.ImportsEveryModelWithItsHistoryAndOnlyRolesForImportedModels` in `mns_progress_test.cpp`. A Phase 1
+record (no kind or connection) and a current one (kind, connection, run group, `progress.global_step`) both come through with their
+fields and history, an unparseable line is skipped, the role naming an imported model resolves and the one naming a missing model
+doesn't exist, and a second start imports nothing more. On the old code it imported 0 records.
+
+## Addendum (November 22, 2026): a `stop()` before `listen()` is no longer lost (TD-464)
+
+httplib's `Server::stop()` does nothing until `listen()` is under way, so a `stop()` that came during `start()`'s database work was
+lost and `start()` served forever: `mns_server` hung after an early `SIGTERM`, and under a loaded parallel `ctest`
+`ModelNameServiceStartTests` (whose `start_refuses()` stops a start that hasn't finished in 3 s) and `MnsProgressTests` hung to
+ctest's 1200 s timeout. `start()` and `stop()` now use the handshake of `TrainingMetricsAPI` (TD-528) and `TrainerAdminAPI` (TD-582):
+`start()` sets `starting_` before it checks `stop_requested_`, and checks it again just before `bind_to_port()`/`listen_after_bind()`;
+`stop()` sets `stop_requested_`, waits at most 5 s while a start is under way and not yet listening, then calls httplib's `stop()`. A
+stopped service can't be started again (no caller does). Test: `ModelNameServiceStartTest.StopBeforeOrDuringStartAlwaysEndsStart` (a
+stop before `start()` and 100 at varying points in it); on the old code a `start()` never returned.
