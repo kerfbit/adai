@@ -7,7 +7,8 @@
  * Four conditions under test:
  *   D  — file already marked trained in registry → delete local copy
  *   G  — file has no registry reference → delete (orphaned)
- *   A  — file is in pending list AND is zero-byte → delete + release
+ *   A  — file is in pending list AND is zero-byte → delete + release this run's claims (TD-513: every
+ *        segment too; kept when another run holds a claim)
  *   B/C — file is in pending list AND is non-zero → keep for DataTransport
  */
 #include <gtest/gtest.h>
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unistd.h>
 
 #include "../src/DatasetRegistry.hpp"
 #include "../src/StartupSweep.hpp"
@@ -136,12 +138,15 @@ TEST(StartupSweepTest, ConditionA_ZeroByteDeletedAndReleased) {
 
     DatasetRegistry reg(make_cfg(sess));
     ASSERT_TRUE(reg.add_file(reg_path));
-    ASSERT_EQ(reg.pending_files().size(), 1u);
+    ASSERT_EQ(reg.acquire_pending("test-run").files.size(), 1u);  // the crashed pass's claim
 
     startup_sweep(reg, "test-run", dl_dir.string());
 
-    EXPECT_FALSE(fs::exists(local));           // file deleted
-    EXPECT_TRUE(reg.pending_files().empty());  // released from pending
+    EXPECT_FALSE(fs::exists(local));  // file deleted
+    DatasetRegistry after(make_cfg(sess));
+    ASSERT_TRUE(after.load_pending_list());
+    ASSERT_EQ(after.pending_entries().size(), 1u);
+    EXPECT_TRUE(after.pending_entries()[0].run_id.empty()) << "released back to the pool";
 
     fs::remove_all(base);
 }
@@ -301,5 +306,81 @@ TEST(StartupSweepTest, TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload)
     EXPECT_FALSE(fs::exists(stale));
     EXPECT_FALSE(fs::exists(stale.string() + kDownloadChecksumSuffix)) << "sidecar goes with it";
     EXPECT_FALSE(fs::exists(orphan_sidecar)) << "a sidecar with no download is removed";
+    fs::remove_all(base);
+}
+
+// TD-513: a zero-byte download of a file this run claimed as TD-205 segments releases every segment
+// (a path-only release skipped them, leaving them claimed until the lease ran out).
+TEST(StartupSweepTest, ConditionA_ReleasesEverySegmentThisRunClaimed) {
+    const auto base = make_base("a_segments");
+    const fs::path sess = base / "sessions";
+    const fs::path dl_dir = base / "downloads";
+    fs::create_directories(sess);
+    const std::string reg_path = (base / "registry" / "big.jsonl").string();
+    touch(reg_path);
+    const fs::path local = dl_dir / download_file_name(reg_path);
+    touch_empty(local);
+
+    DatasetRegistry reg(make_cfg(sess));
+    ASSERT_TRUE(reg.add_file(reg_path, 0, 5));
+    ASSERT_TRUE(reg.add_file(reg_path, 5, 5));
+    ASSERT_EQ(reg.acquire_pending("run-x").files.size(), 2u);
+
+    startup_sweep(reg, "run-x", dl_dir.string());
+
+    EXPECT_FALSE(fs::exists(local));
+    DatasetRegistry after(make_cfg(sess));
+    ASSERT_TRUE(after.load_pending_list());
+    ASSERT_EQ(after.pending_entries().size(), 2u);
+    for (const auto& e : after.pending_entries())
+        EXPECT_TRUE(e.run_id.empty()) << "segment " << e.segment_start << " still claimed by " << e.run_id;
+    fs::remove_all(base);
+}
+
+// TD-513: another run's claim means its download may be starting right now: leave the file and the claim.
+TEST(StartupSweepTest, ConditionA_LeavesAnotherRunsEmptyDownload) {
+    const auto base = make_base("a_other_run");
+    const fs::path sess = base / "sessions";
+    const fs::path dl_dir = base / "downloads";
+    fs::create_directories(sess);
+    const std::string reg_path = (base / "registry" / "data.jsonl").string();
+    touch(reg_path);
+    const fs::path local = dl_dir / download_file_name(reg_path);
+    touch_empty(local);
+
+    DatasetRegistry reg(make_cfg(sess));
+    ASSERT_TRUE(reg.add_file(reg_path));
+    ASSERT_EQ(reg.acquire_pending("other-run").files.size(), 1u);
+
+    startup_sweep(reg, "my-run", dl_dir.string());
+
+    EXPECT_TRUE(fs::exists(local));
+    DatasetRegistry after(make_cfg(sess));
+    ASSERT_TRUE(after.load_pending_list());
+    ASSERT_EQ(after.pending_entries().size(), 1u);
+    EXPECT_EQ(after.pending_entries()[0].run_id, "other-run");
+    fs::remove_all(base);
+}
+
+// TD-513: the filesystem calls use their error-code overloads, so a download_dir that can't be read
+// is logged and skipped instead of throwing out of the pass.
+TEST(StartupSweepTest, UnreadableDownloadDirIsSkippedWithoutThrowing) {
+    if (::geteuid() == 0)
+        GTEST_SKIP() << "root reads any directory";
+    const auto base = make_base("unreadable");
+    const fs::path sess = base / "sessions";
+    const fs::path dl_dir = base / "downloads";
+    fs::create_directories(sess);
+    touch(dl_dir / "orphan.bin");
+    const std::string queued = (base / "registry" / "q.jsonl").string();
+    touch(queued);
+    DatasetRegistry reg(make_cfg(sess));
+    ASSERT_TRUE(reg.add_file(queued));  // a pending list, so the sweep gets as far as the directory
+    fs::permissions(dl_dir, fs::perms::none);
+
+    EXPECT_NO_THROW(startup_sweep(reg, "run", dl_dir.string()));
+
+    fs::permissions(dl_dir, fs::perms::owner_all);
+    EXPECT_TRUE(fs::exists(dl_dir / "orphan.bin")) << "nothing was deleted";
     fs::remove_all(base);
 }

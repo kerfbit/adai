@@ -1,10 +1,57 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (492 on November 21, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (493 on November 21, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-513: `startup_sweep()` Basename Matching and Unchecked Filesystem Calls
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 21, 2026 | Training / StartupSweep | Code fix (LOW, created October 17, 2026; basename matching fixed October 19 with TD-337) |
+
+Description:
+Found while tracing `StartupSweep.hpp` (by inspection):
+- **Basename matching:** condition D (trained) is checked first, so a pending file's download is deleted whenever any trained file anywhere shares its
+  basename (`train.jsonl`); two pending files with one basename collapse to one map entry, so condition A can release the wrong one (the sweep side of
+  TD-337).
+- **Throwing filesystem calls:** `fs::file_size()`/`fs::remove()` (throwing overloads) and `directory_iterator` can throw on permission or race
+  errors, uncaught around the sweep.
+- **Whole-file release:** condition A calls `release_pending(run_id, {path})`, which doesn't release a TD-205 segment (TD-333) and is a no-op if another
+  run holds the claim.
+
+Action Items:
+
+- [x] Match by the full download path DataTransport would use (after TD-337), not basename; check pending before trained. Done October 19,
+  2026: the sweep matches `download_file_name(registry_path)`. A same-basename trained file no longer deletes a pending download (new test
+  `TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload`), and condition D already skips files that are still pending (TD-333).
+- [x] Use the `std::error_code` overloads and log failures; release segment-aware. (November 21, 2026; see below.)
+
+Location in code: `src/StartupSweep.hpp` (lookup maps, condition D, condition A, filesystem calls); tagged `TODO: See TD-513`.
+
+Files to Modify:
+
+- `src/StartupSweep.hpp`
+- `tests/StartupSweepTests.cpp`
+
+**Fix (November 21, 2026):**
+- **Error codes.** `fs::exists()`, `directory_iterator` (constructed and incremented with an error code), `is_regular_file()`,
+  `fs::file_size()` and every `fs::remove()` take a `std::error_code`. A `DOWNLOAD_DIR` that can't be checked or read skips the sweep with a
+  warning, a failed iteration stops it, a size that can't be read leaves the file, and a failed deletion is logged. Nothing throws out of
+  the pass any more (an unreadable directory used to throw `filesystem_error` from the iterator).
+- **Segment-aware release.** Pending entries are grouped by download name, all of a file's TD-205 segments together. Condition A releases
+  every entry of the file this run claims, whole file or segment, through `release_pending(run_id, units)`; the path-only release left
+  segments claimed until their lease ran out.
+- **Another run's claim.** If another run claims any entry of the file, its zero-byte download may be starting right now, so condition A
+  leaves the file and the claim (it used to delete the file and attempt a release that did nothing).
+- **Tests** (`StartupSweepTests.cpp`, 13 pass; the three new ones fail on the old code): `ConditionA_ReleasesEverySegmentThisRunClaimed`,
+  `ConditionA_LeavesAnotherRunsEmptyDownload`, `UnreadableDownloadDirIsSkippedWithoutThrowing`. `ConditionA_ZeroByteDeletedAndReleased`
+  now claims the file first, as a crashed pass would have, and checks the claim is cleared on disk (it used to check the in-memory list,
+  which `release_pending()` trims whatever the transport did).
+
+---
 
 ### TD-584: Commit 1d4a87af's Message Misstates the TD-498 Race Test's Results
 
@@ -26047,7 +26094,7 @@ blocks WAL checkpoints (20,000 inserts: 254 MB WAL and a 4 KB main file, vs 4 MB
 0, so diverged runs look perfect (TD-510). One is LOW: no busy timeout (an insert failed in 0.3 ms against another writer), per-row transactions,
 ignored migration errors, missing default directory (TD-511).
 
-Also October 17, 2026: filed [TD-512](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) (**HIGH**) and [TD-513](../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW) from the code-traced [StartupSweep.md](../reference/source/StartupSweep.md).
+Also October 17, 2026: filed [TD-512](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) (**HIGH**) and [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW) from the code-traced [StartupSweep.md](../reference/source/StartupSweep.md).
 Verified: every `startup_sweep()` call site (`train`, `retrain`, LeJEPA) builds a fresh `DatasetRegistry` and calls only `load_registry()`, so
 `pending_files()` is empty and every file in `DOWNLOAD_DIR` matches the "orphaned" condition: a partial download, a complete download and an
 operator's `notes.txt` were all deleted (all kept after `load_pending_list()`). Every pass discards its downloads, and FTP resume/reuse never runs.
@@ -27652,7 +27699,7 @@ disk impact; do it first. [TD-510](#td-510-sqlite-metrics-store-reads-nan-losses
 
 **Tier 96 — Newly filed (October 17, 2026): `StartupSweep`.** Fix [TD-512](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) now: a one-line `load_pending_list()` at each call site plus a guard that
 skips deletion when the registry couldn't be loaded; it currently deletes every download on every pass (with TD-411/TD-412 on the same FTP path).
-[TD-513](../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) with TD-337's download naming.
+[TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) with TD-337's download naming.
 
 **Tier 97 — Newly filed (October 17, 2026): `TextGenerator`.** [TD-514](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) and [TD-515](#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling) are small guards (validate the width; argmax at temperature ≤ 0 in
 every strategy); do them with TD-241 (run `validate()` at startup). [TD-516](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) is cleanup.

@@ -454,7 +454,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(92 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(91 on November 21, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -533,7 +533,6 @@ reference doc that tracks it):
 | TD-500 (LOW) | RLHF Rollouts Never Explore and Updates Train on a Different Sequence. Left: Return the generated token IDs from generation and train on exactly those, with the same encoder input generation used (no special tokens). See [RLHFTrainer.md](docs/development/reference/source/RLHFTrainer.md). |
 | TD-501 (LOW) | `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States. Left: Add a KL penalty (per-token reward shaping against a frozen reference model's log-probs) (and 2 more). See [RLHFTrainer.md](docs/development/reference/source/RLHFTrainer.md). |
 | TD-504 (LOW) | `SIGReg` Frequency Grid, NaN Inputs and Repeated Projections. Left: Use a weighted quadrature over t; check for non-finite inputs; compute loss, gradient and diagnostics in one pass. See [SIGReg.md](docs/development/reference/source/SIGReg.md). |
-| TD-513 (LOW) | `startup_sweep()` Basename Matching and Unchecked Filesystem Calls. Basename matching fixed October 19, 2026 (with TD-337). Left: Use the `std::error_code` overloads and log failures; release segment-aware. See [StartupSweep.md](docs/development/reference/source/StartupSweep.md). |
 | TD-518 (LOW) | `TokenEmbedding` Unchecked Loading, Full-Matrix Updates and Validation Gaps. Left: Check every read and the file size in `load_pretrained()`; validate sizes and `set_embeddings()`'s shape (and 1 more). See [TokenEmbedding.md](docs/development/reference/source/TokenEmbedding.md). |
 | TD-527 (LOW) | `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries. Code fix landed October 25, 2026. Left: Parse bodies with `nlohmann/json` (TD-453) and return field-specific errors; factor the per-route boilerplate. (Parsing and errors done; the… See [TrainingMetricsAPI.md](docs/development/reference/source/TrainingMetricsAPI.md). |
 | **TD-531** (HIGH) | JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text. Code fix landed October 17, 2026 (dataset scan remains). Left: Scan queued datasets for `\u` before retraining, and drop tokenized caches built from affected files so they re-tokenize. A pending file needs… See [TrainingSampleMeta.md](docs/development/reference/source/TrainingSampleMeta.md). |

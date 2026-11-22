@@ -1,12 +1,12 @@
 # `StartupSweep` — Source File Reference
 
-- **File:** [`src/StartupSweep.hpp`](../../../../src/StartupSweep.hpp) (header-only, 147 lines)
+- **File:** [`src/StartupSweep.hpp`](../../../../src/StartupSweep.hpp) (header-only, 204 lines)
 - **Namespace:** global (`startup_sweep()`)
 - **Used by:** `incremental_trainer`: before the first acquire in `train`, `retrain` and `resume` ([`IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp)) and in the `--objective=lejepa` pass ([`LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp), moved there November 12, 2026)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.3.0`, `@adai-reviewed: 2026-10-19`
-- **Tests:** [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10 tests; all pass)
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0`, `@adai-reviewed: 2026-11-21`
+- **Tests:** [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (13 tests; all pass)
 - **Design:** [dataset-transport-proposal.md](../../archive/dataset-transport-proposal.md), "Stale Download Cleanup"
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-11-21 (TD-513)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real `DatasetRegistry` and `startup_sweep()`.
 
@@ -15,7 +15,7 @@
 ## 1. What this file is
 
 `startup_sweep(reg, run_id, download_dir)` cleans the FTP download directory (`DOWNLOAD_DIR`, `downloads` in `config.trainer.conf`) before a pass
-acquires files. It returns at once if the directory is unset or missing. It loads the pending list itself, and **skips the whole sweep if that
+acquires files. It returns at once if the directory is unset or missing (or can't be checked, logged). It loads the pending list itself, and **skips the whole sweep if that
 fails** (TD-512). It then loads the trained registry, treating a failure as "nothing trained". Files are matched to the registry by
 `download_file_name(registry_path)`, the name `DataTransport` gives a download: a full-path hash, `_`, the basename (TD-337). It used to
 match by basename:
@@ -25,10 +25,12 @@ match by basename:
 | — | A `<download>.checksum` sidecar (TD-338) | Skipped; removed only if its download is gone. Every deletion below also removes the file's sidecar |
 | D | Name is a trained file's and **not** also a pending one's (a file can be trained in part, TD-333) | Delete the local copy |
 | G | Name isn't any pending entry's | "Orphaned": delete |
-| A | Pending, zero bytes | Delete and `release_pending(run_id, {path})` |
+| A | Pending, zero bytes | If another run claims any of the file's pending entries, keep it (its download may be starting). Otherwise delete it and release every entry of the file this run claims, whole file or TD-205 segment, with `release_pending(run_id, units)` (TD-513) |
 | B/C | Pending, non-empty | Keep: `DataTransport::fetch()` reuses a complete file or resumes a partial one |
 
-Subdirectories are skipped.
+Subdirectories are skipped. Every filesystem call uses its `std::error_code` overload (TD-513): a directory that can't be read skips the
+sweep, a failed iteration stops it, a size that can't be read leaves the file, and a failed deletion is logged; nothing throws out of the
+pass.
 
 ---
 
@@ -50,23 +52,27 @@ files with one basename collapsed to one map entry. Downloads are now matched by
 (`TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload`). **Upgrade note:** downloads still under old basename names match nothing, so
 the first sweep after the upgrade deletes them once (condition G), and they are fetched again.
 
-### Smaller items (by inspection)
+### Fixed: throwing filesystem calls and a whole-file release in condition A (TD-513, November 21, 2026)
 
-- **Throwing filesystem calls:** `fs::file_size()` and `fs::remove()` (the throwing overloads) and `directory_iterator` can throw on a permission or
-  race error, which `incremental_trainer` doesn't catch around the sweep.
-- **Condition A releases with `release_pending(run_id, {path})`**: whole-file only, so a zero-byte download of a TD-205 segment isn't released (TD-333),
-  and the release is a no-op when another run holds the claim.
+- `fs::exists()`, `directory_iterator`, `is_regular_file()` and `fs::file_size()` used their throwing overloads, which `incremental_trainer`
+  doesn't catch around the sweep: an unreadable `DOWNLOAD_DIR` (permissions, or a file removed meanwhile) threw out of the pass. They now
+  take a `std::error_code` and log (`UnreadableDownloadDirIsSkippedWithoutThrowing`).
+- Condition A released with `release_pending(run_id, {path})`, which releases only a whole-file entry, so a zero-byte download of a file this
+  run claimed as segments left the segments claimed until their lease ran out (`ConditionA_ReleasesEverySegmentThisRunClaimed`). It also
+  deleted the file when another run held the claim, whose download could be just starting; it now leaves it
+  (`ConditionA_LeavesAnotherRunsEmptyDownload`). All three tests fail on the old code.
 
 ---
 
 ## 3. Tests
 
-`StartupSweepTests.cpp` (10): conditions D, G, A (deleted and released) and B/C (kept), an empty directory, a missing directory and an empty path.
+`StartupSweepTests.cpp` (13): conditions D, G, A (deleted and its claim released) and B/C (kept), an empty directory, a missing directory and an empty path.
 Added October 18–19, 2026:
 - the production sequence and an unreadable pending list (TD-512);
 - a same-basename trained file next to a pending download, with sidecar cleanup (TD-337/338).
+Added November 21, 2026 (TD-513): every claimed segment released, another run's empty download left, an unreadable directory skipped.
 
-**Not covered:** filesystem errors, segment release in condition A.
+**Not covered:** a failed size read or deletion (both only logged), and a directory entry removed mid-iteration.
 
 ---
 
@@ -79,8 +85,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | Callers never call `load_pending_list()`; every file looks orphaned (§2) | Every pass deleted all downloads (and anything else in `DOWNLOAD_DIR`); resume and reuse never happened | **Fixed October 18, 2026** (was verified) | [TD-512](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
 | Registry failure also wipes the directory (§2) | Data loss on a network blip | **Fixed October 18, 2026** | [TD-512](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
-| Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | **Fixed October 19, 2026** (with TD-337) | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
-| Throwing filesystem calls; whole-file release (§2) | Crash on permission errors; stranded segment claims | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
+| Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | **Fixed October 19, 2026** (with TD-337) | [TD-513](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
+| Throwing filesystem calls; whole-file release (§2) | Crash on permission errors; stranded segment claims | **Fixed November 21, 2026** | [TD-513](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Download naming by basename (fixed October 19, 2026); segment release | Already tracked | — | TD-337, TD-333 |
 
 ## Addendum (October 18, 2026): TD-512 fixed
