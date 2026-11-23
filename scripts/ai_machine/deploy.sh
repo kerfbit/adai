@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.1.0
-# @adai-reviewed: 2026-11-17
+# @adai-version: 0.2.0
+# @adai-reviewed: 2026-11-23
 
 # Deploys the SYCL trainer and chatbot server on ai-machine from a package-sycl.sh --system-oneapi
 # package (TD-575): incremental_trainer, trainer_service, chatbot_api_server, vocab_builder and
@@ -16,7 +16,8 @@
 #
 # check     (the default) changes nothing: the installed binaries, the adai units, which oneAPI the
 #           library path resolves (ldconfig), the apt runtime's release against the package's, the
-#           libraries the new binaries would miss, the configs and the vocabulary.
+#           libraries the new binaries would miss, whether the Level Zero adapters load (else the GPU
+#           silently runs through OpenCL), the configs and the vocabulary.
 # install   backs up /opt/adai/bin, /etc/adai, /opt/adai/config, the adai units and the oneAPI
 #           ld.so.conf.d files into /var/backups/adai-ai-machine/STAMP/, stops every adai unit, installs
 #           the binaries, configs and units (the old single-instance adai-trainer.service goes to the
@@ -81,6 +82,18 @@ apt_oneapi() { dpkg-query -W -f='${Version}' "$RUNTIME_PACKAGE" 2>/dev/null | se
 # Libraries the package's binaries can't find with the apt runtime on the path.
 missing_libs() { LD_LIBRARY_PATH="$REDIST" ldd "$PKG_BIN"/* 2>/dev/null | awk '/not found/ {print $1}' | sort -u; }
 # squash PATH...: each path with repeated slashes collapsed (Intel's apt file names /opt/intel//oneapi/redist//lib).
+# The libraries the runtime's Level Zero adapters miss: the SYCL runtime opens them itself and quietly
+# skips one that fails to load, falling back to OpenCL (libumf.so.1 moved by Intel's 2026.2 packages,
+# docs/operations/guides/troubleshooting/LEVEL_ZERO_ADAPTERS_NOT_LOADING.md).
+adapter_problems() {
+    local adapter found=0
+    for adapter in "$REDIST"/libur_adapter_level_zero*.so.0; do
+        [[ -e "$adapter" ]] || continue
+        found=1
+        LD_LIBRARY_PATH="$REDIST" ldd "$adapter" 2>&1 | awk -v a="${adapter##*/}" '/not found/ {print a ": " $1 " not found"}'
+    done
+    [[ $found == 1 ]] || echo "no Level Zero adapter in $REDIST"
+}
 squash() { sed 's#//*#/#g'; }
 # Where the library path resolves libsycl.so.9 (one line per provider, slashes collapsed).
 sycl_providers() { ldconfig -p 2>/dev/null | awk '/libsycl\.so\.9 / {print $NF}' | squash | sort -u; }
@@ -107,6 +120,16 @@ preflight() {
         ok=1
     else
         echo "Libraries: all found with $REDIST"
+    fi
+    libs=$(adapter_problems)
+    if [[ -n "$libs" ]]; then
+        echo "PROBLEM: the Level Zero adapters can't load, so the GPU would run through OpenCL:"
+        sed 's/^/  /' <<<"$libs"
+        echo "         Put the missing library's directory on the library path, e.g. for libumf.so.1:"
+        echo "         echo /opt/intel/oneapi/umf/latest/lib | sudo tee /etc/ld.so.conf.d/intel-oneapi-umf.conf && sudo ldconfig"
+        ok=1
+    else
+        echo "Level Zero adapters: load with $REDIST"
     fi
     return $ok
 }

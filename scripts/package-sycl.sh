@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (tests: tests/scripts/package_sycl_test.sh)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-11-21
+# @adai-version: 0.9.0
+# @adai-reviewed: 2026-11-23
 
 set -euo pipefail
 
@@ -18,6 +18,9 @@ set -euo pipefail
 #                  units and env files, and etc/config.trainer.conf and etc/config.chatbot.conf: the
 #                  repo's configs with scripts/ai_machine/*.overrides.conf applied.
 # --build-dir      the SYCL build (default build/sycl)
+#
+# Refuses a binary older than the newest tracked source under src/ or a CMakeLists.txt: the sycl build
+# preset builds only incremental_trainer, so the others go stale unless built by name.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -70,6 +73,24 @@ if [[ $SYSTEM_ONEAPI == 1 ]]; then
             exit 1
         }
     done
+fi
+
+# A binary older than the newest source may predate a change (the sycl build preset builds only
+# incremental_trainer; a stale chatbot_api_server was packaged this way on November 23, 2026).
+PACKED_BINARIES=(incremental_trainer chatbot_api_server)
+[[ $SYSTEM_ONEAPI == 1 ]] && PACKED_BINARIES+=("${EXTRA_BINARIES[@]}")
+NEWEST_SOURCE=$(cd "$PROJECT_ROOT" && git ls-files -z -- src CMakeLists.txt '*/CMakeLists.txt' 2>/dev/null \
+    | xargs -0 -r stat -c '%Y %n' 2>/dev/null | sort -n | tail -1)
+if [[ -n "$NEWEST_SOURCE" ]]; then
+    STALE=()
+    for b in "${PACKED_BINARIES[@]}"; do
+        (( $(stat -c %Y "$BIN_DIR/$b") >= ${NEWEST_SOURCE%% *} )) || STALE+=("$b")
+    done
+    if [[ ${#STALE[@]} -gt 0 ]]; then
+        echo "ERROR: older than ${NEWEST_SOURCE#* } (changed $(date -d "@${NEWEST_SOURCE%% *}" '+%F %T')): ${STALE[*]}"
+        echo "  cmake --build $BUILD_DIR --target ${PACKED_BINARIES[*]}"
+        exit 1
+    fi
 fi
 
 if [[ -z "${ONEAPI_ROOT:-}" ]]; then

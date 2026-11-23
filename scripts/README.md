@@ -137,7 +137,8 @@ host runs the same oneAPI release from Intel's apt packages (`MANIFEST.txt`'s `o
 `vocab_builder`, `dataset_manager`, `ai_machine/deploy.sh`, the units `ai_machine/adai-trainer@.service` (one
 `trainer_service` per objective: `@lejepa`, `@chatbot`) and `ai_machine/adai.service` (the chatbot server, with GPU
 access), the two instances' env files (their admin ports), and `etc/config.trainer.conf`/`etc/config.chatbot.conf`: the
-repo's configs with `ai_machine/*.overrides.conf` applied.
+repo's configs with `ai_machine/*.overrides.conf` applied. It refuses a binary older than the newest tracked source under
+`src/` or a `CMakeLists.txt`: the `sycl` build preset builds only `incremental_trainer`, so build the others by name.
 
 ```bash
 source /opt/intel/oneapi/setvars.sh
@@ -148,13 +149,15 @@ cmake --build build/sycl --target incremental_trainer trainer_service chatbot_ap
 On ai-machine, from the unpacked package (uses sudo, asks first; tested by `tests/scripts/ai_machine_deploy_test.sh`):
 
 ```bash
-./deploy.sh            # check: binaries, units, which oneAPI the library path resolves, the apt runtime's release
+./deploy.sh            # check: binaries, units, which oneAPI the library path resolves, the apt runtime's release, the adapters
 ./deploy.sh install    # back up, stop every adai unit, install, switch the library path to the apt runtime
 ./deploy.sh rollback [STAMP]
 ```
 
 `install` refuses unless the apt runtime (`intel-oneapi-runtime-dpcpp-cpp`) is the release the package was built with
-and nothing is missing with `/opt/intel/oneapi/redist/lib` on the path. It backs up to
+and nothing is missing with `/opt/intel/oneapi/redist/lib` on the path, the runtime's Level Zero adapters included
+(when they can't load, the GPU silently runs through OpenCL: see
+[LEVEL_ZERO_ADAPTERS_NOT_LOADING.md](../docs/operations/guides/troubleshooting/LEVEL_ZERO_ADAPTERS_NOT_LOADING.md)). It backs up to
 `/var/backups/adai-ai-machine/<stamp>/`, takes `/opt/adai/lib` off the library path (the file goes to the backup; the
 libraries stay on disk), puts the apt runtime's `ld.so.conf.d` file back, and checks that `libsycl.so.9` then resolves
 only from the apt runtime. Every unit is left stopped and disabled.

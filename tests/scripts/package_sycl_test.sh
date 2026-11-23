@@ -69,6 +69,17 @@ assert_contains "0"
 run bash -c 'tar -xzOf "$1" --wildcards "*/MANIFEST.txt"' _ "$tarball"
 assert_contains "oneapi libraries: the host's"
 
+t "refuses a binary older than the newest source, naming the build that brings it up to date"
+touch -d '2000-01-01' "$fake/bin/chatbot_api_server"
+rm -f "$fake"/adai-sycl-ai-machine-*.tar.gz
+run env ONEAPI_ROOT=/nonexistent bash "$TARGET" --system-oneapi --build-dir "$fake"
+assert_exit 1
+assert_contains "ERROR: older than"
+assert_contains ": chatbot_api_server"
+assert_contains "--target incremental_trainer chatbot_api_server trainer_service vocab_builder dataset_manager"
+assert_not_contains "=== Packaging"
+touch "$fake/bin/chatbot_api_server"
+
 t "--system-oneapi refuses a build missing trainer_service"
 rm "$fake/bin/trainer_service"
 run env ONEAPI_ROOT=/nonexistent bash "$TARGET" --system-oneapi --build-dir "$fake"

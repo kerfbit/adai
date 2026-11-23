@@ -77,7 +77,9 @@ for f in "$root/etc/ld.so.conf.d"/*.conf; do
     [[ -e \$f ]] && head -1 "\$f" | while read -r d; do printf '\tlibsycl.so.9 (libc6,x86-64) => %s/libsycl.so.9\n' "\$d"; done
 done
 EOF
-printf '#!/bin/bash\nfor f in "$@"; do echo "$f:"; printf "\\tlibsycl.so.9 => /x/libsycl.so.9 (0x0)\\n"; [[ -n "${MISSING:-}" ]] && printf "\\t%%s => not found\\n" "$MISSING"; done\nexit 0\n' >"$host/stub/ldd"
+printf '#!/bin/bash\nfor f in "$@"; do echo "$f:"; printf "\\tlibsycl.so.9 => /x/libsycl.so.9 (0x0)\\n"; [[ -n "${MISSING:-}" ]] && printf "\\t%%s => not found\\n" "$MISSING"; [[ -n "${ADAPTER_MISSING:-}" && $f == *libur_adapter* ]] && printf "\\t%%s => not found\\n" "$ADAPTER_MISSING"; done\nexit 0\n' >"$host/stub/ldd"
+# The runtime's two Level Zero adapters (the ldd stub reports ADAPTER_MISSING for them).
+touch "$redist/libur_adapter_level_zero.so.0" "$redist/libur_adapter_level_zero_v2.so.0"
 printf '#!/bin/bash\necho "${RUNTIME_VERSION:-2026.2.0-863}"\n' >"$host/stub/dpkg-query"
 printf '#!/bin/bash\nexec "$@"\n' >"$host/stub/sudo"
 chmod +x "$host/stub/"*
@@ -92,6 +94,7 @@ assert_contains "trainer_service: none"
 assert_contains "adai: active, enabled"
 assert_contains "VOCAB_PATH=/home/rodney/Repos/adai/vocab.txt"
 assert_contains "Backups: none yet"
+assert_contains "Level Zero adapters: load with"
 
 t "install refuses an apt runtime at another release, or missing libraries, and changes nothing"
 run env RUNTIME_VERSION=2026.1.1-325 bash "$pkg/deploy.sh" install --yes
@@ -100,6 +103,10 @@ assert_contains "the apt oneAPI runtime (intel-oneapi-runtime-dpcpp-cpp) is 2026
 run env MISSING=libmkl_sycl_blas.so.5 bash "$pkg/deploy.sh" install --yes
 assert_exit 1
 assert_contains "libmkl_sycl_blas.so.5"
+run env ADAPTER_MISSING=libumf.so.1 bash "$pkg/deploy.sh" install --yes
+assert_exit 1
+assert_contains "libur_adapter_level_zero_v2.so.0: libumf.so.1 not found"
+assert_contains "the GPU would run through OpenCL"
 run cat "$root/opt/adai/bin/incremental_trainer"
 assert_contains "old incremental_trainer"
 assert_file_not_exists "$host/systemctl.log"
