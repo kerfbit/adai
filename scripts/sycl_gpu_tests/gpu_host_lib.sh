@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.2.0
-# @adai-reviewed: 2026-11-10
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-11-22
 
 # Shared helpers for prepare_host.sh, run_gpu_tests.sh and restore_host.sh: finding processes that
 # use the GPU, and comparing oneAPI versions. Sourced, not run. Callers set SUDO to "sudo -n" (or
@@ -10,6 +10,23 @@
 
 # Library names of the oneAPI runtime the trainer loads; used to check where they resolve.
 ONEAPI_LIB_PATTERN='libsycl|libmkl|libiomp|libur_|libimf|libsvml|libintlc|libirng|libumf|libtcm'
+
+# level_zero_adapter_problems RUNTIME_DIR: one line per Level Zero adapter in RUNTIME_DIR that can't
+# load ("<adapter>: <library> not found"), or "no Level Zero adapter in RUNTIME_DIR"; nothing when
+# every adapter loads. The runtime opens its adapters itself at startup and quietly skips one that
+# fails, so a missing dependency doesn't show in ldd of our binaries: the GPU just runs through
+# OpenCL instead (November 2026: an apt upgrade moved libumf.so.1 out of redist/lib, and every SYCL
+# process on ai-machine ran on OpenCL for five days).
+level_zero_adapter_problems() {
+    local dir="$1" adapter found=0
+    for adapter in "$dir"/libur_adapter_level_zero*.so.0; do
+        [[ -e "$adapter" ]] || continue
+        found=1
+        LD_LIBRARY_PATH="$dir" ldd "$adapter" 2>&1 | awk -v a="$(basename "$adapter")" \
+            '/not found/ {print a ": " $1 " not found"}'
+    done
+    [[ $found == 1 ]] || echo "no Level Zero adapter in $dir"
+}
 
 # oneapi_version_at_least HAVE WANT: true when Debian version HAVE is at least WANT's release
 # (WANT like 2026.2.0; HAVE like 2026.2.0-863).

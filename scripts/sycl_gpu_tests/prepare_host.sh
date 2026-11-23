@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.3.0
-# @adai-reviewed: 2026-11-15
+# @adai-version: 0.4.0
+# @adai-reviewed: 2026-11-22
 
 # Prepares the GPU host (ai-machine) for run_gpu_tests.sh. Uses sudo; asks before each change.
 #
@@ -17,6 +17,11 @@
 #    upgraded system runtime instead of their own bundle. Intel's 2026.2 runtime moved files between
 #    its own packages without declaring it, which stops a plain upgrade half done; this script
 #    recognises that, explains it, and finishes the upgrade (also when re-run after such a failure).
+   Then it checks that the runtime's Level Zero adapters load: the runtime skips an adapter that
+#    can't, without a word, and runs the GPU through OpenCL instead. A missing library found in a
+#    oneAPI component's latest/lib (libumf.so.1 in umf/latest/lib, after Intel's 2026.2 upgrade) can
+#    be added to the linker's search path (/etc/ld.so.conf.d/adai-oneapi-adapters.conf); otherwise
+#    it stops.
 # 2. Lists every process using the GPU, GPU programs found by name (Ollama, llama.cpp, vLLM, Qwen
 #    runs...), matching services and Docker containers, and offers to stop each one. Services
 #    and containers it stops are recorded so ./restore_host.sh can start them again.
@@ -318,6 +323,48 @@ if [[ $DO_UPGRADE == 1 ]]; then
     fi
     say ""
 fi
+
+# ── 1b. Level Zero adapters ───────────────────────────────────────────────────
+
+# The runtime opens its Level Zero adapters itself and quietly skips one that can't load; the GPU
+# then runs through OpenCL (slower, and not what the tests measure). November 2026: an apt upgrade
+# moved libumf.so.1 out of redist/lib into umf/<version>/lib, which nothing on the linker's path
+# named.
+RUNTIME_LIB=/opt/intel/oneapi/redist/lib
+ADAPTER_CONF=/etc/ld.so.conf.d/adai-oneapi-adapters.conf
+say "== Level Zero adapters ($RUNTIME_LIB)"
+problems=$(level_zero_adapter_problems "$RUNTIME_LIB")
+if [[ -z "$problems" ]]; then
+    say "  every Level Zero adapter loads"
+else
+    say "$problems" | sed 's/^/  /'
+    dirs=()
+    for lib in $(awk '/ not found$/ {print $2}' <<<"$problems" | sort -u); do
+        hit=""
+        for candidate in /opt/intel/oneapi/*/latest/lib; do  # a glob: find wouldn't follow latest
+            [[ -e "$candidate/$lib" ]] && hit="$candidate" && break
+        done
+        if [[ -n "$hit" ]]; then
+            say "  $lib is in $hit"
+            dirs+=("$hit")
+        else
+            say "  $lib isn't in any oneAPI component's latest/lib"
+        fi
+    done
+    if [[ ${#dirs[@]} -gt 0 ]] &&
+        ask "Add $(printf '%s ' "${dirs[@]}")to the linker's search path ($ADAPTER_CONF) and run ldconfig?" auto; then
+        { [[ -f "$ADAPTER_CONF" ]] && cat "$ADAPTER_CONF"; printf '%s\n' "${dirs[@]}"; } | sort -u |
+            sudo tee "$ADAPTER_CONF.new" >/dev/null && sudo mv "$ADAPTER_CONF.new" "$ADAPTER_CONF" && sudo ldconfig 2>/dev/null
+        problems=$(level_zero_adapter_problems "$RUNTIME_LIB")
+    fi
+    if [[ -n "$problems" ]]; then
+        say "FATAL: the Level Zero adapters still can't load; every GPU test would run through OpenCL:"
+        say "$problems" | sed 's/^/  /'
+        exit 1
+    fi
+    say "  every Level Zero adapter loads now"
+fi
+say ""
 
 # ── 2. Other GPU users ────────────────────────────────────────────────────────
 

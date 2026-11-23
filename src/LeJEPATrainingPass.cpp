@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.1.1
 // @adai-reviewed: 2026-11-22
 
 // TD-566: the LeJEPA world-model pass, moved out of IncrementalTrainingTool.cpp so it can be tested
@@ -686,8 +686,8 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
 #ifdef ADAI_ENABLE_GPU
     {  // TD-590: what the pass moved between host and device
         const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), pass_traffic_start);
-        adai::Logger::debug("[lejepa] host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
-                            d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
+        adai::Logger::info("[lejepa] host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
+                           d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
     }
 #endif
     bool ok = step_count > 0;

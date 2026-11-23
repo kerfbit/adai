@@ -1,10 +1,84 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (509 on November 22, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (510 on November 23, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-590: Nothing Checks That GPU Training Stays on the Device
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 23, 2026 | GPU / Testing | Code fix and an ai-machine run (MEDIUM, created November 22, 2026) |
+
+Description:
+Part of moving LeJEPA training onto the GPU (see TD-585). The owner rule (October 19, 2026) is that GPU training moves nothing between
+host and device without a critical reason, but no test or counter measures transfers. This is how a LeJEPA pass could run with the GPU
+initialized while doing its math on the host, uploading and downloading around every large matrix product through `Matrix::multiply()`'s
+implicit dispatch, without anything noticing. The same check would guard the chatbot path's budget (token IDs, target IDs, the scalar
+loss, the causal mask, one float per parameter group).
+
+Action Items:
+
+- [x] Count host→device and device→host copies and bytes in `GPUManager` (`GPUMemory::copy_from_host()`/`copy_to_host()`,
+      `matrix_download_gpu()`, and the implicit dispatch in `Matrix`), readable and resettable by tests and logged per pass (at info level since the first ai-machine run, which didn't record it at debug).
+- [x] Test (oneAPI CPU device): a LeJEPA step after TD-588/TD-589 moves only the step's scalars (the stats download) and no weights,
+      activations or gradients; a `GPUOptimizer` with 0 host groups; and no `Matrix::multiply()` implicit dispatch during the step.
+- [x] The same budget test for a chatbot training step.
+- [x] On ai-machine: time a LeJEPA pass before and after, and watch for engine resets. LeJEPA passes have caused none in 220 runs
+      while doing their math on the host; a device-resident pass is a new GPU workload for TD-574's Arc B60 reset problem. The GPU test
+      package now carries the LeJEPA suites (`lejepaencoderTests`, `lejepaTrainingPassTests`, `sigregTests`, `predictorTests`) and
+      `gpuKernelReferenceTests`, so a package run on the Arc checks the device paths first; then deploy `incremental_trainer` and compare
+      a pass's wall time and `dmesg` engine resets with the host-path baseline. **Done November 23, 2026** with the package (below);
+      the real-size pass on the deployed `incremental_trainer` comes with TD-575's deployment.
+
+**Code fix (November 22, 2026):**
+- `src/gpu/TransferCounter.hpp` (new, backend-neutral): process-wide counts of uploads, downloads, their bytes and host round trips
+  (`transfer_stats()`, `transfer_delta()`, `reset_transfer_stats()`). Counted by `GPUMemory::copy_from_host()`/`copy_to_host()` (both
+  backends), `matrix_download_gpu()`, the SYCL host-kernel diagnostics' copies and the batch helpers' pointer arrays; a host round trip
+  by each of `Matrix::multiply_gpu()`/`add_gpu()`/`transpose_gpu()`/`scale_gpu()`/`hadamard_gpu()` (the implicit dispatch included).
+- Logged per pass at info level by `run_lejepa_training_pass()` and `ChatbotTrainer::train()` (debug at first).
+- Tests (oneAPI CPU device): `TransfersAreCounted` (gpuKernelReferenceTests); `ADeviceBatchMovesOnlyItsScalars` (lejepaencoderTests: a
+  batch of three prepared texts makes no upload, four downloads, under 4 KB, and no host round trip); `AChatbotStepMovesOnlyItsInputsAndScalars`
+  (gpuOptimizerTests: one step measured 4 uploads of 156 bytes, the IDs, targets and mask, and 2 downloads of 156 bytes, the loss and the
+  group norms; no host round trip).
+
+**First ai-machine run (package `adai-sycl-gpu-tests-37adcfb3-20261122`, results `20261123T053814Z`), not counted:** every test
+binary passed (the LeJEPA suites included: 57, 11, 21 and 20 tests, none skipped), the LeJEPA pass trained on the device (31 groups on the
+device, 0 on the host) at 3.3 s per 128-sample epoch, and 360 passes saw no device loss and no kernel GPU event. But every pass ran
+through OpenCL, not Level Zero: an `apt upgrade` on ai-machine on November 18 (08:27) moved `libumf.so.1` out of
+`/opt/intel/oneapi/redist/lib` into `umf/1.2/lib`, which nothing on the linker's path named, so the runtime skipped both Level Zero
+adapters without a word (`SYCL_UR_TRACE=1`: "failed to load adapter … libumf.so.1: cannot open shared object file"). The decode
+benchmark's GPU paths ran 1.5-2× slower than on November 18. The deployed services on ai-machine had been on OpenCL since then too.
+Fixed on the host by `/etc/ld.so.conf.d/intel-oneapi-umf.conf` (`umf/1.2/lib`); both adapters load again. The package now catches
+it: `prepare_host.sh` checks the adapters load and offers the linker fix, and `run_gpu_tests.sh` warns about the adapters, counts the
+backend of every pass and fails the run if any isn't Level Zero. The run also showed `generationQualityAsyncTests` as passed although
+the packaged binary was empty (an interrupted link from the dev machine's lockup that day); the package script now relinks empty
+outputs and refuses to package one, and the runner refuses to run one. The traffic line was at debug level, so the run didn't record
+it; it is at info level now, and `lejepa_report.txt` lists each LeJEPA pass's seconds per epoch and traffic.
+
+**Rerun on Level Zero (same package rebuilt, `adai-sycl-gpu-tests-37adcfb3-dirty-20261122`, results `20261123T081136Z`), counted:** all 739
+backend lines Level Zero (V2, and V1 for the `l0v1` soak). Every test binary passed, `generationQualityAsyncTests` included. The LeJEPA
+lifecycle passed, and 20 device-resident LeJEPA passes of 5 epochs, 40 Level Zero soak passes and 260 bisection passes all ended ok,
+with no device loss, no stuck wait and no kernel GPU event (engine reset, job timeout or fault). Each LeJEPA pass moved exactly its
+budget: 1 upload of 7,032 bytes (the token IDs, once per pass), then per epoch 144 downloads (one per text of 128, the optimizer's group
+norms, plus one per batch of 8 for its results, as `ADeviceBatchMovesOnlyItsScalars` asserts), about 17 KB, and 0 host round trips. Time:
+1.66-1.69 s per 128-text epoch, against 1.59-1.64 for the host-path pass on Level Zero on November 18 (results `20261118T034941Z`, the
+same tiny world model: d_model 128, 2 layers, sequences of 32) and 3.3 on OpenCL. At this size the device path is about even with the
+host: each text is its own optimizer step and synchronizes once for its norms. The point of TD-585 to TD-590 is that nothing large
+crosses, which a real-size model needs. The decode benchmark is back at 19.80 ms per token (`decode_configured`, GPU cache), as on
+November 17. `SEED=7` replays the losses but not the last bits of the weights (TD-368, as before).
+
+Location in code: `src/gpu/TransferCounter.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`, `src/gpu/GPUUtils.hpp` (`GPUMemory`),
+`src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`, `src/Matrix.cpp`, `src/ChatbotTrainer.cpp`, `src/LeJEPATrainingPass.cpp`.
+
+Files to Modify:
+
+- `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`, `src/gpu/MatrixGPU.cu`, `src/Matrix.cpp`
+- `tests/lejepa_training_pass_test.cpp`, `tests/gpu_optimizer_test.cpp`
+
+---
 
 ### TD-589: The LeJEPA Pass Re-Tokenizes Every Epoch and Reads Diagnostics on the Host
 

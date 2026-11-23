@@ -59,6 +59,9 @@ This directory contains solutions and fixes for common issues encountered during
   resets of the compute engine during device-resident training, and resets the Level Zero runtime never reports
   - Environment, dump signature, rates per queue bound and adapter, and what Intel will ask for before filing
   - Workarounds: `GPU_QUEUE_DEPTH`, `GPU_WAIT_TIMEOUT_SECONDS`
+- **[The GPU Runs Through OpenCL](LEVEL_ZERO_ADAPTERS_NOT_LOADING.md)** - the Level Zero adapters can't
+  load (`libumf.so.1` moved by Intel's 2026.2 packages), so the runtime silently uses OpenCL
+  - Diagnosis with `SYCL_UR_TRACE=1` and `ldd` of the adapters; the one-line linker fix
 
 ### GUI Issues
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.9.0
+# @adai-version: 0.10.0
 # @adai-reviewed: 2026-11-22
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
@@ -604,6 +604,21 @@ if grep -q 'No GPU device present' "$RESULTS/device_info.log"; then
     log "FATAL: no SYCL GPU device found (see device_info.log and environment.txt). Nothing else would test the GPU."
     FATAL_NO_DEVICE=1
 fi
+# The runtime quietly skips a Level Zero adapter that can't load and runs the GPU through OpenCL
+# (November 2026: libumf.so.1 left redist/lib in an apt upgrade, and a whole run measured OpenCL).
+ADAPTER_PROBLEMS=$(level_zero_adapter_problems "$RUNTIME_DIR")
+if [[ -n "$ADAPTER_PROBLEMS" ]]; then
+    log "WARNING: the Level Zero adapters can't load, so the GPU runs through OpenCL (./prepare_host.sh fixes a missing library):"
+    log "$(sed 's/^/  /' <<<"$ADAPTER_PROBLEMS")"
+    FAILURES=$((FAILURES + 1))
+fi
+# A binary cut short (an interrupted link leaves an empty file) would "run" as an empty script, rc 0.
+for binary in "$BIN"/*; do
+    if [[ -f "$binary" && ! -s "$binary" ]]; then
+        log "  $(basename "$binary"): empty file in the package; not run"
+        FAILURES=$((FAILURES + 1))
+    fi
+done
 
 # ── 3. GPU test binaries ──────────────────────────────────────────────────────
 
@@ -624,6 +639,7 @@ if [[ $RUN_TESTS == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
             FAILURES=$((FAILURES + 1))
             continue
         }
+        [[ -s "$BIN/$test" ]] || continue  # empty: counted above
         step "$test" 3600 "$BIN/$test" --gtest_output=xml:"$RESULTS/xml/$test.xml"
     done
 fi
@@ -679,6 +695,16 @@ if [[ $RUN_BENCHMARK == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
 fi
 
 # ── 5. TD-368 seed replay and TD-391 backend line ─────────────────────────────
+
+# epoch_seconds LOG: mean seconds between consecutive "Epoch k/N complete" lines of a LeJEPA pass
+# (log lines start "[YYYY-MM-DD HH:MM:SS.mmm]"); empty with fewer than two epochs.
+epoch_seconds() {
+    grep -E '^\[[0-9-]+ [0-9:.]+\].*Epoch [0-9]+/[0-9]+ complete' "$1" 2>/dev/null |
+        awk '{t = substr($0, 13, 2) * 3600 + substr($0, 16, 2) * 60 + substr($0, 19, 6)
+              if (n > 0) { d = t - last; if (d < 0) d += 86400; sum += d }
+              last = t; n++}
+             END {if (n > 1) printf "%.2f", sum / (n - 1)}'
+}
 
 backend_of() {
     grep -h -m1 'Backend:' "$RESULTS/$1.log" "$RESULTS/work/$1/trainer.log"* 2>/dev/null | head -1 |
@@ -873,6 +899,14 @@ if [[ $RUN_LEJEPA == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
                          n, o, d, t, e, h, f, k, s}' "$LJ_TSV"
         echo "td566: ok = the pass stopped within 15 s of the loss, saved nothing, released its texts and exited 1."
         echo "TD-572 is closed by a run where the lifecycle passes and, ideally, at least one device loss is handled."
+        echo
+        echo "Time per epoch and host<->device traffic (TD-590; traffic only from builds that log it at info level):"
+        for log_file in "$RESULTS/lejepa_train.log" "$RESULTS"/lejepa_soak_[0-9][0-9].log; do
+            [[ -f "$log_file" ]] || continue
+            per_epoch=$(epoch_seconds "$log_file")
+            traffic=$(grep -h -o 'host<->device traffic: .*' "$log_file" | tail -1)
+            printf '  %-16s %8s s/epoch  %s\n' "$(basename "$log_file" .log)" "${per_epoch:-?}" "${traffic:-(no traffic line)}"
+        done
         [[ -n "${DEVICE_GONE:-}" ]] && echo "The soak stopped early: the GPU no longer ran work after a device loss."
     } >"$RESULTS/lejepa_report.txt"
     sed -n '/^Lifecycle/,$p' "$RESULTS/lejepa_report.txt" | grep -v -E '^pass |^lejepa_soak_' | sed 's/^/  /' | tee -a "$SUMMARY"
@@ -1250,6 +1284,18 @@ if [[ $BISECT_PASSES -gt 0 && -z "${FATAL_NO_DEVICE:-}" && -z "${DEVICE_GONE:-}"
 fi
 
 # ── 9. Pack the results ───────────────────────────────────────────────────────
+
+# Which backend each pass's GPU ran on (TD-391): anything but Level Zero means the adapters didn't load.
+BACKENDS=$(grep -h -o 'Backend: [a-z_]*' "$RESULTS"/*.log "$RESULTS"/work/*/trainer.log* 2>/dev/null | sort | uniq -c)
+if [[ -n "$BACKENDS" ]]; then
+    log ""
+    log "Backends the passes logged (TD-391):"
+    log "$(sed 's/^ */  /' <<<"$BACKENDS")"
+    if grep -v -q 'Backend: level_zero' <<<"$BACKENDS"; then
+        log "WARNING: some passes ran on a backend other than Level Zero; their GPU results don't measure Level Zero."
+        FAILURES=$((FAILURES + 1))
+    fi
+fi
 
 log ""
 log "Steps that failed: $FAILURES"

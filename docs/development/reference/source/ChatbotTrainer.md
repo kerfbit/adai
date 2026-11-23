@@ -2,7 +2,7 @@
 
 - **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp) (709 lines), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp) (2,641 lines)
 - **Built into:** compiled directly into `incremental_trainer`, `training_metrics_example` and `chatbottrainerTests`; it isn't part of a static library
-- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.24.1` (2026-11-22, TD-590's traffic log)
+- **Status tags:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"); `.hpp` `@adai-version: 0.17.0` (reviewed 2026-11-10), `.cpp` `0.24.2` (2026-11-22, TD-590's traffic log, at info level since the ai-machine run)
 - **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (100; `friend class ChatbotTrainerCacheTest` for the cache and internals); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md)
 - **Related:** [IncrementalTrainer.md](IncrementalTrainer.md) (its only production caller), [GPUOptimizer.md](GPUOptimizer.md), [PassHeartbeat.md](PassHeartbeat.md)
 - **Last traced against the code:** 2026-11-13
@@ -224,7 +224,8 @@ fails with the check moved back.
 
 ## Addendum (November 22, 2026): traffic logged per pass (TD-590)
 
-In GPU builds `train()` logs, at debug level and however it returns, what the pass moved between host and device: uploads and their
+In GPU builds `train()` logs, at info level and however it returns, what the pass moved between host and device: uploads and their
 bytes, downloads and their bytes, and host round trips (an RAII guard reading `adai::gpu::transfer_stats()`). Device training's budget
 (token and target IDs, the causal mask, the scalar loss, one float per parameter group) is checked per step by `gpuOptimizerTests`'
-`AChatbotStepMovesOnlyItsInputsAndScalars`.
+`AChatbotStepMovesOnlyItsInputsAndScalars`. The line was at debug level until the first ai-machine run of the package, which
+therefore didn't record it; at info level a GPU test run's logs carry it.

@@ -3,7 +3,7 @@
 - **Files:** [`src/LeJEPATrainingPass.hpp`](../../../../src/LeJEPATrainingPass.hpp) (45 lines), [`src/LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp) (721), [`src/TrainingPassFiles.hpp`](../../../../src/TrainingPassFiles.hpp) (32), [`src/TrainingPassFiles.cpp`](../../../../src/TrainingPassFiles.cpp) (83)
 - **Namespace:** `adai`
 - **Built into:** `incremental_trainer` (with [IncrementalTrainingTool.cpp](IncrementalTrainingTool.md), which calls them) and `lejepaTrainingPassTests`
-- **Status tags:** all four `stable` 1.0.0, reviewed 2026-11-12, except `LeJEPATrainingPass.cpp` 1.1.0, reviewed 2026-11-22 (training on the device, TD-588; a TD-589 tag) (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, to `beta` the same day, and to `stable` once their tests landed and the LeJEPA pass ran on ai-machine; [TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
+- **Status tags:** all four `stable` 1.0.0, reviewed 2026-11-12, except `LeJEPATrainingPass.cpp` 1.1.1, reviewed 2026-11-22 (training on the device, TD-588; a TD-589 tag; its traffic line at info level, TD-590) (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, to `beta` the same day, and to `stable` once their tests landed and the LeJEPA pass ran on ai-machine; [TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
 - **Tests:** [`tests/lejepa_training_pass_test.cpp`](../../../../tests/lejepa_training_pass_test.cpp) → `lejepaTrainingPassTests` (10, plus a device pass in GPU builds, TD-588/TD-589; against a local registry and a tiny world model: a whole pass, a failed batch on a working GPU, a lost GPU, an epoch that trains nothing, a second pass resuming and finding nothing pending, a re-queued file training again, a checkpoint that can't load, a pause, a checkpoint request); [`tests/training_pass_files_test.cpp`](../../../../tests/training_pass_files_test.cpp) → `trainingPassFilesTests` (5, `TrainingPassFiles` against a loopback `FtpDataServer`)
 - **Last traced against the code:** 2026-11-12; device training 2026-11-22 (TD-588, TD-589)
 
@@ -97,3 +97,9 @@ floats (`set_gpu_diagnostics()`), zeroed each epoch and downloaded once at its e
 values are measured instead of -1. The entropy is the per-head average, as chatbot GPU training reports it. `epoch_diagnostics` is
 called after every epoch with the values pushed to the metrics server. Tests: `AnEpochReportsItsDiagnostics` (host) and the device pass
 test, now checking its diagnostics too.
+
+## Addendum (November 22, 2026): the pass logs its host↔device traffic (TD-590)
+
+In a GPU build the pass logs, at info level once it ends, what it moved between host and device (`adai::gpu::transfer_stats()` since its
+start): uploads and their bytes, downloads and their bytes, and host round trips. It was at debug level at first, so the first ai-machine
+run of the GPU test package didn't record it; at info level `run_gpu_tests.sh`'s LeJEPA passes carry it in their logs.

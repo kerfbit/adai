@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.6.0
+# @adai-version: 0.7.0
 # @adai-reviewed: 2026-11-22
 
 # Builds the SYCL GPU test binaries, the TD-171 benchmark, the trainer and its tools (the LeJEPA
@@ -10,12 +10,14 @@
 # directory's README.md. Uses the host's oneAPI runtime rather than bundling one: the package's
 # prepare_host.sh upgrades it from Intel's apt repository to the release recorded in MANIFEST.txt.
 #
-#   scripts/package_sycl_gpu_tests.sh [--build-dir DIR] [--out DIR] [--no-build]
+#   scripts/package_sycl_gpu_tests.sh [--build-dir DIR] [--out DIR] [--no-build] [--jobs N]
 #
 # --build-dir  a SYCL build with tests (default build/sycl-cpudev; created when missing:
 #              ENABLE_SYCL=ON, BUILD_TESTING=ON, Release)
 # --out        where the tarball goes (default build/)
 # --no-build   package what is already built
+# --jobs       parallel compile jobs (default 4: icpx compiles take 1-2 GB each, and -j$(nproc) on a
+#              15 GB machine ran it out of memory and locked it up)
 
 set -euo pipefail
 
@@ -24,6 +26,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/sycl-cpudev"
 OUT_DIR="$PROJECT_ROOT/build"
 DO_BUILD=1
+JOBS=4
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,6 +43,11 @@ while [[ $# -gt 0 ]]; do
         --no-build)
             DO_BUILD=0
             shift
+            ;;
+        --jobs)
+            [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --jobs needs a positive number" >&2; exit 2; }
+            JOBS="$2"
+            shift 2
             ;;
         -h | --help)
             sed -n '/^#   scripts\/package_sycl_gpu_tests/,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -89,7 +97,17 @@ if [[ $DO_BUILD == 1 ]]; then
         echo "ERROR: $BUILD_DIR isn't a SYCL build with tests (needs ENABLE_SYCL=ON and BUILD_TESTING=ON)"
         exit 1
     fi
-    cmake --build "$BUILD_DIR" -j"$(nproc)" --target "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"
+    # An interrupted link (the machine locked up mid-build, November 2026) leaves an empty file with
+    # a fresh timestamp that make then counts as built; remove those so they are linked again.
+    for dir in "$BUILD_DIR/bin" "$BUILD_DIR/src" "$BUILD_DIR/tests"; do
+        for target in "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"; do
+            if [[ -f "$dir/$target" && ! -s "$dir/$target" ]]; then
+                echo "$dir/$target is empty (an interrupted link); removing it so it is built again"
+                rm -f -- "$dir/$target"
+            fi
+        done
+    done
+    cmake --build "$BUILD_DIR" -j"$JOBS" --target "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"
 fi
 
 find_binary() {
@@ -97,6 +115,7 @@ find_binary() {
     found=$(find "$BUILD_DIR/bin" "$BUILD_DIR/src" "$BUILD_DIR/tests" -maxdepth 1 -type f -name "$1" \
         -perm -u+x 2>/dev/null | head -1)
     [[ -n "$found" ]] || { echo "ERROR: $1 not built in $BUILD_DIR" >&2; return 1; }
+    [[ -s "$found" ]] || { echo "ERROR: $found is empty (an interrupted link); rebuild it" >&2; return 1; }
     echo "$found"
 }
 
@@ -114,7 +133,8 @@ STAGE="$STAGE_PARENT/$PACKAGE_NAME"
 mkdir -p "$STAGE/bin" "$STAGE/data"
 
 for target in "${TEST_TARGETS[@]}" "${TOOL_TARGETS[@]}"; do
-    cp "$(find_binary "$target")" "$STAGE/bin/"
+    binary=$(find_binary "$target") || exit 1
+    cp "$binary" "$STAGE/bin/"
 done
 HOST_SCRIPTS=(run_gpu_tests.sh train_pass.sh lejepa_pass.sh prepare_host.sh restore_host.sh gpu_host_lib.sh guc_firmware.sh coredumps.sh
     update_gpu_stack.sh xe_debug.sh mainline_kernel.sh)

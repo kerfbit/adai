@@ -17,9 +17,9 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 81 open items:
-- **22 wait on something outside a coding session:** 9 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
-  most of the rest are measurements of fixes that landed, TD-590's first device-resident LeJEPA pass among them) or, for TD-384, a CUDA host; 8 on the
+**Where things stand.** Of the 80 open items:
+- **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+  most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
 - **59 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
@@ -29,9 +29,11 @@ The order to take them in is in [Recommended Execution Order](#recommended-execu
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
-**November 22, 2026:** [TD-590](#td-590-nothing-checks-that-gpu-training-stays-on-the-device)'s code landed: host↔device copies
-and host round trips are counted (`gpu/TransferCounter.hpp`), logged per pass, and held to budget by tests for a LeJEPA batch and a
-chatbot step. Its run on ai-machine remains (the first device-resident LeJEPA workload on the Arc B60).
+**November 23, 2026:** Closed [TD-590](../archive/TECHNICAL_DEBT_RESOLVED.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device)
+(MEDIUM): host↔device copies are counted and held to budget by tests, and on ai-machine's Arc, on Level Zero, device-resident LeJEPA
+passes moved exactly that budget (the token IDs once, then one small download per text and per batch, no host round trip) with no
+engine reset in 739 passes. The first run had gone through OpenCL (`libumf.so.1` moved by an apt upgrade); the GPU test package now
+checks the Level Zero adapters and fails a run that isn't on Level Zero.
 
 **November 22, 2026:** Closed [TD-589](../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host)
 (MEDIUM): a LeJEPA pass tokenizes each text once (its IDs uploaded once on the device), and on the device its activation-saturation and
@@ -55,7 +57,7 @@ loss, variance stats and gradient on the device from one projection, leaving the
 (MEDIUM): `Predictor` has a device path (forward, backward, device weights and gradients for a `GPUOptimizer`), checked against its host
 path on the oneAPI CPU device. LeJEPA uses it from TD-588.
 
-**November 22, 2026:** Filed [TD-585](../archive/TECHNICAL_DEBT_RESOLVED.md#td-585-lejepas-predictor-has-no-gpu-path) to [TD-590](#td-590-nothing-checks-that-gpu-training-stays-on-the-device) (MEDIUM), at the owner's request, to move LeJEPA
+**November 22, 2026:** Filed [TD-585](../archive/TECHNICAL_DEBT_RESOLVED.md#td-585-lejepas-predictor-has-no-gpu-path) to [TD-590](../archive/TECHNICAL_DEBT_RESOLVED.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device) (MEDIUM), at the owner's request, to move LeJEPA
 (`--objective=lejepa`) training fully onto the GPU. It trains on the host today: only `Matrix::multiply()`'s implicit dispatch reaches the
 device, one product at a time with an upload and a download, because device-resident training was only ever built for the chatbot
 trainer and TD-342 put only the frozen world model's inference on the device. The six items take the predictor, SIGReg (directions
@@ -229,7 +231,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (81 since TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (80 since TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -287,9 +289,8 @@ None left: the last, TD-581, closed November 22, 2026.
   [TD-587](../archive/TECHNICAL_DEBT_RESOLVED.md#td-587-lejepas-view-loss-and-pooling-arithmetic-is-host-loops), the view, loss and
   pooling kernels, and [TD-588](../archive/TECHNICAL_DEBT_RESOLVED.md#td-588-lejepa-has-no-device-resident-training-step), the
   device-resident training step, and [TD-589](../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host),
-  tokenizing once and device diagnostics, closed November 22): [TD-590](#td-590-nothing-checks-that-gpu-training-stays-on-the-device) (MEDIUM; its transfer counter and
-  budget tests landed November 22, so what's left is the run on ai-machine: the GPU test package, then a timed LeJEPA pass watched for
-  engine resets).
+  tokenizing once and device diagnostics, closed November 22, and [TD-590](../archive/TECHNICAL_DEBT_RESOLVED.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device),
+  the transfer budget, closed November 23 after its ai-machine run): done.
 - [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) before [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (LOW): make `GPUMatrix` one definition, then add its shape checks and the GPU KV-cache tests once.
 - [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) (MEDIUM)'s asynchronous uploads and [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) (MEDIUM)'s vectorized update loops, measured on ai-machine (section 1).
 - [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) (MEDIUM): GPU replays match losses but not the last bits of the weights (float atomics); make the device reductions
@@ -429,7 +430,6 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
-  - [TD-590: Nothing Checks That GPU Training Stays on the Device](#td-590-nothing-checks-that-gpu-training-stays-on-the-device)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4703,53 +4703,6 @@ Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokeni
 `src/IncrementalTrainingTool.cpp`.
 
 Related: TD-574 (archived), TD-563, TD-560.
-
----
-
-### TD-590: Nothing Checks That GPU Training Stays on the Device
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — counter and budget tests landed November 22, 2026; the ai-machine run remains | GPU / Testing | November 22, 2026 | 2-3 hours, plus a run on ai-machine |
-
-Description:
-Part of moving LeJEPA training onto the GPU (see TD-585). The owner rule (October 19, 2026) is that GPU training moves nothing between
-host and device without a critical reason, but no test or counter measures transfers. This is how a LeJEPA pass could run with the GPU
-initialized while doing its math on the host, uploading and downloading around every large matrix product through `Matrix::multiply()`'s
-implicit dispatch, without anything noticing. The same check would guard the chatbot path's budget (token IDs, target IDs, the scalar
-loss, the causal mask, one float per parameter group).
-
-Action Items:
-
-- [x] Count host→device and device→host copies and bytes in `GPUManager` (`GPUMemory::copy_from_host()`/`copy_to_host()`,
-      `matrix_download_gpu()`, and the implicit dispatch in `Matrix`), readable and resettable by tests and logged per pass at debug level.
-- [x] Test (oneAPI CPU device): a LeJEPA step after TD-588/TD-589 moves only the step's scalars (the stats download) and no weights,
-      activations or gradients; a `GPUOptimizer` with 0 host groups; and no `Matrix::multiply()` implicit dispatch during the step.
-- [x] The same budget test for a chatbot training step.
-- [ ] On ai-machine: time a LeJEPA pass before and after, and watch for engine resets. LeJEPA passes have caused none in 220 runs
-      while doing their math on the host; a device-resident pass is a new GPU workload for TD-574's Arc B60 reset problem. The GPU test
-      package now carries the LeJEPA suites (`lejepaencoderTests`, `lejepaTrainingPassTests`, `sigregTests`, `predictorTests`) and
-      `gpuKernelReferenceTests`, so a package run on the Arc checks the device paths first; then deploy `incremental_trainer` and compare
-      a pass's wall time and `dmesg` engine resets with the host-path baseline.
-
-**Code fix (November 22, 2026):**
-- `src/gpu/TransferCounter.hpp` (new, backend-neutral): process-wide counts of uploads, downloads, their bytes and host round trips
-  (`transfer_stats()`, `transfer_delta()`, `reset_transfer_stats()`). Counted by `GPUMemory::copy_from_host()`/`copy_to_host()` (both
-  backends), `matrix_download_gpu()`, the SYCL host-kernel diagnostics' copies and the batch helpers' pointer arrays; a host round trip
-  by each of `Matrix::multiply_gpu()`/`add_gpu()`/`transpose_gpu()`/`scale_gpu()`/`hadamard_gpu()` (the implicit dispatch included).
-- Logged per pass at debug level by `run_lejepa_training_pass()` and `ChatbotTrainer::train()`.
-- Tests (oneAPI CPU device): `TransfersAreCounted` (gpuKernelReferenceTests); `ADeviceBatchMovesOnlyItsScalars` (lejepaencoderTests: a
-  batch of three prepared texts makes no upload, four downloads, under 4 KB, and no host round trip); `AChatbotStepMovesOnlyItsInputsAndScalars`
-  (gpuOptimizerTests: one step measured 4 uploads of 156 bytes, the IDs, targets and mask, and 2 downloads of 156 bytes, the loss and the
-  group norms; no host round trip).
-
-Location in code: `src/gpu/TransferCounter.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`, `src/gpu/GPUUtils.hpp` (`GPUMemory`),
-`src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`, `src/Matrix.cpp`, `src/ChatbotTrainer.cpp`, `src/LeJEPATrainingPass.cpp`.
-
-Files to Modify:
-
-- `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`, `src/gpu/MatrixGPU.cu`, `src/Matrix.cpp`
-- `tests/lejepa_training_pass_test.cpp`, `tests/gpu_optimizer_test.cpp`
 
 ---
 

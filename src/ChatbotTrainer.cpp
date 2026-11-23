@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.1
+// @adai-version: 0.24.2
 // @adai-reviewed: 2026-11-22
 
 #include "InitRng.hpp"
@@ -2181,8 +2181,8 @@ bool ChatbotTrainer::train(int num_epochs) {
         adai::gpu::TransferStats start = adai::gpu::transfer_stats();
         ~TrafficLog() {
             const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), start);
-            adai::Logger::debug("train(): host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
-                          d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
+            adai::Logger::info("train(): host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
+                               d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
         }
     } traffic_log;
 #endif
