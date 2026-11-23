@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.2.2
-// @adai-reviewed: 2026-11-09
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-22
 
 #include "InitRng.hpp"
 #include "FeedForward.hpp"
@@ -446,6 +446,10 @@ adai::gpu::GPUMatrix FeedForward::gpu_forward(const adai::gpu::GPUMatrix& input)
     // TODO: See TD-370 in TECHNICAL_DEBT.md - the reduction syncs the queue once per FFN per forward
     if (gpu_activation_stats_hook_) {
         gpu_activation_stats_hook_(gpu_->cached_act.count_below_threshold(0.01f));
+    }
+    if (gpu_saturation_acc_) {  // TD-589: on the device, no download
+        adai::gpu::matrix_count_below_threshold_accumulate_gpu(gpu_->cached_act.device_ptr(), seq * d_ff, 0.01f,
+                                                               gpu_saturation_acc_);
     }
 
     // output = act * W2 + b2

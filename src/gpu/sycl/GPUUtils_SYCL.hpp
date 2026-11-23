@@ -2,10 +2,11 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-383 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.2
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-11-22
 
 #include <algorithm>
+#include "../TransferCounter.hpp"  // TD-590
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -654,6 +655,7 @@ class GPUMemory {
         GPUManager::trace_kernel("upload");  // TD-574
         GPUManager::wait_for(
             GPUManager::get_queue().memcpy(device_ptr_, host_ptr, count * sizeof(T)), false);
+        note_upload(count * sizeof(T));  // TD-590
     }
 
     void copy_to_host(T* host_ptr, size_t count) const {
@@ -666,6 +668,7 @@ class GPUMemory {
         GPUManager::trace_kernel("download");  // TD-574
         GPUManager::wait_for(
             GPUManager::get_queue().memcpy(host_ptr, device_ptr_, count * sizeof(T)), false);
+        note_download(count * sizeof(T));  // TD-590
     }
 };
 

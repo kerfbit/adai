@@ -1,11 +1,11 @@
 # `TokenEmbedding` — Source File Reference
 
-- **Files:** [`src/TokenEmbedding.hpp`](../../../../src/TokenEmbedding.hpp) (277 lines), [`src/TokenEmbedding.cpp`](../../../../src/TokenEmbedding.cpp) (267 lines)
+- **Files:** [`src/TokenEmbedding.hpp`](../../../../src/TokenEmbedding.hpp) (323 lines), [`src/TokenEmbedding.cpp`](../../../../src/TokenEmbedding.cpp) (347 lines)
 - **Namespace:** global
 - **Built into:** `adai_layers`; owned by `LLMEncoder`, `LLMDecoder` and `LeJEPAEncoder` (one each; the encoder's and decoder's are separate, untied matrices)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-17` (both files)
+- **Status tag:** `@adai-status: stable`; `.hpp` `@adai-version: 1.3.0`, `.cpp` `1.4.0`, both `@adai-reviewed: 2026-11-22` (TD-588's device-ID lookup)
 - **Tests:** [`tests/tokenembedding_test.cpp`](../../../../tests/tokenembedding_test.cpp) (61 tests, `tokenembeddingTests`; all pass)
-- **Last traced against the code:** 2026-10-19
+- **Last traced against the code:** 2026-10-19; the device-ID `gpu_forward()` 2026-11-22 (TD-588)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real class (and the real `PositionalEncoding`).
 
@@ -124,3 +124,12 @@ GPU training therefore never zeroes, reads or steps the host table (TD-518's ful
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (November 22, 2026): lookup from device IDs (TD-588)
+
+A second `gpu_forward(const int* device_ids, int n, pe, pe_rows, pos_offset)` takes token IDs already on the device, so nothing crosses
+(LeJEPA builds its context view's IDs on the device). Unlike the host-ID overload it doesn't range-check the IDs, which would mean a
+download; the caller has checked them (they come from the tokenizer), and must keep the buffer alive until the matching
+`gpu_backward()`. The device state now records which IDs the last forward used (`last_ids`: its own uploaded copy, or the caller's
+buffer), and `gpu_backward()` scatters to those. It throws `std::invalid_argument` for a negative count or a null pointer with a
+positive count. Exercised by `lejepaencoderTests`' device tests (training on the device matches training on the host).

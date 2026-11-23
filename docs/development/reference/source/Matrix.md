@@ -3,10 +3,10 @@
 - **Files:** [`src/Matrix.hpp`](../../../../src/Matrix.hpp), [`src/Matrix.cpp`](../../../../src/Matrix.cpp) (1,349 lines together); SIMD detection in [`src/MatrixSIMD.hpp`](../../../../src/MatrixSIMD.hpp) ([MatrixSIMD.md](MatrixSIMD.md))
 - **Namespace:** global
 - **Built into:** `adai_core`; the numeric type of every layer, optimizer, trainer and inference engine
-- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `Matrix.cpp` and `Matrix.hpp` `@adai-version: 0.11.0`, `@adai-reviewed: 2026-11-15`
+- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `Matrix.cpp` `@adai-version: 0.12.0`, `@adai-reviewed: 2026-11-22` (TD-590 round-trip counts); `Matrix.hpp` `0.11.0`, `2026-11-17`
 - **Tests:** [`tests/matrix_test.cpp`](../../../../tests/matrix_test.cpp) (60 tests), [`tests/matrix_simd_test.cpp`](../../../../tests/matrix_simd_test.cpp) (20), [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) (13, GPU helper kernels)
 - **GPU kernels:** [MatrixGPU.md](MatrixGPU.md), [MatrixGPU_cu.md](MatrixGPU_cu.md), [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md)
-- **Last traced against the code:** 2026-10-19; the GPU initialization forwards re-traced 2026-11-15
+- **Last traced against the code:** 2026-10-19; the GPU initialization forwards re-traced 2026-11-15; the round-trip counts 2026-11-22 (TD-590)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs compiled
 > against the real `Matrix.cpp` (AVX2/FMA + OpenMP, and the portable `-march=x86-64` configuration).
@@ -152,6 +152,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
+| `operator*`'s implicit GPU dispatch uploads both operands and downloads the result on every call, and nothing counts it: a LeJEPA pass ran its math on the host this way with the GPU initialized (filed November 22, 2026) | Host↔device traffic the owner rule forbids, invisible to tests | By inspection | [TD-590](../../guides/TECHNICAL_DEBT.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device) |
 | `operator*`'s OpenMP gate is `rows > 64`, so ≤ 64-row products (training samples, decode steps) run single-threaded (§3) | 2–6× slower CPU matmuls on the common shapes | **Verified** (timing) | [TD-434](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
 | Portable builds have no SIMD matmul; AVX2 is compile-time only (§3) | 7–10× slower `operator*` in `portable` binaries | **Verified** (timing) | [TD-434](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) |
 | `operator()` is out-of-line and bounds-checked (§2) | 2.4× slower element access in hot loops that use it | **Verified** (timing) | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
@@ -199,3 +200,11 @@ kernel. 64×512×2048 went from 15.4 to 2.7 ms native and from 161 to 2.6 ms por
 ## TD-368 addendum (November 9, 2026)
 
 `randomize()` takes a fresh generator seeded from `adai::next_init_seed()` for each call, so `SEED` replays it and the old static-generator race is gone.
+
+## Addendum (November 22, 2026): host round trips are counted (TD-590)
+
+`multiply_gpu()`, `add_gpu()`, `transpose_gpu()`, `scale_gpu()` and `hadamard_gpu()` each count a host round trip
+(`adai::gpu::note_host_round_trip()`, [GPUUtils.md](GPUUtils.md)) once they commit to the device, on top of the uploads and download
+their `GPUMemory` copies count. `operator*`'s implicit dispatch goes through `multiply_gpu()`, so a test can assert that device
+training sends no host `Matrix` operation to the device (`host_round_trips` = 0); the LeJEPA and chatbot budget tests do. Nothing
+limits the dispatch; it's still how a host-path caller with a GPU initialized gets its large products done.

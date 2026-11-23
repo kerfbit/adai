@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.0
-// @adai-reviewed: 2026-11-14
+// @adai-version: 0.24.1
+// @adai-reviewed: 2026-11-22
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -2175,6 +2175,17 @@ void ChatbotTrainer::backfill_generation_quality() {
 // New methods for incremental training support
 
 bool ChatbotTrainer::train(int num_epochs) {
+#ifdef ADAI_ENABLE_GPU
+    // TD-590: what this pass moved between host and device, at debug level, however train() returns.
+    struct TrafficLog {
+        adai::gpu::TransferStats start = adai::gpu::transfer_stats();
+        ~TrafficLog() {
+            const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), start);
+            adai::Logger::debug("train(): host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
+                          d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
+        }
+    } traffic_log;
+#endif
     config.num_epochs = num_epochs;
     was_aborted_ = false;
     device_lost_ = false;  // TD-566

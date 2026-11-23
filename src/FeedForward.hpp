@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-22
 
 
 #include <vector>
@@ -94,6 +94,7 @@ class FeedForward {
 #ifdef ADAI_ENABLE_GPU
     // GPU-path equivalent, fired after GELU in gpu_forward() (see GPUActivationStatsHookFn).
     GPUActivationStatsHookFn gpu_activation_stats_hook_;
+    float* gpu_saturation_acc_ = nullptr;  // TD-589: device [sum, count], or nullptr
 #endif
 
    public:
@@ -278,6 +279,15 @@ class FeedForward {
 
     void clear_gpu_activation_stats_hook() {
         gpu_activation_stats_hook_ = nullptr;
+    }
+
+    /**
+     * TD-589: the same statistic accumulated on the device, for training that reads its diagnostics once
+     * per epoch: every gpu_forward() adds the fraction of post-GELU elements with |x| < 0.01 to acc[0] and
+     * 1 to acc[1], two device floats. nullptr (the default) turns it off. Nothing is downloaded.
+     */
+    void set_gpu_saturation_accumulator(float* acc) {
+        gpu_saturation_acc_ = acc;
     }
 
     struct GPUState {

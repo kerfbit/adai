@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: experimental
-# @adai-version: 0.8.1
+# @adai-version: 0.9.0
 # @adai-reviewed: 2026-11-22
 
 # Runs the packaged SYCL GPU tests on the GPU host (ai-machine) and packs the results into one
@@ -616,7 +616,7 @@ if [[ $RUN_TESTS == 1 && -z "${FATAL_NO_DEVICE:-}" ]]; then
         TESTS=(deviceSelectionTests gpuutilsTests matrixgpuTd003Tests gpuKernelReferenceTests gpuOptimizerTests matrixTests
             feedforwardTests multiheadattentionTests crossattentionTests encoderdecoderTests initRngTests
             generationQualityAsyncTests chatbottrainerTests incrementaltrainerTests chatbotapiTests
-            gpuDebugSyncTests)
+            gpuDebugSyncTests lejepaencoderTests lejepaTrainingPassTests sigregTests predictorTests)
     fi
     for test in "${TESTS[@]}"; do
         [[ -x "$BIN/$test" ]] || {

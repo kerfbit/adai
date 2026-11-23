@@ -3,7 +3,7 @@
 - **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 676 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.12.2`, `@adai-reviewed: 2026-11-22` (a stale TD-394 comment removed)
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-22` (TD-590 transfer counts)
 - **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (28 tests in a SYCL build, all run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (one skips with a device present), including TD-392's `EmptyGPUMemoryIsValid`; the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
 - **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); §3's zero-size case 2026-11-18 (TD-392)
 
@@ -161,3 +161,9 @@ once, so the pass fails as on a lost device instead of hanging; later waits thro
 to process exit rather than waiting on it. A wait inside the SYCL or Level Zero runtime itself isn't covered; its teardown at exit
 blocked on the stuck work on the Level Zero v1 adapter, so `incremental_trainer` and `chatbot_api_server` end without it once a
 wait has timed out (`gpu_work_stuck()`, `exit_without_gpu_teardown()`).
+
+## Addendum (November 22, 2026): transfers are counted (TD-590)
+
+`GPUMemory::copy_from_host()`/`copy_to_host()` count an upload or a download through `src/gpu/TransferCounter.hpp`
+([GPUUtils.md](GPUUtils.md) has the counter); so do `matrix_download_gpu()`, the host-kernel diagnostics' `host_copy_of()`/
+`device_copy_of()` and the batch helpers' pointer-array copies in `MatrixGPU_SYCL.cpp`. Device-to-device copies don't.

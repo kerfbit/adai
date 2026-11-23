@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.3
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-22
 
 #include <memory>
 #include <random>
@@ -21,6 +21,7 @@
 #include "TokenEmbedding.hpp"
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/MatrixGPU.hpp"
+class GPUOptimizer;
 #endif
 
 /**
@@ -163,6 +164,10 @@ class LeJEPAEncoder {
      */
     LeJEPAEncoder(int vocab_size, int d_model = 512, int num_layers = 6, int num_heads = 8,
                   int d_ff = 2048, int max_seq_length = 512, int sigreg_num_sketches = 64);
+    /// Defined in the .cpp, where GPUOptimizer is a complete type (TD-588).
+    ~LeJEPAEncoder();
+    LeJEPAEncoder(const LeJEPAEncoder&) = delete;
+    LeJEPAEncoder& operator=(const LeJEPAEncoder&) = delete;
 
     /**
      * Encode one view of input text to contextualized embeddings — same shape contract as
@@ -208,8 +213,26 @@ class LeJEPAEncoder {
      * get_last_masking_ratio(), get_last_predictor_target_cosine_sim() and
      * get_last_gradient_norm() average over the trained texts; the SIGReg variance stats
      * describe the pooled batch.
+     *
+     * TD-588: after gpu_begin_training() (GPU builds), this runs on the device (gpu_train_batch()).
      */
     BatchStepResult train_batch(const std::vector<std::string>& texts);
+
+    /**
+     * TD-589: tokenizes a pass's texts once (truncation and skips as train_batch()), so every epoch trains
+     * them with train_prepared() instead of tokenizing again. On the device their IDs are uploaded once,
+     * when training first needs them, and stay there for the pass.
+     */
+    void prepare_texts(const std::vector<std::string>& texts);
+    /**
+     * TD-589: train_batch() for the prepared texts [first, last): host or device as train_batch() is.
+     * `trained` counts from first (0 = text `first`), like train_batch()'s indices into its batch.
+     */
+    BatchStepResult train_prepared(size_t first, size_t last);
+    /// How many texts this encoder has tokenized for training (TD-589's once-per-pass check).
+    std::size_t texts_tokenized() const {
+        return texts_tokenized_;
+    }
 
     /** λ weighting SIGReg's gradient contribution against the predictor's own, inside
      *  train_step(). Corresponds to the plan's WORLD_MODEL_SIGREG_LAMBDA config key
@@ -250,6 +273,10 @@ class LeJEPAEncoder {
     /// Seeds the masked-span placement (tests; production draws from adai::next_init_seed()).
     void seed_span_rng(unsigned seed) {
         span_rng_.seed(seed);
+    }
+    /// Seeds SIGReg's directions (tests; production draws from adai::next_init_seed()).
+    void seed_sigreg(std::uint32_t seed) {
+        sigreg->set_seed(seed);
     }
 
     void set_requires_grad(bool requires_grad);
@@ -379,8 +406,68 @@ class LeJEPAEncoder {
      */
     adai::gpu::GPUMatrix gpu_encode(const std::string& text);
 
+    /**
+     * TD-588: train on the device from here on. Uploads every weight (embedding, blocks, final norm,
+     * predictor) and binds a GPUOptimizer to the optimizer given to register_parameters_with_optimizer()
+     * (which must come first; std::logic_error otherwise). From then on train_batch() runs on the device
+     * and the device weights and optimizer moments are the live copy: call sync_host_from_device()
+     * before save() and when training ends. Returns the number of optimizer groups left on the host
+     * (0 expected).
+     */
+    std::size_t gpu_begin_training();
+    /// True after gpu_begin_training().
+    bool gpu_training() const {
+        return gpu_optimizer_ != nullptr;
+    }
+    /// TD-588: copies the device weights and optimizer moments to the host (no-op unless training on the
+    /// device).
+    void sync_host_from_device();
+    /**
+     * TD-588: train_batch() on the device, for texts already tokenized (each at least 2 IDs, at most
+     * max_seq_length, all in the vocabulary). Same semantics: phase 1 pools every target view into
+     * SIGReg's batch, phase 2 trains each text (context view, both encoder passes, predictor, masked
+     * loss, backward through both views, one optimizer step). Only the token IDs go up, once per batch,
+     * and the results come down once per batch; the optimizer downloads one float per group per step.
+     * Requires gpu_begin_training(). `trained` in the result counts 0..ids.size()-1.
+     */
+    BatchStepResult gpu_train_batch(const std::vector<std::vector<int>>& ids);
+
+    /**
+     * TD-589: accumulate the encoder blocks' activation saturation into acc[0..1] and their attention
+     * entropy into acc[2..3] ([sum, count] each, four device floats) during device training; nullptr
+     * turns it off. Read them with one download when needed (the LeJEPA pass: once per epoch).
+     */
+    void set_gpu_diagnostics(float* acc);
+
    private:
     bool gpu_weights_current_ = false;
     std::unique_ptr<adai::gpu::GPUMatrix> gpu_pe_;
+    std::unique_ptr<GPUOptimizer> gpu_optimizer_;
+    std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_ids_;      // the batch's token IDs, one upload
+    std::size_t gpu_ids_capacity_ = 0;
+    std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_ctx_ids_;  // one text's context view
+    std::size_t gpu_ctx_capacity_ = 0;
+    std::unique_ptr<adai::gpu::GPUMemory<float>> gpu_stats_;  // sigreg loss, var mean/stddev, losses, cosines
+    std::size_t gpu_stats_capacity_ = 0;
+    std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_prepared_;  // TD-589: every prepared text's IDs
+    std::vector<int> prepared_offset_;                         // each prepared text's start in gpu_prepared_
+    BatchStepResult gpu_train_core(const std::vector<int>& lengths, const std::vector<const int*>& device_ids);
+    void gpu_ensure_weights();
+    adai::gpu::GPUMatrix gpu_encode_ids(const int* device_ids, int n);
+    void gpu_backward(const adai::gpu::GPUMatrix& grad_output);
+    void gpu_zero_grads();
 #endif
+   private:
+    /// The masked span for one text: shared by the host and device steps, so both draw the same spans.
+    void choose_span(int seq_len, int& span_start, int& span_len);
+    /// train_batch()'s tokenization: truncated IDs for every text that can be trained, its index in
+    /// `trained`.
+    std::vector<std::vector<int>> tokenize_batch(const std::vector<std::string>& texts, std::vector<size_t>& trained);
+    /// One text's training IDs (truncated); false when it can't be trained (untokenizable, < 2 IDs).
+    bool tokenize_one(const std::string& text, std::vector<int>& ids);
+    /// The host step for tokenized texts.
+    BatchStepResult train_ids_host(const std::vector<std::vector<int>>& batch_ids);
+    std::vector<std::vector<int>> prepared_ids_;  // TD-589: prepare_texts()'s IDs, by text
+    std::vector<bool> prepared_ok_;
+    std::size_t texts_tokenized_ = 0;
 };

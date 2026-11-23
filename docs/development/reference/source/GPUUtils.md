@@ -3,7 +3,7 @@
 - **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 492 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`), plus the `CUDA_CHECK`/`CUBLAS_CHECK` macros
 - **Built into:** every GPU-enabled target via `adai_gpu`; the no-GPU stub is used by every other build
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.14.0`, `@adai-reviewed: 2026-11-15`
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.15.0`, `@adai-reviewed: 2026-11-22` (TD-590 transfer counts)
 - **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (19 tests; 9 need a CUDA device and skip without one)
 - **SYCL counterpart:** `src/gpu/sycl/GPUUtils_SYCL.hpp` (documented separately)
 - **Last traced against the code:** 2026-11-13 (the TD-574 addendum); `initialize()`'s priority and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default)
@@ -178,3 +178,12 @@ creates the stream with the default priority, which CUDA also makes the lowest. 
 `ServiceConfig::gpu_strategy` (`GPUStrategy::NORMAL`). On the Arc B60, at no hint and at high priority none of 100 passes was
 reset, against 34 of 60 at low priority (TD-574's priority run). On CUDA this changes nothing in scheduling, since the default
 stream priority is also the lowest.
+
+## Addendum (November 22, 2026): transfers are counted (TD-590)
+
+`src/gpu/TransferCounter.hpp` (new, backend-neutral) keeps process-wide counts: `uploads`/`upload_bytes`, `downloads`/`download_bytes`
+and `host_round_trips` (host `Matrix` operations sent to the device and back), read with `transfer_stats()`, compared with
+`transfer_delta()` and cleared with `reset_transfer_stats()`. Relaxed atomics: counts, not ordering. `GPUMemory::copy_from_host()` counts an upload and `copy_to_host()` a download (bytes = count × `sizeof(T)`), in
+this CUDA header and in the SYCL one ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)); the CUDA `matrix_download_gpu()` and the batch helpers'
+pointer arrays count too. Device-to-device copies don't. Tests: `gpuKernelReferenceTests`' `TransfersAreCounted` and the budget tests
+in `gpuOptimizerTests` and `lejepaencoderTests`.

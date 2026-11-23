@@ -2,13 +2,14 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (capped by TD-383; CUDA paths never run on a device — see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-11-17
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-22
 
 #include <cstddef>
 #include <stdexcept>
 #include <string>
 #include "QueuePriority.hpp"
+#include "TransferCounter.hpp"  // TD-590
 
 namespace adai {
 namespace gpu {
@@ -590,6 +591,7 @@ class GPUMemory {
         }
         CUDA_CHECK(cudaMemcpyAsync(device_ptr_, host_ptr, count * sizeof(T), cudaMemcpyHostToDevice,
                                    GPUManager::get_stream()));
+        note_upload(count * sizeof(T));  // TD-590
     }
 
     /**
@@ -606,6 +608,7 @@ class GPUMemory {
         // Synchronize immediately so callers treating this as a blocking copy
         // still see correct data (matching the previous synchronous behaviour).
         CUDA_CHECK(cudaStreamSynchronize(GPUManager::get_stream()));
+        note_download(count * sizeof(T));  // TD-590
     }
 };
 

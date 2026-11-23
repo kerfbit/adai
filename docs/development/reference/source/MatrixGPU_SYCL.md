@@ -1,10 +1,10 @@
 # `gpu/sycl/MatrixGPU_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 282 lines)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 316 lines)
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, the SYCL `GPUMatrix`)
 - **Built into:** SYCL builds; included by `gpu/MatrixGPU.hpp` in place of its CUDA section. Kernels in [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md); queue and memory in [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** the CUDA section of [MatrixGPU.md](MatrixGPU.md) (`gpu/MatrixGPU.hpp`), which also holds the shared `GPUKVCache`/`GPUDecoderKVCache`
-- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.17.0`, `@adai-reviewed: 2026-11-14`
+- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.20.0`, `@adai-reviewed: 2026-11-22` (TD-586's SIGReg, TD-587's LeJEPA and TD-589's accumulator declarations)
 - **Last traced against the code:** 2026-11-14 (the TD-574 wait timeout)
 
 > Code-traced reference. The `GPUMatrix` here, and the shared `GPUKVCache`/`GPUDecoderKVCache`

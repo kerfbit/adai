@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-504 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-22
 
 // TD-175 (LJ-1a): Sketched Isotropic Gaussian Regularization (SIGReg), from the LeJEPA paper
 // (arXiv:2511.08544) — see docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 3
@@ -19,6 +19,13 @@
 // compute_loss()/backward(), which then share that draw), from a seedable RNG. Fixed directions
 // constrained only their num_sketches-dimensional span, so collapse elsewhere went unpenalized.
 //
+// TD-586: a draw is a pure function of (seed, draw number), adai::sigreg_direction_raw() in
+// SIGRegMath.hpp, so the host and the GPU build the same directions independently. resample_directions()
+// only advances the draw number; the host matrix is built when a host method first needs it, and the
+// device copy (GPU builds) by a kernel when gpu_compute() first needs it, so device training neither
+// computes nor uploads directions on the host. The loss, its gradient and the variance stats also run
+// on the device there (gpu_compute()), from one projection shared by all three.
+//
 // TD-503: compute_loss() is the unbiased estimator of the squared characteristic-function gap.
 // The plain |phi_hat - phi|^2 has an expected floor of (1 - |phi_P|^2)/n, which made a true
 // Gaussian score higher for shorter sequences (n = one text's tokens) and the logged loss track
@@ -28,15 +35,18 @@
 // Design note (this implementation's specific characteristic-function test): the LeJEPA paper's
 // own SIGReg formulation integrates the squared characteristic-function gap over a continuous
 // range of frequencies. This implementation discretizes that integral to a small fixed set of
-// representative frequencies (see `SIGReg.cpp`'s `kFrequencies`) for tractability — a standard
+// representative frequencies (`adai::sigreg_frequency()` in `SIGRegMath.hpp`) for tractability — a standard
 // simplification for characteristic-function-based normality tests (e.g. the Epps-Pulley test
 // uses the same idea, just with a different frequency-weighting choice). The
 // isotropic-Gaussian-near-zero / degenerate-batch-large behavior this regularizer is meant to
 // have holds under this simplification too — see `tests/sigreg_test.cpp`.
 
 #include <cstdint>
-#include <random>
+#include <memory>
 #include "Matrix.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * @brief Sketched Isotropic Gaussian Regularization (SIGReg).
@@ -62,12 +72,12 @@ class SIGReg {
      */
     explicit SIGReg(int d_model, int num_sketches = 64);
 
-    /** TD-502: draws a new set of unit directions. Call once per training step, before that
-     *  step's compute_loss()/backward() (and compute_variance_stats()), which all use the current
-     *  draw. */
+    /** TD-502: moves to a new set of unit directions. Call once per training step, before that
+     *  step's compute_loss()/backward() (and compute_variance_stats(), or gpu_compute()), which all
+     *  use the current draw. TD-586: only advances the draw number; nothing is computed here. */
     void resample_directions();
 
-    /** TD-502: reseeds the direction RNG (seeded from adai::next_init_seed() at construction) and
+    /** TD-502: reseeds the directions (seeded from adai::next_init_seed() at construction) and
      *  redraws, so runs and tests can be reproduced. */
     void set_seed(std::uint32_t seed);
 
@@ -93,6 +103,7 @@ class SIGReg {
     /** The current draw, [d_model, num_sketches], one unit direction per column (tests and
      *  diagnostics). */
     const Matrix& get_directions() const {
+        ensure_host_directions();
         return directions_;
     }
     int get_d_model() const {
@@ -120,10 +131,29 @@ class SIGReg {
      */
     VarianceStats compute_variance_stats(const Matrix& embeddings) const;
 
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * TD-586: compute_loss() and compute_variance_stats() on the device, with backward() when
+     * @p grad is given, from one projection: out_device[0] = the loss, [1] = the variance mean,
+     * [2] = the variance stddev (three device floats; nothing is downloaded). *grad is replaced by a
+     * [rows, d_model] device matrix. The directions are built on the device for the current draw.
+     * Throws std::invalid_argument when x's width isn't d_model or it has no rows.
+     */
+    void gpu_compute(const adai::gpu::GPUMatrix& x, float* out_device, adai::gpu::GPUMatrix* grad = nullptr);
+#endif
+
    private:
     int d_model_;
     int num_sketches_;
-    Matrix directions_;  // [d_model, num_sketches] — each column a unit-norm direction, redrawn by
-                         // resample_directions() (TD-502).
-    std::mt19937 rng_;
+    std::uint64_t seed_;
+    std::uint64_t draw_ = 0;  // the current draw number (TD-586)
+    // [d_model, num_sketches], each column a unit-norm direction for draw host_draw_; built by
+    // ensure_host_directions() when a host method needs the current draw (TD-586).
+    mutable Matrix directions_;
+    mutable std::uint64_t host_draw_ = ~0ull;
+    void ensure_host_directions() const;
+#ifdef ADAI_ENABLE_GPU
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_directions_;  // [d_model, num_sketches] for gpu_draw_
+    std::uint64_t gpu_draw_ = ~0ull;
+#endif
 };

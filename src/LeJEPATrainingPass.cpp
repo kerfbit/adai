@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-11-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-22
 
 // TD-566: the LeJEPA world-model pass, moved out of IncrementalTrainingTool.cpp so it can be tested
 // (lejepaTrainingPassTests), and given the chatbot pass's GPU-loss handling.
@@ -153,6 +153,13 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
 
     Optimizer optimizer(OptimizerType::ADAM, svc_config.learning_rate);
     world_model.register_parameters_with_optimizer(optimizer);
+#ifdef ADAI_ENABLE_GPU
+    // TD-588: with a GPU in use, the world model trains on the device: weights, gradients and Adam's
+    // moments stay there, and sync_host_from_device() brings them back before each save.
+    if (adai::gpu::GPUManager::is_available()) {
+        world_model.gpu_begin_training();
+    }
+#endif
 
     // TD-415: a run id kept with the world-model checkpoint, so a pass restarted after a crash,
     // kill or SIGTERM reclaims the files the last one claimed (registries hand a claim back to the
@@ -213,6 +220,11 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         cleanup_downloads(downloaded_paths);  // empty unless files were downloaded
         return 1;
     }
+    // TD-589: tokenized once for every epoch (and, on the device, uploaded once).
+    world_model.prepare_texts(texts);
+#ifdef ADAI_ENABLE_GPU
+    const adai::gpu::TransferStats pass_traffic_start = adai::gpu::transfer_stats();  // TD-590
+#endif
     if (control) {
         control->total_epochs = epochs;
         control->current_epoch = 0;
@@ -294,6 +306,9 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
             control->set_phase(adai::TrainerPhase::Checkpointing);
         bool saved = false;
         try {
+#ifdef ADAI_ENABLE_GPU
+            world_model.sync_host_from_device();  // TD-588: no-op unless training on the device
+#endif
             world_model.save(world_model_dir);
             saved = true;
             if (control) {
@@ -346,6 +361,17 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     int sat_count = 0;
     float ent_sum = 0.0f;
     int ent_count = 0;
+    // TD-589: on the device the host hooks below never fire (they take host matrices); the blocks accumulate
+    // the same two statistics on the device instead, read with one download per epoch. Only measured when
+    // something reports them.
+    [[maybe_unused]] const bool measure_diagnostics = metrics_client != nullptr || static_cast<bool>(hooks.epoch_diagnostics);
+#ifdef ADAI_ENABLE_GPU
+    std::unique_ptr<adai::gpu::GPUMatrix> device_diagnostics;  // [saturation sum, count, entropy sum, count]
+    if (measure_diagnostics && world_model.gpu_training()) {
+        device_diagnostics = std::make_unique<adai::gpu::GPUMatrix>(1, 4);
+        world_model.set_gpu_diagnostics(device_diagnostics->device_ptr());
+    }
+#endif
     auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
         const int total = activated.rows * activated.cols;
         if (total <= 0) {
@@ -401,6 +427,10 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         sat_count = 0;
         ent_sum = 0.0f;
         ent_count = 0;
+#ifdef ADAI_ENABLE_GPU
+        if (device_diagnostics)
+            device_diagnostics->zero();
+#endif
         double epoch_masking_ratio_sum = 0.0;
         double epoch_cosine_sim_sum = 0.0;
         double epoch_sigreg_variance_mean_sum = 0.0;
@@ -428,14 +458,13 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                     control->mark_checkpoint_served(ticket);  // TD-521
             }
             const size_t last = std::min(texts.size(), first + batch_size);
-            const std::vector<std::string> batch(texts.begin() + static_cast<std::ptrdiff_t>(first),
-                                                 texts.begin() + static_cast<std::ptrdiff_t>(last));
+            const size_t batch_count = last - first;
             const auto step_start = std::chrono::steady_clock::now();
             LeJEPAEncoder::BatchStepResult result;
             try {
                 if (hooks.before_batch)
                     hooks.before_batch(first / batch_size);
-                result = world_model.train_batch(batch);
+                result = world_model.train_prepared(first, last);  // TD-589: tokenized once per pass
             } catch (const std::exception& e) {
                 if (!device_usable()) {  // TD-566
                     adai::Logger::error(
@@ -443,20 +472,20 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                     device_lost = true;
                     break;
                 }
-                adai::Logger::warn("[lejepa] Skipping batch of {} ({})", batch.size(), e.what());
-                sample_idx += static_cast<int>(batch.size());
+                adai::Logger::warn("[lejepa] Skipping batch of {} ({})", batch_count, e.what());
+                sample_idx += static_cast<int>(batch_count);
                 continue;
             }
             epoch_train_step_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
                                        std::chrono::steady_clock::now() - step_start)
                                        .count();
-            if (result.trained.size() < batch.size()) {
+            if (result.trained.size() < batch_count) {
                 adai::Logger::warn(
                     "[lejepa] Skipped {} of {} samples in a batch (too short or "
                     "untokenizable)",
-                    batch.size() - result.trained.size(), batch.size());
+                    batch_count - result.trained.size(), batch_count);
             }
-            sample_idx += static_cast<int>(batch.size());
+            sample_idx += static_cast<int>(batch_count);
             for (size_t k = 0; k < result.trained.size(); ++k) {
                 const float predictor_loss = result.predictor_losses[k];
                 // The batch's SIGReg loss and diagnostics count once per trained text, so the
@@ -528,6 +557,20 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                 if (std::isfinite(avg) && (!std::isfinite(best) || avg < best))
                     control->best_loss = avg;
             }
+        }
+#ifdef ADAI_ENABLE_GPU
+        if (device_diagnostics) {  // TD-589: the epoch's diagnostics, in one download
+            float d[4];
+            device_diagnostics->download(d, 4);
+            sat_sum = d[0];
+            sat_count = static_cast<int>(d[1] + 0.5f);
+            ent_sum = d[2];
+            ent_count = static_cast<int>(d[3] + 0.5f);
+        }
+#endif
+        if (hooks.epoch_diagnostics) {
+            hooks.epoch_diagnostics(sat_count > 0 ? sat_sum / static_cast<float>(sat_count) : -1.0f,
+                                    ent_count > 0 ? ent_sum / static_cast<float>(ent_count) : -1.0f);
         }
         if (metrics_client && epoch_step_count > 0) {
             const float avg_predictor_loss =
@@ -640,6 +683,13 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         return adai::kResumeExitFailed;
     }
 
+#ifdef ADAI_ENABLE_GPU
+    {  // TD-590: what the pass moved between host and device
+        const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), pass_traffic_start);
+        adai::Logger::debug("[lejepa] host<->device traffic: {} uploads ({} bytes), {} downloads ({} bytes), {} host round trips",
+                            d.uploads, d.upload_bytes, d.downloads, d.download_bytes, d.host_round_trips);
+    }
+#endif
     bool ok = step_count > 0;
     if (ok) {
         adai::Logger::info(
@@ -650,6 +700,9 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         // They used to be marked first, so a failed save (it throws) lost the pass's training while
         // the registry said the data was done; the files now go back to the pool.
         try {
+#ifdef ADAI_ENABLE_GPU
+            world_model.sync_host_from_device();  // TD-588: no-op unless training on the device
+#endif
             world_model.save(world_model_dir);
             adai::Logger::info("[lejepa] World-model checkpoint saved to '{}'", world_model_dir);
         } catch (const std::exception& e) {

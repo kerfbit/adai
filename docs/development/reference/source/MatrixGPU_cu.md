@@ -1,10 +1,10 @@
 # `gpu/MatrixGPU.cu` — Source File Reference
 
-- **File:** [`src/gpu/MatrixGPU.cu`](../../../../src/gpu/MatrixGPU.cu) (1,063 lines, CUDA)
+- **File:** [`src/gpu/MatrixGPU.cu`](../../../../src/gpu/MatrixGPU.cu) (1,787 lines, CUDA)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in CUDA builds (`ENABLE_GPU`, the `gpu` preset). The free functions are declared in `src/gpu/MatrixGPU.hpp` (documented separately), which also defines `GPUMatrix` on top of them
 - **SYCL counterpart:** `src/gpu/sycl/MatrixGPU_SYCL.cpp`. The training kernels here were ported from it "formula-for-formula", so most findings apply to both (see §4)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.9.2`, `@adai-reviewed: 2026-10-17` (TD-384 barriers, TD-382 cuBLAS lock)
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.18.0`, `@adai-reviewed: 2026-11-22` (TD-586 SIGReg, TD-587 LeJEPA and TD-589 accumulator kernels; earlier TD-384 barriers, TD-382 cuBLAS lock)
 - **Tests:** none run real kernels in any environment used so far. `matrixgpuTd003Tests` and, since November 22, 2026, `gpuKernelReferenceTests` (every `matrix_*_gpu` against a CPU reference, TD-394) build in `build/cuda-gputest` and skip without a device; on a CUDA host they check this file against the same references the SYCL backend passes
 - **Last traced against the code:** 2026-10-19
 
@@ -181,3 +181,27 @@ CPU's first maximum) by a strided scan and a tree reduction in local memory, and
 outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
 Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
 and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.
+
+## Addendum (November 22, 2026): SIGReg kernels (TD-586)
+
+The CUDA versions of the SYCL backend's `sigreg_directions_gpu()`, `sigreg_terms_gpu()` and `sigreg_finish_gpu()` (see
+[MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md)), with the same structure: a block per direction, `sigreg_reduce2()` for the paired
+block sums (`__syncthreads()` after each read of the result, TD-384), and the formulas from `SIGRegMath.hpp` (`__host__ __device__`).
+They compile in `build/cuda-gputest`; with no CUDA device here they haven't run.
+
+## Addendum (November 22, 2026): LeJEPA view, loss and pooling kernels (TD-587)
+
+CUDA versions of the SYCL backend's `lejepa_context_ids_gpu()` (the context view's IDs from the target's, the span set to the unk ID), `lejepa_masked_mse_gpu()` (one work-group
+per row: rows outside the span get zero gradients; masked rows get `±2·diff/(span_len·d_model)` and their squared error, dot product
+and norms, reduced together; then one work-group sums the span's rows in a fixed order into `*loss_out` and the mean cosine into
+`*cos_out`, both device floats, so each text's values stay addressable for TD-589's stats buffer), `lejepa_mean_pool_gpu()` (column
+means of one text's rows into one row of the SIGReg batch) and `lejepa_add_row_broadcast_gpu()` (adds a scaled row to every row: the
+pooled SIGReg gradient spread back over a text). Same structure, with `sigreg_reduce2()` reused for the final two-value sum. They
+compile in `build/cuda-gputest`; with no CUDA device here they haven't run.
+
+## Addendum (November 22, 2026): device-accumulating diagnostics (TD-589)
+
+CUDA versions (`atomicAdd`) of `matrix_count_below_threshold_accumulate_gpu(data, size, threshold, acc)` (adds the fraction below the threshold to `acc[0]` and 1 to
+`acc[1]`) and `matrix_mean_accumulate_gpu(data, n, weight, count_increment, acc)` (adds `weight · mean` and `count_increment`): a bounded
+grid (at most 1,024 work-groups, grid-stride), each group reducing its share and adding one partial with a float atomic. Diagnostics
+only, so the atomics' order doesn't matter. Compiled in `build/cuda-gputest`; the SYCL versions are tested in `gpuKernelReferenceTests` (`DiagnosticAccumulatorsAddOnTheDevice`).

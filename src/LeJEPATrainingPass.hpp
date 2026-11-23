@@ -18,7 +18,7 @@
 
 namespace adai {
 
-/// Ways to observe or steer a LeJEPA pass. Both are empty in production.
+/// Ways to observe or steer a LeJEPA pass. All are empty in production.
 struct LeJEPAPassHooks {
     /// TD-566: after a batch fails, whether the GPU still runs work. Empty means the real check
     /// (GPUManager::device_usable() when a GPU is in use; always true in a CPU build).
@@ -26,6 +26,9 @@ struct LeJEPAPassHooks {
     /// Called before each batch with its index within the epoch; a test throws from it to make that
     /// batch fail as a GPU error would.
     std::function<void(std::size_t)> before_batch;
+    /// TD-589: called after each epoch with its average activation saturation and attention entropy (-1 when
+    /// none was measured), the values pushed to the metrics server. Setting it measures them without one.
+    std::function<void(float saturation, float entropy)> epoch_diagnostics;
 };
 
 /// One LeJEPA pass: claims pending files, trains the world model in `world_model_dir` for `epochs`

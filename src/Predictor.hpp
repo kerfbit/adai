@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: beta
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-22
 
 #include <memory>
 #include <string>
+#include <vector>
 #include "FeedForward.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
@@ -29,11 +30,20 @@
  * consumed by the gated cross-attention injection point (Component 4); the predictor's job ends
  * with pretraining.
  */
+/*
+ * TD-585: in GPU builds the predictor also runs on the device (gpu_forward()/gpu_backward(), with
+ * device weight and gradient mirrors), delegating to FeedForward's own GPU path, for LeJEPA training on
+ * the device (TD-588).
+ */
 class Predictor {
    private:
     std::unique_ptr<FeedForward> net_;  // d_model -> hidden_dim -> d_model
     int d_model_;
     int hidden_dim_;
+#ifdef ADAI_ENABLE_GPU
+    bool gpu_current_ = false;    // the device mirror holds the host weights (cleared by load())
+    int gpu_forward_rows_ = -1;  // rows of the last gpu_forward(), -1 before any (gpu_backward() needs one)
+#endif
 
    public:
     /**
@@ -86,4 +96,27 @@ class Predictor {
     int get_hidden_dim() const {
         return hidden_dim_;
     }
+
+#ifdef ADAI_ENABLE_GPU
+    // TD-585: the device path, delegating to FeedForward's. The device weights are uploaded on first
+    // use and again after load(); while training on the device they are the live copy, and
+    // gpu_download_weights() brings them back to the host (before save()).
+
+    /** forward() on the device: [rows, d_model] -> [rows, d_model]. Throws std::invalid_argument when
+     *  the input's width isn't d_model. */
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& context_embedding);
+    /** backward() on the device: adds to the device gradients and returns the gradient w.r.t. the
+     *  last gpu_forward()'s input. Throws std::logic_error before any gpu_forward(), and
+     *  std::invalid_argument when the shape differs from that call's output. */
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& grad_output);
+    /** Copies the host weights to the device. */
+    void gpu_upload_weights();
+    /** Copies the device weights to the host (no-op before any upload). */
+    void gpu_download_weights();
+    /** Zeroes the device gradients (uploading first if needed, so they exist). */
+    void gpu_zero_grads();
+    /** Appends this predictor's device parameters (W1, W2, b1, b2) for a GPUOptimizer, keyed by the
+     *  same host matrices register_parameters_with_optimizer() registers; uploads first if needed. */
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+#endif
 };

@@ -1,12 +1,12 @@
 # `gpu/sycl/MatrixGPU_SYCL.cpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,303 lines, SYCL/oneMKL)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,668 lines, SYCL/oneMKL)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-395), `@adai-version: 0.18.1`, `@adai-reviewed: 2026-11-22` (TD-394 closed)
-- **Tests:** [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (17, every `matrix_*_gpu` against a CPU reference, all pass on the oneAPI CPU device; 1 disabled, below); `matrixgpuTd003Tests` (22), `gpuOptimizerTests` (19), `gpuDebugSyncTests` (19); all skip without a device, and run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (`build/sycl-cpudev`)
+- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-395), `@adai-version: 0.21.0`, `@adai-reviewed: 2026-11-22` (TD-586 SIGReg kernels, TD-587 LeJEPA kernels, TD-589 accumulators)
+- **Tests:** [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (21: every `matrix_*_gpu` against a CPU reference, TD-587's LeJEPA kernels and TD-589's accumulators; all pass on the oneAPI CPU device; 1 disabled, below); `matrixgpuTd003Tests` (22), `gpuOptimizerTests` (19), `gpuDebugSyncTests` (19); all skip without a device, and run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (`build/sycl-cpudev`)
 - **Last traced against the code:** 2026-11-14 (the TD-574 addenda; §2–§5 describe the October 17–19 state, since amended by the addenda below); tests 2026-11-22 (TD-394)
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
@@ -221,3 +221,31 @@ It found one bug: **`matrix_batch_multiply_gpu` returns without computing anythi
 `gemm_batch()` before returning fixes it, so oneMKL reads host memory after the call returns: the stack-local group parameters
 (`m64`, `lda`, `group_size`, …) or the caller's pointer arrays the unwaited `memcpy()` reads. The function has no caller; fixing or
 removing it is TD-386's call, so its test is `DISABLED_BatchMultiply` (it fails when run). `matrix_batch_add_gpu` passes.
+
+## Addendum (November 22, 2026): SIGReg kernels (TD-586)
+
+`sigreg_directions_gpu()` (fill from `adai::sigreg_direction_raw()`, then one work-group per column normalizes it), `sigreg_terms_gpu()`
+(one 256-item work-group per direction: the variance, then for each of the four frequencies a two-value tree reduction of cos and sin
+over the batch, TD-503's unbiased gap and, with `grad_proj`, each item adding its own rows' gradient, so no two items write one
+element; the scratch is released by a barrier after every reduction, TD-384) and `sigreg_finish_gpu()` (one work-group sums the loss
+terms and takes the variance mean and population stddev into three device floats). The formulas come from `SIGRegMath.hpp`, shared
+with the host `SIGReg` and the CUDA versions. No `.wait()`: the results stay on the device. Tested through `SIGReg::gpu_compute()`
+against the host SIGReg on the oneAPI CPU device ([SIGReg.md](SIGReg.md)).
+
+## Addendum (November 22, 2026): LeJEPA view, loss and pooling kernels (TD-587)
+
+`lejepa_context_ids_gpu()` (the context view's IDs from the target's, the span set to the unk ID), `lejepa_masked_mse_gpu()` (one work-group
+per row: rows outside the span get zero gradients; masked rows get `±2·diff/(span_len·d_model)` and their squared error, dot product
+and norms, reduced together; then one work-group sums the span's rows in a fixed order into `*loss_out` and the mean cosine into
+`*cos_out`, both device floats, so each text's values stay addressable for TD-589's stats buffer), `lejepa_mean_pool_gpu()` (column
+means of one text's rows into one row of the SIGReg batch) and `lejepa_add_row_broadcast_gpu()` (adds a scaled row to every row: the
+pooled SIGReg gradient spread back over a text). The masked-loss kernel's per-row scratch goes back to `GPUManager`'s pool when the call returns; its next user is queued
+behind these kernels on the in-order queue (TD-390). Tests: `gpuKernelReferenceTests`' `Lejepa*` cases (spans at the start, middle and
+end, a one-row span, `seq_len` 2, and 300 rows of width 257), all passing on the oneAPI CPU device.
+
+## Addendum (November 22, 2026): device-accumulating diagnostics (TD-589)
+
+`matrix_count_below_threshold_accumulate_gpu(data, size, threshold, acc)` (adds the fraction below the threshold to `acc[0]` and 1 to
+`acc[1]`) and `matrix_mean_accumulate_gpu(data, n, weight, count_increment, acc)` (adds `weight · mean` and `count_increment`): a bounded
+grid (at most 1,024 work-groups, grid-stride), each group reducing its share and adding one partial with a float atomic. Diagnostics
+only, so the atomics' order doesn't matter. Tested in `gpuKernelReferenceTests` (`DiagnosticAccumulatorsAddOnTheDevice`).

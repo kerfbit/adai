@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-22
 
 
 #include <string>
@@ -298,6 +298,13 @@ class TokenEmbedding {
     adai::gpu::GPUMatrix gpu_forward(const std::vector<int>& token_ids,
                                      const adai::gpu::GPUMatrix* pe, int pe_rows,
                                      int pos_offset = 0);
+    /**
+     * @brief TD-588: the same lookup from @p n token IDs already on the device (nothing crosses).
+     *        The IDs aren't range-checked here: the caller has checked them (they come from the
+     *        tokenizer), and @p device_ids must stay valid until the matching gpu_backward().
+     */
+    adai::gpu::GPUMatrix gpu_forward(const int* device_ids, int n, const adai::gpu::GPUMatrix* pe,
+                                     int pe_rows, int pos_offset = 0);
     /// Adds @p dout's rows into the device gradient rows of the last gpu_forward()'s tokens.
     void gpu_backward(const adai::gpu::GPUMatrix& dout);
 
@@ -308,6 +315,7 @@ class TokenEmbedding {
         std::unique_ptr<adai::gpu::GPUMemory<int>> ids;
         int ids_capacity = 0;
         int last_count = 0;
+        const int* last_ids = nullptr;  // the IDs gpu_backward() scatters to: ids or the caller's (TD-588)
         GPUState(int vocab, int d) : W_g(vocab, d), dW(vocab, d) {}
     };
     std::unique_ptr<GPUState> gpu_;

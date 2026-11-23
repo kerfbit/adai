@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-11-19
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-11-22
 
 #include "LeJEPAEncoder.hpp"
 #include "BinaryIO.hpp"
@@ -12,6 +12,10 @@
 #include <filesystem>
 #include <random>
 #include <stdexcept>
+#include <type_traits>
+#ifdef ADAI_ENABLE_GPU
+#include "GPUOptimizer.hpp"
+#endif
 
 namespace {
 // LeJEPAEncoder::save()/load() use a fixed set of filenames inside the caller-supplied
@@ -35,6 +39,8 @@ std::string encoder_block_file(size_t index) {
 // for it.
 constexpr float kMaskRatio = 0.25f;
 }  // namespace
+
+LeJEPAEncoder::~LeJEPAEncoder() = default;
 
 LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
                              int max_seq_length, int sigreg_num_sketches)
@@ -154,25 +160,119 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     return {predictor_loss, sigreg_loss};
 }
 
-LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_batch(const std::vector<std::string>& texts) {
-    BatchStepResult result;
+bool LeJEPAEncoder::tokenize_one(const std::string& text, std::vector<int>& ids) {
+    ++texts_tokenized_;
+    try {
+        ids = tokenizer->encode(text, true);
+    } catch (const std::exception&) {
+        return false;  // e.g. an empty text: one bad sample mustn't fail the whole batch (TD-429)
+    }
+    if (static_cast<int>(ids.size()) > max_seq_length) {
+        ids.resize(max_seq_length);
+    }
+    return ids.size() >= 2;  // too short to mask a span (train_step() throws for this)
+}
+
+std::vector<std::vector<int>> LeJEPAEncoder::tokenize_batch(const std::vector<std::string>& texts,
+                                                             std::vector<size_t>& trained) {
     std::vector<std::vector<int>> batch_ids;
     for (size_t t = 0; t < texts.size(); ++t) {
         std::vector<int> ids;
-        try {
-            ids = tokenizer->encode(texts[t], true);
-        } catch (const std::exception&) {
-            continue;  // e.g. an empty text: one bad sample mustn't fail the whole batch (TD-429)
+        if (tokenize_one(texts[t], ids)) {
+            trained.push_back(t);
+            batch_ids.push_back(std::move(ids));
         }
-        if (static_cast<int>(ids.size()) > max_seq_length) {
-            ids.resize(max_seq_length);
-        }
-        if (ids.size() < 2) {
-            continue;  // too short to mask a span (train_step() throws for this)
-        }
-        result.trained.push_back(t);
-        batch_ids.push_back(std::move(ids));
     }
+    return batch_ids;
+}
+
+void LeJEPAEncoder::prepare_texts(const std::vector<std::string>& texts) {
+    prepared_ids_.assign(texts.size(), {});
+    prepared_ok_.assign(texts.size(), false);
+    for (size_t t = 0; t < texts.size(); ++t) {
+        prepared_ok_[t] = tokenize_one(texts[t], prepared_ids_[t]);
+    }
+#ifdef ADAI_ENABLE_GPU
+    gpu_prepared_.reset();  // uploaded when training on the device first needs it
+#endif
+}
+
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_prepared(size_t first, size_t last) {
+    last = std::min(last, prepared_ids_.size());
+    std::vector<size_t> trained;
+    for (size_t t = first; t < last; ++t) {
+        if (prepared_ok_[t]) {
+            trained.push_back(t);
+        }
+    }
+    BatchStepResult result;
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_optimizer_) {
+        if (!gpu_prepared_) {  // every prepared text's IDs, end to end, in one upload for the whole pass
+            std::vector<int> all;
+            prepared_offset_.assign(prepared_ids_.size(), 0);
+            for (size_t t = 0; t < prepared_ids_.size(); ++t) {
+                prepared_offset_[t] = static_cast<int>(all.size());
+                if (prepared_ok_[t]) {
+                    all.insert(all.end(), prepared_ids_[t].begin(), prepared_ids_[t].end());
+                }
+            }
+            gpu_prepared_ = std::make_unique<adai::gpu::GPUMemory<int>>(std::max<size_t>(all.size(), 1));
+            if (!all.empty()) {
+                gpu_prepared_->copy_from_host(all.data(), all.size());
+            }
+        }
+        std::vector<int> lengths;
+        std::vector<const int*> device_ids;
+        for (size_t t : trained) {
+            lengths.push_back(static_cast<int>(prepared_ids_[t].size()));
+            device_ids.push_back(gpu_prepared_->get() + prepared_offset_[t]);
+        }
+        result = gpu_train_core(lengths, device_ids);
+    } else
+#endif
+    {
+        std::vector<std::vector<int>> ids;
+        for (size_t t : trained) {
+            ids.push_back(prepared_ids_[t]);
+        }
+        result = train_ids_host(ids);
+    }
+    result.trained.clear();
+    for (size_t t : trained) {
+        result.trained.push_back(t - first);
+    }
+    return result;
+}
+
+void LeJEPAEncoder::choose_span(int seq_len, int& span_start, int& span_len) {
+    // A contiguous span becomes the "target" region, masked out (replaced with the tokenizer's own unk
+    // token) in the context view. Placement is randomized per call — see kMaskRatio's own doc comment for
+    // the ratio's rationale.
+    span_len = std::max(1, static_cast<int>(std::round(seq_len * kMaskRatio)));
+    span_len = std::min(span_len, seq_len - 1);  // leave at least one context token unmasked
+    std::uniform_int_distribution<int> start_dist(0, seq_len - span_len);
+    span_start = start_dist(span_rng_);
+}
+
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_batch(const std::vector<std::string>& texts) {
+    std::vector<size_t> trained;
+    const std::vector<std::vector<int>> batch_ids = tokenize_batch(texts, trained);
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_optimizer_) {  // TD-588: training on the device
+        BatchStepResult device = gpu_train_batch(batch_ids);
+        device.trained = std::move(trained);
+        return device;
+    }
+#endif
+    BatchStepResult result = train_ids_host(batch_ids);
+    result.trained = std::move(trained);
+    return result;
+}
+
+// train_batch()'s host step for tokenized texts (each at least 2 IDs). `trained` is left to the caller.
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_ids_host(const std::vector<std::vector<int>>& batch_ids) {
+    BatchStepResult result;
     const int batch = static_cast<int>(batch_ids.size());
     if (batch == 0) {
         return result;
@@ -238,21 +338,17 @@ LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_batch(const std::vector<std:
     return result;
 }
 
+// The host step (builds without a GPU, or before gpu_begin_training()); gpu_train_batch() is the device one (TD-588).
 float LeJEPAEncoder::train_tokens(const std::vector<int>& token_ids, bool per_sequence_sigreg,
                                   const std::vector<float>* pooled_sigreg_grad,
                                   float& sigreg_loss_out) {
     const int seq_len = static_cast<int>(token_ids.size());
 
-    // View construction: a contiguous span becomes the "target" region, masked out (replaced
-    // with the tokenizer's own unk token) in the context view; the target view is simply the
-    // original, unmasked sequence. Span placement is randomized per call — see kMaskRatio's own
-    // doc comment for the ratio's rationale.
-    int span_len = std::max(1, static_cast<int>(std::round(seq_len * kMaskRatio)));
-    span_len = std::min(span_len, seq_len - 1);  // leave at least one context token unmasked
+    // View construction: the context view masks a span (choose_span()); the target view is simply the
+    // original, unmasked sequence.
+    int span_start = 0, span_len = 0;
+    choose_span(seq_len, span_start, span_len);
     last_masking_ratio_ = static_cast<float>(span_len) / static_cast<float>(seq_len);
-
-    std::uniform_int_distribution<int> start_dist(0, seq_len - span_len);
-    const int span_start = start_dist(span_rng_);
 
     std::vector<int> context_tokens = token_ids;
     const int unk_id = tokenizer->get_unk_token_id();
@@ -566,20 +662,229 @@ adai::gpu::GPUMatrix LeJEPAEncoder::gpu_encode(const std::string& text) {
     if (static_cast<int>(token_ids.size()) > max_seq_length) {
         token_ids.resize(max_seq_length);
     }
-    if (!gpu_weights_current_) {
-        token_embedding->gpu_upload_weights();
-        for (auto& block : encoder_blocks) {
-            block->gpu_upload_weights();
-        }
-        final_norm->gpu_upload_weights();
-        gpu_pe_ = std::make_unique<adai::gpu::GPUMatrix>(positional_encoding->get_encoding().to_gpu());
-        gpu_weights_current_ = true;
-    }
+    gpu_ensure_weights();
     adai::gpu::GPUMatrix x = token_embedding->gpu_forward(token_ids, gpu_pe_.get(), gpu_pe_->rows);
     for (auto& block : encoder_blocks) {
         x = block->gpu_forward(x);
     }
     return final_norm->gpu_forward(x);
+}
+
+// Uploads the host weights when the device copy is stale (first use, or after load()). During device
+// training the device copy is the live one, so this does nothing.
+void LeJEPAEncoder::gpu_ensure_weights() {
+    if (gpu_weights_current_) {
+        return;
+    }
+    token_embedding->gpu_upload_weights();
+    for (auto& block : encoder_blocks) {
+        block->gpu_upload_weights();
+    }
+    final_norm->gpu_upload_weights();
+    predictor->gpu_upload_weights();
+    gpu_pe_ = std::make_unique<adai::gpu::GPUMatrix>(positional_encoding->get_encoding().to_gpu());
+    gpu_weights_current_ = true;
+}
+
+// encode_tokens() on the device, from IDs already there. The layers cache their activations for
+// gpu_backward(), as the host layers do.
+adai::gpu::GPUMatrix LeJEPAEncoder::gpu_encode_ids(const int* device_ids, int n) {
+    adai::gpu::GPUMatrix x = token_embedding->gpu_forward(device_ids, n, gpu_pe_.get(), gpu_pe_->rows);
+    for (auto& block : encoder_blocks) {
+        x = block->gpu_forward(x);
+    }
+    return final_norm->gpu_forward(x);
+}
+
+void LeJEPAEncoder::gpu_backward(const adai::gpu::GPUMatrix& grad_output) {
+    adai::gpu::GPUMatrix grad = final_norm->gpu_backward(grad_output);
+    for (int i = num_layers - 1; i >= 0; --i) {
+        grad = encoder_blocks[static_cast<size_t>(i)]->gpu_backward(grad);
+    }
+    token_embedding->gpu_backward(grad);
+}
+
+void LeJEPAEncoder::gpu_zero_grads() {
+    token_embedding->gpu_zero_grads();
+    for (auto& block : encoder_blocks) {
+        block->gpu_zero_grads();
+    }
+    final_norm->gpu_zero_grads();
+    predictor->gpu_zero_grads();
+}
+
+void LeJEPAEncoder::set_gpu_diagnostics(float* acc) {
+    for (auto& block : encoder_blocks) {
+        block->get_feed_forward()->set_gpu_saturation_accumulator(acc);
+        block->get_self_attention()->set_gpu_entropy_accumulator(acc ? acc + 2 : nullptr);
+    }
+}
+
+std::size_t LeJEPAEncoder::gpu_begin_training() {
+    if (!optimizer_) {
+        throw std::logic_error("LeJEPAEncoder::gpu_begin_training: register_parameters_with_optimizer() first");
+    }
+    gpu_ensure_weights();
+    gpu_zero_grads();
+    std::vector<adai::gpu::GPUParamRef> params;
+    token_embedding->gpu_collect_parameters(params);
+    for (int l = 0; l < num_layers; ++l) {
+        encoder_blocks[static_cast<size_t>(l)]->gpu_collect_parameters(params, l);
+    }
+    final_norm->gpu_collect_parameters(params);
+    predictor->gpu_collect_parameters(params);
+    gpu_optimizer_ = std::make_unique<GPUOptimizer>(*optimizer_, params);
+    const std::size_t host_groups = gpu_optimizer_->host_group_count();
+    if (host_groups > 0) {
+        adai::Logger::warn("LeJEPAEncoder: {} optimizer groups have no device copy and step on the host", host_groups);
+    }
+    adai::Logger::info("LeJEPAEncoder: training on the device ({} parameter groups)",
+                       gpu_optimizer_->device_group_count());
+    return host_groups;
+}
+
+void LeJEPAEncoder::sync_host_from_device() {
+    if (!gpu_optimizer_) {
+        return;
+    }
+    token_embedding->gpu_download_weights();
+    for (auto& block : encoder_blocks) {
+        block->gpu_download_weights();
+    }
+    final_norm->gpu_download_weights();
+    predictor->gpu_download_weights();
+    gpu_optimizer_->download_state();
+}
+
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::gpu_train_batch(const std::vector<std::vector<int>>& ids) {
+    if (!gpu_optimizer_) {
+        throw std::logic_error("LeJEPAEncoder::gpu_train_batch: gpu_begin_training() first");
+    }
+    // One upload of every text's IDs, end to end.
+    std::vector<int> all_ids;
+    std::vector<int> lengths;
+    std::vector<size_t> offset;
+    for (const auto& v : ids) {
+        if (v.size() < 2 || static_cast<int>(v.size()) > max_seq_length) {
+            throw std::invalid_argument("LeJEPAEncoder::gpu_train_batch: each text needs 2 to max_seq_length IDs");
+        }
+        offset.push_back(all_ids.size());
+        lengths.push_back(static_cast<int>(v.size()));
+        all_ids.insert(all_ids.end(), v.begin(), v.end());
+    }
+    if (all_ids.size() > gpu_ids_capacity_) {
+        gpu_ids_ = std::make_unique<adai::gpu::GPUMemory<int>>(all_ids.size());
+        gpu_ids_capacity_ = all_ids.size();
+    }
+    if (!all_ids.empty()) {
+        gpu_ids_->copy_from_host(all_ids.data(), all_ids.size());
+    }
+    std::vector<const int*> device_ids;
+    for (size_t o : offset) {
+        device_ids.push_back(gpu_ids_->get() + o);
+    }
+    BatchStepResult result = gpu_train_core(lengths, device_ids);
+    for (size_t b = 0; b < ids.size(); ++b) {
+        result.trained.push_back(b);
+    }
+    return result;
+}
+
+// The device step for texts whose IDs are on the device (TD-588; TD-589's prepared texts or one batch's
+// upload). `trained` is left to the caller.
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::gpu_train_core(const std::vector<int>& lengths,
+                                                             const std::vector<const int*>& device_ids) {
+    BatchStepResult result;
+    const int batch = static_cast<int>(lengths.size());
+    if (batch == 0) {
+        return result;
+    }
+    if (static_cast<std::size_t>(max_seq_length) > gpu_ctx_capacity_) {
+        gpu_ctx_ids_ = std::make_unique<adai::gpu::GPUMemory<int>>(static_cast<std::size_t>(max_seq_length));
+        gpu_ctx_capacity_ = static_cast<std::size_t>(max_seq_length);
+    }
+    const std::size_t stats_size = 3 + 2 * static_cast<std::size_t>(batch);
+    if (stats_size > gpu_stats_capacity_) {
+        gpu_stats_ = std::make_unique<adai::gpu::GPUMemory<float>>(stats_size);
+        gpu_stats_capacity_ = stats_size;
+    }
+    float* stats = gpu_stats_->get();  // [sigreg loss, var mean, var stddev, losses..., cosines...]
+
+    // Phase 1: every text's target view, mean-pooled into one row each.
+    adai::gpu::GPUMatrix pooled(batch, d_model);
+    for (int b = 0; b < batch; ++b) {
+        const int n = lengths[static_cast<size_t>(b)];
+        const adai::gpu::GPUMatrix tgt = gpu_encode_ids(device_ids[static_cast<size_t>(b)], n);
+        adai::gpu::lejepa_mean_pool_gpu(tgt.device_ptr(), n, d_model, pooled.device_ptr() + static_cast<size_t>(b) * d_model);
+    }
+    sigreg->resample_directions();  // TD-502: one draw for this batch's loss, stats and gradient
+    const bool use_sigreg = requires_grad && batch >= 2;
+    adai::gpu::GPUMatrix pooled_grad(1, 1);
+    sigreg->gpu_compute(pooled, stats, use_sigreg ? &pooled_grad : nullptr);
+
+    // Phase 2: train each text, adding its pooled row's SIGReg gradient (scaled by the batch size, as
+    // train_batch() explains, and spread over the text's rows).
+    const int unk_id = tokenizer->get_unk_token_id();
+    double masking_sum = 0.0, grad_norm_sq_sum = 0.0;
+    for (int b = 0; b < batch; ++b) {
+        const int n = lengths[static_cast<size_t>(b)];
+        const int* tgt_ids = device_ids[static_cast<size_t>(b)];
+        int span_start = 0, span_len = 0;
+        choose_span(n, span_start, span_len);
+        masking_sum += static_cast<double>(span_len) / n;
+        adai::gpu::lejepa_context_ids_gpu(tgt_ids, gpu_ctx_ids_->get(), n, span_start, span_len, unk_id);
+
+        // Context view first, then the target view, so the encoder's caches hold the target view for
+        // the first backward (as in train_tokens()).
+        const adai::gpu::GPUMatrix ctx = gpu_encode_ids(gpu_ctx_ids_->get(), n);
+        const adai::gpu::GPUMatrix tgt = gpu_encode_ids(tgt_ids, n);
+        const adai::gpu::GPUMatrix predicted = predictor->gpu_forward(ctx);
+        adai::gpu::GPUMatrix grad_predicted(n, d_model);
+        adai::gpu::GPUMatrix grad_target(n, d_model);
+        adai::gpu::lejepa_masked_mse_gpu(predicted.device_ptr(), tgt.device_ptr(), n, d_model, span_start, span_len,
+                                         stats + 3 + b, stats + 3 + batch + b, grad_predicted.device_ptr(),
+                                         grad_target.device_ptr());
+        if (!requires_grad) {
+            continue;
+        }
+        if (use_sigreg) {
+            adai::gpu::lejepa_add_row_broadcast_gpu(grad_target.device_ptr(), n, d_model,
+                                                    pooled_grad.device_ptr() + static_cast<size_t>(b) * d_model,
+                                                    sigreg_lambda * static_cast<float>(batch) / static_cast<float>(n));
+        }
+        gpu_backward(grad_target);
+        // The predictor keeps its own cache. Re-encoding the context view puts its activations back in
+        // the encoder's caches (the layers hold one set each; a second set per layer would save this
+        // forward pass but touch every layer's device state). The weights haven't changed, so they are
+        // the same activations.
+        const adai::gpu::GPUMatrix grad_ctx = predictor->gpu_backward(grad_predicted);
+        gpu_encode_ids(gpu_ctx_ids_->get(), n);
+        gpu_backward(grad_ctx);
+
+        double sq = 0.0;
+        for (float g : gpu_optimizer_->gradient_sq_norms()) {  // one float per group
+            sq += g;
+        }
+        grad_norm_sq_sum += sq;
+        gpu_optimizer_->step(1.0f);
+        gpu_zero_grads();
+    }
+
+    // The batch's results, in one download.
+    std::vector<float> host_stats(stats_size);
+    gpu_stats_->copy_to_host(host_stats.data(), stats_size);
+    result.sigreg_loss = host_stats[0];
+    last_sigreg_variance_mean_ = host_stats[1];
+    last_sigreg_variance_stddev_ = host_stats[2];
+    double cosine_sum = 0.0;
+    for (int b = 0; b < batch; ++b) {
+        result.predictor_losses.push_back(host_stats[3 + static_cast<size_t>(b)]);
+        cosine_sum += host_stats[3 + static_cast<size_t>(batch) + b];
+    }
+    last_masking_ratio_ = static_cast<float>(masking_sum / batch);
+    last_predictor_target_cosine_sim_ = static_cast<float>(cosine_sum / batch);
+    last_gradient_norm_ = requires_grad ? static_cast<float>(std::sqrt(grad_norm_sq_sum / batch)) : 0.0f;
+    return result;
 }
 #endif
 

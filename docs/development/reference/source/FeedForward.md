@@ -3,9 +3,9 @@
 - **Files:** [`src/FeedForward.hpp`](../../../../src/FeedForward.hpp), [`src/FeedForward.cpp`](../../../../src/FeedForward.cpp)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_feedforward`; used by `EncoderBlock`, `DecoderBlock` and the LeJEPA `Predictor`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-18` (both files)
+- **Status tag:** `@adai-status: stable`; `.hpp` `@adai-version: 1.2.0`, `.cpp` `1.3.0`, both `@adai-reviewed: 2026-11-22` (TD-589's device accumulator)
 - **Tests:** [`tests/feedforward_test.cpp`](../../../../tests/feedforward_test.cpp) → `feedforwardTests` (62 tests, 4 of them GPU-only)
-- **Last traced against the code:** 2026-10-12
+- **Last traced against the code:** 2026-10-12; the saturation accumulator 2026-11-22 (TD-589)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (linked against the debug libraries) in a scratch program.
@@ -185,3 +185,10 @@ Tests: `FeedForwardPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUn
 ## TD-368 addendum (November 9, 2026)
 
 The constructor seeds its generator from `adai::next_init_seed()` (`src/InitRng.hpp`), so `SEED` replays the weights.
+
+## Addendum (November 22, 2026): saturation accumulated on the device (TD-589)
+
+`set_gpu_saturation_accumulator(float* acc)` (GPU builds) makes every `gpu_forward()` add the fraction of post-GELU elements with
+`|x| < 0.01` to `acc[0]` and 1 to `acc[1]` through `matrix_count_below_threshold_accumulate_gpu()`, with nothing downloaded; `nullptr`
+(the default) turns it off. It's the device counterpart of `set_gpu_activation_stats_hook()`, whose callback takes a float and so
+downloads one per call. LeJEPA's device training reads it once per epoch (TD-589).

@@ -1,6 +1,6 @@
 // @adai-status: beta
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-22
 
 #include "Predictor.hpp"
 #include <cstdint>
@@ -60,6 +60,9 @@ void Predictor::save(const std::string& filename) const {
 }
 
 bool Predictor::load(const std::string& filename) {
+#ifdef ADAI_ENABLE_GPU
+    gpu_current_ = false;  // re-upload the loaded weights before the next device use
+#endif
     std::error_code ec;
     if (!std::filesystem::exists(filename, ec)) {
         return false;
@@ -77,3 +80,47 @@ bool Predictor::load(const std::string& filename) {
     return true;
 }
 
+#ifdef ADAI_ENABLE_GPU
+// TD-585
+void Predictor::gpu_upload_weights() {
+    net_->gpu_upload_weights();
+    gpu_current_ = true;
+}
+
+void Predictor::gpu_download_weights() {
+    if (gpu_current_)
+        net_->gpu_download_weights();
+}
+
+void Predictor::gpu_zero_grads() {
+    if (!gpu_current_)
+        gpu_upload_weights();
+    net_->gpu_zero_grads();
+}
+
+void Predictor::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    if (!gpu_current_)
+        gpu_upload_weights();
+    net_->gpu_collect_parameters(out, layer);
+}
+
+adai::gpu::GPUMatrix Predictor::gpu_forward(const adai::gpu::GPUMatrix& context_embedding) {
+    if (context_embedding.cols != d_model_) {
+        throw std::invalid_argument("Predictor::gpu_forward: context_embedding.cols must equal d_model");
+    }
+    if (!gpu_current_)
+        gpu_upload_weights();
+    gpu_forward_rows_ = context_embedding.rows;
+    return net_->gpu_forward(context_embedding);
+}
+
+adai::gpu::GPUMatrix Predictor::gpu_backward(const adai::gpu::GPUMatrix& grad_output) {
+    if (gpu_forward_rows_ < 0) {
+        throw std::logic_error("Predictor::gpu_backward: no gpu_forward() to differentiate");
+    }
+    if (grad_output.cols != d_model_ || grad_output.rows != gpu_forward_rows_) {
+        throw std::invalid_argument("Predictor::gpu_backward: grad_output must match the last gpu_forward()'s output shape");
+    }
+    return net_->gpu_backward(grad_output);
+}
+#endif

@@ -5,6 +5,7 @@
  *        ADAI_SYCL_ALLOW_CPU_DEVICE=1 in a SYCL build to use the oneAPI CPU device (TD-394).
  */
 #include <gtest/gtest.h>
+#include <iostream>
 
 #include <algorithm>
 #include <cmath>
@@ -540,4 +541,41 @@ TEST(GPUDropoutTest, DecoderBlockMatchesTheCpuWithDropout) {
     (void)d_enc_dev;
     EXPECT_LT(max_rel_diff(flat(out_gpu), flat(out_cpu)), 1e-4f);
     EXPECT_LT(max_rel_diff(flat(Matrix::from_gpu(d_in_dev)), flat(d_in_cpu)), 1e-4f);
+}
+
+// TD-590: a chatbot training step on the device moves its inputs and scalars only: the token and target IDs
+// and the causal mask up; the loss and the optimizer's one float per group down. No weights, activations or
+// gradients, and no host Matrix operation sent to the device.
+TEST(GPUTransferBudgetTest, AChatbotStepMovesOnlyItsInputsAndScalars) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    EncoderDecoderModel model(64, 32, 1, 1, 2, 64, 32);
+    model.get_tokenizer()->build_vocab({"the cat sat on the mat", "a dog ran far away home"}, 64);
+    model.set_training(true);
+    Optimizer opt(OptimizerType::ADAMW, 0.01f);
+    model.register_parameters(opt);
+    model.gpu_init_training();
+    GPUOptimizer gpu(opt, model.gpu_collect_parameters());
+    ASSERT_EQ(gpu.host_group_count(), 0u);
+    BPETokenizer* tok = model.get_tokenizer();
+    const std::vector<int> in = tok->encode("the cat sat", false);
+    const std::vector<int> tgt = EncoderDecoderModel::strip_leading_bos(tok->encode("on the mat", true), 2);
+    const auto step = [&] {
+        model.gpu_zero_grads();
+        model.gpu_forward(in, tgt);
+        model.gpu_backward(1.0f);
+        gpu.gradient_sq_norms();
+        gpu.step(1.0f);
+    };
+    step();  // warm-up: first-use allocations and uploads
+    const auto before = adai::gpu::transfer_stats();
+    step();
+    const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), before);
+    std::cout << "chatbot step traffic: " << d.uploads << " uploads (" << d.upload_bytes << " bytes), " << d.downloads
+              << " downloads (" << d.download_bytes << " bytes), " << d.host_round_trips << " host round trips\n";
+    const std::size_t seq = std::max(in.size(), tgt.size()) + 2;
+    // IDs and targets (ints) and at most a seq x seq float mask.
+    EXPECT_LE(d.upload_bytes, 4 * (in.size() + 2 * tgt.size() + 2) + 4 * seq * seq);
+    EXPECT_LE(d.download_bytes, 4 * (gpu.device_group_count() + 8)) << "the loss and the group norms";
+    EXPECT_EQ(d.host_round_trips, 0u);
 }

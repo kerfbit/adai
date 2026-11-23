@@ -1,11 +1,12 @@
 // @adai-status: beta        (capped by TD-504 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-22
 
 #include "InitRng.hpp"
 #include "SIGReg.hpp"
+#include <algorithm>
 #include <cmath>
-#include <random>
+#include "SIGRegMath.hpp"
 #include <stdexcept>
 #include <string>
 
@@ -17,8 +18,9 @@ namespace {
 // distribution that only matches a standard normal's first couple of moments but not its overall
 // shape still gets penalized. Shared across every SIGReg instance as fixed, non-learnable
 // configuration — no reason for it to be per-instance state.
+// TD-586: the grid itself is adai::sigreg_frequency() in SIGRegMath.hpp, shared with the GPU kernels.
 // TODO: See TD-504 in TECHNICAL_DEBT.md - unweighted 4-point grid instead of a Gaussian-weighted integral.
-const std::vector<float> kFrequencies = {0.5f, 1.0f, 1.5f, 2.0f};
+constexpr int kNumFrequencies = adai::kSigregNumFrequencies;
 
 // Validates and passes through in one expression, used directly inside the member-initializer
 // list below. A check in the constructor *body* runs too late here: `directions_(d_model,
@@ -38,13 +40,14 @@ int require_positive(int value, const char* name) {
 SIGReg::SIGReg(int d_model, int num_sketches)
     : d_model_(require_positive(d_model, "d_model")),
       num_sketches_(require_positive(num_sketches, "num_sketches")),
-      directions_(d_model_, num_sketches_),
-      rng_(adai::next_init_seed()) {
+      seed_(adai::next_init_seed()),
+      directions_(d_model_, num_sketches_) {
     resample_directions();
 }
 
 void SIGReg::set_seed(std::uint32_t seed) {
-    rng_.seed(seed);
+    seed_ = seed;
+    draw_ = 0;
     resample_directions();
 }
 
@@ -52,24 +55,31 @@ void SIGReg::set_seed(std::uint32_t seed) {
 // rather than one fixed num_sketches-dimensional span. Each component i.i.d. standard normal,
 // then normalized: a direction uniform on the unit sphere in R^d_model.
 void SIGReg::resample_directions() {
-    std::normal_distribution<float> dist(0.0f, 1.0f);
+    ++draw_;  // TD-586: the directions for this draw are built where they're needed
+}
+
+// Each component a standard normal (a pure function of seed, draw and position), then each column
+// normalized: a direction uniform on the unit sphere in R^d_model. The GPU kernel computes the same.
+void SIGReg::ensure_host_directions() const {
+    if (host_draw_ == draw_) {
+        return;
+    }
     for (int k = 0; k < num_sketches_; ++k) {
         float norm_sq = 0.0f;
         for (int i = 0; i < d_model_; ++i) {
-            float v = dist(rng_);
+            const float v = adai::sigreg_direction_raw(
+                seed_, draw_, static_cast<std::uint64_t>(i) * static_cast<std::uint64_t>(num_sketches_) + k);
             directions_.data[i][k] = v;
             norm_sq += v * v;
         }
-        // A component-wise-zero draw is astronomically unlikely for d_model > 1 in practice, but
-        // guard the divide regardless rather than ever emitting NaN directions.
-        float norm = std::sqrt(norm_sq);
-        if (norm < 1e-8f) {
-            norm = 1e-8f;
-        }
+        // Guard the divide rather than ever emitting NaN directions (an all-zero column can't happen
+        // in practice).
+        const float norm = std::max(std::sqrt(norm_sq), 1e-8f);
         for (int i = 0; i < d_model_; ++i) {
             directions_.data[i][k] /= norm;
         }
     }
+    host_draw_ = draw_;
 }
 
 float SIGReg::compute_loss(const Matrix& embeddings) const {
@@ -83,11 +93,13 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
     const float n = static_cast<float>(batch);
 
     // [batch, num_sketches] — projections[i][k] = embeddings[i] . directions[:,k]
+    ensure_host_directions();
     Matrix projections = embeddings * directions_;
 
     float total_loss = 0.0f;
     for (int k = 0; k < num_sketches_; ++k) {
-        for (float t : kFrequencies) {
+        for (int fj = 0; fj < kNumFrequencies; ++fj) {
+            const float t = adai::sigreg_frequency(fj);
             float mean_cos = 0.0f;
             float mean_sin = 0.0f;
             for (int i = 0; i < batch; ++i) {
@@ -113,7 +125,7 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
         }
     }
 
-    return total_loss / static_cast<float>(num_sketches_ * static_cast<int>(kFrequencies.size()));
+    return total_loss / static_cast<float>(num_sketches_ * kNumFrequencies);
 }
 
 SIGReg::VarianceStats SIGReg::compute_variance_stats(const Matrix& embeddings) const {
@@ -129,6 +141,7 @@ SIGReg::VarianceStats SIGReg::compute_variance_stats(const Matrix& embeddings) c
     // Same projection compute_loss() forms internally — recomputed rather than cached, matching
     // this class's existing no-caching style (compute_loss()/backward() each independently
     // recompute it too).
+    ensure_host_directions();
     Matrix projections = embeddings * directions_;
 
     // Per-direction population variance (mean-of-squares minus square-of-mean — batch here is
@@ -176,16 +189,18 @@ Matrix SIGReg::backward(const Matrix& embeddings) const {
     const float unbiased_scale = n / (n - 1.0f);
 
     // TODO: See TD-504 in TECHNICAL_DEBT.md - third recomputation of X*D per step; no non-finite input check.
+    ensure_host_directions();
     Matrix projections = embeddings * directions_;  // [batch, num_sketches]
     const float norm_factor =
-        1.0f / static_cast<float>(num_sketches_ * static_cast<int>(kFrequencies.size()));
+        1.0f / static_cast<float>(num_sketches_ * kNumFrequencies);
 
     // d(loss)/d(projections[i][k]) — accumulated across every frequency's own contribution to
     // the same (i, k) projection, then chain-ruled through the projection itself below.
     Matrix grad_projections(batch, num_sketches_);
 
     for (int k = 0; k < num_sketches_; ++k) {
-        for (float t : kFrequencies) {
+        for (int fj = 0; fj < kNumFrequencies; ++fj) {
+            const float t = adai::sigreg_frequency(fj);
             float mean_cos = 0.0f;
             float mean_sin = 0.0f;
             for (int i = 0; i < batch; ++i) {
@@ -220,3 +235,43 @@ Matrix SIGReg::backward(const Matrix& embeddings) const {
     Matrix directions_T = directions_.transpose();
     return grad_projections * directions_T;
 }
+
+#ifdef ADAI_ENABLE_GPU
+// TD-586: compute_loss(), compute_variance_stats() and backward() on the device, from one projection.
+void SIGReg::gpu_compute(const adai::gpu::GPUMatrix& x, float* out_device, adai::gpu::GPUMatrix* grad) {
+    if (x.cols != d_model_) {
+        throw std::invalid_argument("SIGReg::gpu_compute: x.cols must equal d_model");
+    }
+    if (x.rows <= 0) {
+        throw std::invalid_argument("SIGReg::gpu_compute: x has no rows");
+    }
+    if (!gpu_directions_ || gpu_draw_ != draw_) {
+        if (!gpu_directions_) {
+            gpu_directions_ = std::make_unique<adai::gpu::GPUMatrix>(d_model_, num_sketches_);
+        }
+        adai::gpu::sigreg_directions_gpu(gpu_directions_->device_ptr(), d_model_, num_sketches_, seed_, draw_);
+        gpu_draw_ = draw_;
+    }
+    const int batch = x.rows;
+    const adai::gpu::GPUMatrix projections = x * *gpu_directions_;  // [batch, num_sketches]
+    adai::gpu::GPUMatrix loss_terms(1, num_sketches_);
+    adai::gpu::GPUMatrix var_terms(1, num_sketches_);
+    std::unique_ptr<adai::gpu::GPUMatrix> grad_projections;
+    if (grad) {
+        grad_projections = std::make_unique<adai::gpu::GPUMatrix>(batch, num_sketches_);
+    }
+    const float norm_factor = 1.0f / static_cast<float>(num_sketches_ * kNumFrequencies);
+    adai::gpu::sigreg_terms_gpu(projections.device_ptr(), batch, num_sketches_, norm_factor, loss_terms.device_ptr(),
+                                var_terms.device_ptr(), grad ? grad_projections->device_ptr() : nullptr);
+    adai::gpu::sigreg_finish_gpu(loss_terms.device_ptr(), var_terms.device_ptr(), num_sketches_, norm_factor,
+                                 out_device);
+    if (grad) {
+        // grad_x = grad_projections · directionsᵀ: [batch, num_sketches] x [num_sketches, d_model].
+        adai::gpu::GPUMatrix g(batch, d_model_);
+        adai::gpu::matrix_gemm_strided_gpu(false, true, batch, d_model_, num_sketches_, 1.0f,
+                                           grad_projections->device_ptr(), num_sketches_,
+                                           gpu_directions_->device_ptr(), num_sketches_, g.device_ptr(), d_model_);
+        *grad = std::move(g);
+    }
+}
+#endif

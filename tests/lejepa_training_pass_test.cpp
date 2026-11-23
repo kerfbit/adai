@@ -254,3 +254,52 @@ TEST_F(LeJEPATrainingPassTest, ACheckpointRequestIsWrittenAtTheNextBatch) {
     EXPECT_EQ(control->checkpoint_requests_served.load(), ticket);
     EXPECT_TRUE(trained());
 }
+
+// TD-589: the epoch's activation saturation and attention entropy are measured when something reports them.
+TEST_F(LeJEPATrainingPassTest, AnEpochReportsItsDiagnostics) {
+    std::vector<std::pair<float, float>> seen;
+    adai::LeJEPAPassHooks hooks;
+    hooks.epoch_diagnostics = [&](float saturation, float entropy) { seen.emplace_back(saturation, entropy); };
+    EXPECT_EQ(run(hooks, 2), 0);
+    ASSERT_EQ(seen.size(), 2u);
+    for (const auto& [saturation, entropy] : seen) {
+        EXPECT_GE(saturation, 0.0f);
+        EXPECT_LE(saturation, 1.0f);
+        EXPECT_GT(entropy, 0.0f);
+    }
+}
+
+#ifdef ADAI_ENABLE_GPU
+// TD-588: with the GPU in use, the pass trains the world model on the device and syncs it back for the
+// checkpoint. On the oneAPI CPU device in a SYCL build (ADAI_SYCL_ALLOW_CPU_DEVICE=1); skipped without one.
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include "Logger.hpp"
+#include "gpu/GPUUtils.hpp"
+
+TEST_F(LeJEPATrainingPassTest, WithAGpuThePassTrainsOnTheDeviceAndCheckpoints) {
+    if (!adai::gpu::GPUManager::probe() || !adai::gpu::GPUManager::initialize(0, 0.5f))
+        GTEST_SKIP() << "No GPU device present.";
+    std::ostringstream out;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    adai::Logger::get()->sinks().push_back(sink);
+    std::vector<std::pair<float, float>> seen;
+    adai::LeJEPAPassHooks hooks;
+    hooks.epoch_diagnostics = [&](float saturation, float entropy) { seen.emplace_back(saturation, entropy); };
+    const int rc = run(hooks);
+    auto& sinks = adai::Logger::get()->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_NE(out.str().find("training on the device"), std::string::npos) << out.str();
+    // TD-589: measured on the device (the host hooks don't fire there), not -1.
+    ASSERT_EQ(seen.size(), 1u);
+    EXPECT_GE(seen[0].first, 0.0f);
+    EXPECT_GT(seen[0].second, 0.0f);
+    EXPECT_EQ(out.str().find("step on the host"), std::string::npos) << "no optimizer group on the host";
+    ASSERT_TRUE(LeJEPAEncoder::has_checkpoint(world_model_dir_));
+    EXPECT_TRUE(trained());
+    // That the checkpoint holds the synced device weights is checked in lejepaencoderTests
+    // (DeviceTrainedWeightsSurviveSaveAfterSync).
+}
+#endif  // ADAI_ENABLE_GPU

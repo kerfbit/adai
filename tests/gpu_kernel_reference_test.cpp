@@ -17,6 +17,7 @@
 #include <numeric>
 #include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "../src/Activation.hpp"
 #include "../src/gpu/MatrixGPU.hpp"
@@ -594,4 +595,122 @@ TEST_F(GpuKernelReferenceTest, DeviceCopyAndDownload) {
         g::matrix_download_gpu(dst.get(), out.data(), n);
         EXPECT_TRUE(matches(out, to_double(v), 0, 0)) << "n=" << n;
     }
+}
+
+// ============================================================================
+// TD-587: LeJEPA's view, masked-loss and pooling kernels
+// ============================================================================
+
+TEST_F(GpuKernelReferenceTest, LejepaContextIdsMaskTheSpan) {
+    for (auto [seq, start, len] : std::vector<std::tuple<int, int, int>>{{2, 0, 1}, {9, 0, 3}, {9, 4, 2}, {9, 6, 3}, {300, 120, 45}}) {
+        SCOPED_TRACE("seq=" + std::to_string(seq) + " span=" + std::to_string(start) + "+" + std::to_string(len));
+        std::vector<int> ids(seq);
+        for (int i = 0; i < seq; ++i)
+            ids[i] = 10 + i;
+        auto dt = dev(ids);
+        GPUMemory<int> dc(seq);
+        g::lejepa_context_ids_gpu(dt.get(), dc.get(), seq, start, len, /*unk_id=*/1);
+        const auto got = host(dc, seq);
+        for (int i = 0; i < seq; ++i)
+            EXPECT_EQ(got[i], (i >= start && i < start + len) ? 1 : ids[i]) << "position " << i;
+    }
+}
+
+TEST_F(GpuKernelReferenceTest, LejepaMaskedMseLossCosineAndGradients) {
+    for (auto [seq, d, start, len] : std::vector<std::tuple<int, int, int, int>>{
+             {2, 8, 1, 1}, {9, 16, 0, 3}, {9, 16, 4, 1}, {9, 16, 6, 3}, {300, 257, 100, 45}}) {
+        SCOPED_TRACE("seq=" + std::to_string(seq) + " d=" + std::to_string(d) + " span=" + std::to_string(start) + "+" +
+                     std::to_string(len));
+        const auto p = random_values(seq * d, -1, 1, 1000 + seq + d), t = random_values(seq * d, -1, 1, 2000 + start);
+        auto dp = dev(p), dt = dev(t);
+        GPUMemory<float> out(2), gp(seq * d), gt(seq * d);
+        g::lejepa_masked_mse_gpu(dp.get(), dt.get(), seq, d, start, len, out.get(), out.get() + 1, gp.get(), gt.get());
+        const double n = double(len) * d;
+        double loss = 0, cos_sum = 0;
+        std::vector<double> want_gp(seq * d, 0.0), want_gt(seq * d, 0.0);
+        for (int i = start; i < start + len; ++i) {
+            double dot = 0, np = 0, nt = 0;
+            for (int j = 0; j < d; ++j) {
+                const double diff = double(p[i * d + j]) - t[i * d + j];
+                loss += diff * diff;
+                want_gp[i * d + j] = 2 * diff / n;
+                want_gt[i * d + j] = -2 * diff / n;
+                dot += double(p[i * d + j]) * t[i * d + j];
+                np += double(p[i * d + j]) * p[i * d + j];
+                nt += double(t[i * d + j]) * t[i * d + j];
+            }
+            const double denom = std::sqrt(np) * std::sqrt(nt);
+            cos_sum += denom > 1e-8 ? dot / denom : 0.0;
+        }
+        const auto got = host(out, 2);
+        EXPECT_NEAR(got[0], loss / n, 1e-5 * std::max(1.0, loss / n)) << "loss over the masked rows only";
+        EXPECT_NEAR(got[1], cos_sum / len, 1e-5) << "mean cosine of the masked rows";
+        EXPECT_TRUE(matches(host(gp, seq * d), want_gp, 1e-5, 1e-9)) << "grad_predicted, 0 outside the span";
+        EXPECT_TRUE(matches(host(gt, seq * d), want_gt, 1e-5, 1e-9)) << "grad_target";
+    }
+}
+
+TEST_F(GpuKernelReferenceTest, LejepaMeanPoolAndRowBroadcast) {
+    for (auto [rows, d] : std::vector<std::pair<int, int>>{{1, 1}, {2, 8}, {37, 257}}) {
+        SCOPED_TRACE(std::to_string(rows) + "x" + std::to_string(d));
+        const auto x = random_values(rows * d, -2, 2, 3000 + rows), row = random_values(d, -1, 1, 4000 + d);
+        auto dx = dev(x), drow = dev(row);
+        // Into row 1 of a two-row batch, as train_batch() fills the SIGReg batch.
+        GPUMemory<float> pooled(2 * d);
+        g::lejepa_mean_pool_gpu(dx.get(), rows, d, pooled.get() + d);
+        std::vector<double> want(d, 0.0);
+        for (int i = 0; i < rows; ++i)
+            for (int j = 0; j < d; ++j)
+                want[j] += double(x[i * d + j]) / rows;
+        const auto got = host(pooled, 2 * d);
+        EXPECT_TRUE(matches(std::vector<float>(got.begin() + d, got.end()), want, 1e-5, 1e-6)) << "mean pool";
+
+        auto grad = dev(x);
+        g::lejepa_add_row_broadcast_gpu(grad.get(), rows, d, drow.get(), 0.25f);
+        std::vector<double> want_grad(rows * d);
+        for (int i = 0; i < rows; ++i)
+            for (int j = 0; j < d; ++j)
+                want_grad[i * d + j] = double(x[i * d + j]) + 0.25 * row[j];
+        EXPECT_TRUE(matches(host(grad, rows * d), want_grad, 1e-6, 1e-6)) << "row broadcast";
+    }
+}
+
+// TD-589: the device-accumulating diagnostics add into what's there, across the grid-stride limit.
+TEST_F(GpuKernelReferenceTest, DiagnosticAccumulatorsAddOnTheDevice) {
+    for (int n : {1, 257, 300000}) {
+        SCOPED_TRACE("n=" + std::to_string(n));
+        const auto v = random_values(n, -0.05f, 0.05f, 5000 + (n % 1000));
+        auto d = dev(v);
+        auto acc = dev(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
+        g::matrix_count_below_threshold_accumulate_gpu(d.get(), n, 0.01f, acc.get());
+        g::matrix_mean_accumulate_gpu(d.get(), n, 0.5f, 0.0f, acc.get() + 2);
+        g::matrix_mean_accumulate_gpu(d.get(), n, 0.5f, 1.0f, acc.get() + 2);
+        double below = 0, sum = 0;
+        for (float x : v) {
+            below += std::fabs(x) < 0.01f ? 1 : 0;
+            sum += x;
+        }
+        const auto got = host(acc, 4);
+        EXPECT_NEAR(got[0], 1.0 + below / n, 1e-5) << "fraction below the threshold, added";
+        EXPECT_FLOAT_EQ(got[1], 3.0f) << "one sample counted";
+        EXPECT_NEAR(got[2], 3.0 + 2 * 0.5 * sum / n, 1e-5) << "weighted means, added twice";
+        EXPECT_FLOAT_EQ(got[3], 5.0f) << "only the second call counts";
+    }
+}
+
+// TD-590: host<->device copies are counted where they're made; device-to-device copies aren't.
+TEST_F(GpuKernelReferenceTest, TransfersAreCounted) {
+    const auto before = adai::gpu::transfer_stats();
+    std::vector<float> v(100, 1.0f);
+    GPUMemory<float> a(100), b(100);
+    a.copy_from_host(v.data(), 100);
+    g::matrix_copy_device_to_device_gpu(a.get(), b.get(), 100);
+    b.copy_to_host(v.data(), 40);
+    g::matrix_download_gpu(b.get(), v.data(), 10);
+    const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), before);
+    EXPECT_EQ(d.uploads, 1u);
+    EXPECT_EQ(d.upload_bytes, 400u);
+    EXPECT_EQ(d.downloads, 2u);
+    EXPECT_EQ(d.download_bytes, 200u);
+    EXPECT_EQ(d.host_round_trips, 0u);
 }

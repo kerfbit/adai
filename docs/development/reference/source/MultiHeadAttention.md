@@ -1,12 +1,12 @@
 # `MultiHeadAttention` — Source File Reference
 
-- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,595 lines together)
+- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,611 lines together)
 - **Namespace:** global
 - **Built into:** `adai_attention`; owned by every `EncoderBlock` and `DecoderBlock` (self-attention), hence by `LLMEncoder`, `LLMDecoder`, `LeJEPAEncoder`; saved by `ModelSerializer`
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.14.0` (`.hpp`) / `0.15.0` (`.cpp`), `@adai-reviewed: 2026-11-13`
+- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.15.0` (`.hpp`) / `0.16.0` (`.cpp`), `@adai-reviewed: 2026-11-22` (TD-589's device accumulator)
 - **Tests:** [`tests/multiheadattention_test.cpp`](../../../../tests/multiheadattention_test.cpp) (65 tests; 73 in a GPU build)
 - **Sibling:** [CrossAttention.md](CrossAttention.md), which shares most of this design and already tracks the shared issues (TD-297–TD-303)
-- **Last traced against the code:** 2026-11-13
+- **Last traced against the code:** 2026-11-13; the entropy accumulator 2026-11-22 (TD-589)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs linked against the real class.
 
@@ -168,3 +168,11 @@ per-head loops use row pointers with bit-for-bit identical results, and logging 
 Now reflected in §2, §4–§6: the GPU forwards refuse attached LoRA adapters and check the input width and mask shape, `gpu_backward()`
 needs a forward of the same shape, and the setters (now shape-checked), `load_weights()`, `merge_lora()` and `update_weights()`
 refresh the device mirror. Tests: `MultiHeadAttentionSetterTest`, `MultiHeadAttentionGPUContractTest`.
+
+## Addendum (November 22, 2026): entropy accumulated on the device (TD-589)
+
+`set_gpu_entropy_accumulator(float* acc)` (GPU builds) makes every `gpu_forward()` add the heads' average per-row attention entropy to
+`acc[0]` and 1 to `acc[1]`: per head, `matrix_row_entropy_gpu()` into a scratch buffer, then `matrix_mean_accumulate_gpu()` with weight
+`1/num_heads` (the count added by head 0 only). Nothing is downloaded; `nullptr` (the default) turns it off. It measures what
+`set_gpu_attention_stats_hook()` measures (each head's entropy, averaged), not what the host `attention_hook_` sees: the host hook gets
+the head-averaged weights, whose entropy is a different (larger or equal) number.

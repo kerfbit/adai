@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-22
 
 #include "TokenEmbedding.hpp"
 #include "BinaryIO.hpp"
@@ -312,6 +312,25 @@ adai::gpu::GPUMatrix TokenEmbedding::gpu_forward(const std::vector<int>& token_i
                                                pos_offset, out.device_ptr(), n, d_model);
     }
     gpu_->last_count = n;
+    gpu_->last_ids = n > 0 ? gpu_->ids->get() : nullptr;
+    return out;
+}
+
+// TD-588: the IDs are already on the device (LeJEPA's context view is built there).
+adai::gpu::GPUMatrix TokenEmbedding::gpu_forward(const int* device_ids, int n, const adai::gpu::GPUMatrix* pe,
+                                                 int pe_rows, int pos_offset) {
+    if (!gpu_)
+        gpu_upload_weights();
+    if (n < 0 || (n > 0 && device_ids == nullptr)) {
+        throw std::invalid_argument("TokenEmbedding::gpu_forward: bad device IDs");
+    }
+    adai::gpu::GPUMatrix out(std::max(n, 1), d_model);
+    if (n > 0) {
+        adai::gpu::embedding_gather_add_pe_gpu(gpu_->W_g.device_ptr(), device_ids, pe ? pe->device_ptr() : nullptr,
+                                               pe_rows, pos_offset, out.device_ptr(), n, d_model);
+    }
+    gpu_->last_count = n;
+    gpu_->last_ids = device_ids;
     return out;
 }
 
@@ -322,7 +341,7 @@ void TokenEmbedding::gpu_backward(const adai::gpu::GPUMatrix& dout) {
         throw std::invalid_argument("TokenEmbedding::gpu_backward: gradient shape doesn't match "
                                     "the last gpu_forward()");
     }
-    adai::gpu::embedding_scatter_add_gpu(dout.device_ptr(), gpu_->ids->get(),
+    adai::gpu::embedding_scatter_add_gpu(dout.device_ptr(), gpu_->last_ids,
                                          gpu_->dW.device_ptr(), gpu_->last_count, d_model);
 }
 #endif

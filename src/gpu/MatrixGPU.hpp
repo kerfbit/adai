@@ -2,8 +2,8 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.20.0
+// @adai-reviewed: 2026-11-22
 
 #include <cstdint>
 #include <stdexcept>
@@ -199,6 +199,40 @@ void gated_residual_backward_gpu(const float* d_res, const float* attn, const fl
 // backward pass multiplies the gradient by the kept mask (matrix_multiply_elementwise_gpu()).
 void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
                          unsigned long long seed);
+
+// TD-586: SIGReg on the device, with SIGRegMath.hpp's formulas (the host SIGReg uses the same ones).
+// Fills directions [d_model, num_sketches] for (seed, draw) and normalizes every column to unit length.
+void sigreg_directions_gpu(float* directions, int d_model, int num_sketches, unsigned long long seed,
+                           unsigned long long draw);
+// Per direction k of proj [batch, num_sketches]: loss_terms[k], the unbiased characteristic-function gap
+// summed over the frequencies (TD-503; 0 when batch < 2), and var_terms[k], the projections' population
+// variance. With grad_proj non-null, also d(loss)/d(proj) [batch, num_sketches], scaled by norm_factor.
+void sigreg_terms_gpu(const float* proj, int batch, int num_sketches, float norm_factor, float* loss_terms,
+                      float* var_terms, float* grad_proj);
+// out[0] = norm_factor * sum(loss_terms), out[1] = mean(var_terms), out[2] = stddev(var_terms) (population).
+void sigreg_finish_gpu(const float* loss_terms, const float* var_terms, int num_sketches, float norm_factor,
+                       float* out);
+
+// TD-587: LeJEPA's view, loss and pooling arithmetic (LeJEPAEncoder::train_tokens()/train_batch()).
+// context_ids = target_ids with [span_start, span_start + span_len) replaced by unk_id.
+void lejepa_context_ids_gpu(const int* target_ids, int* context_ids, int seq_len, int span_start, int span_len,
+                            int unk_id);
+// Over the masked rows [span_start, span_start + span_len) of predicted/target [seq_len, d_model]:
+// *loss_out = mean squared error, *cos_out = mean row cosine similarity (0 for a row with a near-zero norm),
+// grad_predicted = 2 (predicted - target) / (span_len * d_model) and grad_target = its negative on those rows,
+// 0 elsewhere. loss_out and cos_out are device floats (nothing is downloaded).
+void lejepa_masked_mse_gpu(const float* predicted, const float* target, int seq_len, int d_model, int span_start,
+                           int span_len, float* loss_out, float* cos_out, float* grad_predicted, float* grad_target);
+// out_row[j] = mean over the rows of x[:, j] (x is [rows, d_model]): one text's pooled embedding.
+void lejepa_mean_pool_gpu(const float* x, int rows, int d_model, float* out_row);
+// grad[i, j] += scale * row[j] for every row i of grad [rows, d_model].
+void lejepa_add_row_broadcast_gpu(float* grad, int rows, int d_model, const float* row, float scale);
+
+// TD-589: device-accumulating diagnostics, for training that downloads its diagnostics once per epoch.
+// acc[0] += (number of |data[i]| < threshold) / size, acc[1] += 1 (an activation-saturation sample).
+void matrix_count_below_threshold_accumulate_gpu(const float* data, int size, float threshold, float* acc);
+// acc[0] += weight * mean(data[0..n)), acc[1] += count_increment.
+void matrix_mean_accumulate_gpu(const float* data, int n, float weight, float count_increment, float* acc);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-22
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -921,6 +921,12 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
 
         if (gpu_attention_stats_hook_) {
             total_entropy += scores_h.row_entropy_avg();
+        }
+        if (gpu_entropy_acc_) {  // TD-589: this head's mean row entropy / num_heads, counted once per call
+            adai::gpu::GPUMemory<float> row_entropy(static_cast<size_t>(scores_h.rows));
+            adai::gpu::matrix_row_entropy_gpu(scores_h.device_ptr(), row_entropy.get(), scores_h.rows, scores_h.cols);
+            adai::gpu::matrix_mean_accumulate_gpu(row_entropy.get(), scores_h.rows, 1.0f / static_cast<float>(num_heads),
+                                                  h == 0 ? 1.0f : 0.0f, gpu_entropy_acc_);
         }
 
         adai::gpu::GPUMatrix out_h = scores_h * V_h;

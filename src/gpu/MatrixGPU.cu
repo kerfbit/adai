@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-386, TD-395; CUDA kernels compile-checked only — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.1
-// @adai-reviewed: 2026-11-10
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-11-22
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -8,6 +8,7 @@
 #include "GPUUtils.hpp"
 #include "../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
 #include "../DropoutMask.hpp"          // TD-344: the mask hash shared with the CPU
+#include "../SIGRegMath.hpp"           // TD-586: SIGReg's formulas, shared with the CPU
 #include <algorithm>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
@@ -520,6 +521,8 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch,
     CUDA_CHECK(cudaMemcpyAsync(d_a, a_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_b, b_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_c, c_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
+    for (int i = 0; i < 3; ++i)
+        note_upload(ptr_bytes);  // TD-590: the pointer arrays
 
     const int threads = 256;
     const int n4   = size / 4;
@@ -572,6 +575,8 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
     CUDA_CHECK(cudaMemcpyAsync(d_a, a_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_b, b_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_c, c_batch, ptr_bytes, cudaMemcpyHostToDevice, stream));
+    for (int i = 0; i < 3; ++i)
+        note_upload(ptr_bytes);  // TD-590: the pointer arrays
 
     // cuBLAS uses column-major storage; our matrices are row-major.
     // By swapping A and B (computing B×A in column-major == A×B in row-major)
@@ -1162,6 +1167,7 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
     cudaStream_t s = GPUManager::get_stream();
     CUDA_CHECK(cudaMemcpyAsync(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float),
                                cudaMemcpyDeviceToHost, s));
+    note_download(static_cast<size_t>(count) * sizeof(float));  // TD-590
     CUDA_CHECK(cudaStreamSynchronize(s));
 }
 
@@ -1404,6 +1410,380 @@ void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_ta
     embedding_scatter_add_kernel<<<(total + threads - 1) / threads, threads, 0,
                                    GPUManager::get_stream()>>>(dout, ids, grad_table, n, d);
     CUDA_CHECK(cudaGetLastError());
+}
+
+
+// ============================================================================
+// TD-586: SIGReg (formulas in SIGRegMath.hpp, shared with the host SIGReg and the SYCL backend).
+// ============================================================================
+
+__global__ void sigreg_directions_fill_kernel(float* directions, int count, unsigned long long seed,
+                                              unsigned long long draw) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count)
+        directions[idx] = adai::sigreg_direction_raw(seed, draw, static_cast<std::uint64_t>(idx));
+}
+
+__global__ void sigreg_directions_normalize_kernel(float* directions, int d_model, int num_sketches) {
+    extern __shared__ float scratch[];
+    const int k = blockIdx.x;
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    float sq = 0.0f;
+    for (int i = lid; i < d_model; i += WG) {
+        const float v = directions[i * num_sketches + k];
+        sq += v * v;
+    }
+    scratch[lid] = sq;
+    __syncthreads();
+    for (int st = WG / 2; st > 0; st >>= 1) {
+        if (lid < st)
+            scratch[lid] += scratch[lid + st];
+        __syncthreads();
+    }
+    const float norm = fmaxf(sqrtf(scratch[0]), 1e-8f);
+    for (int i = lid; i < d_model; i += WG)
+        directions[i * num_sketches + k] /= norm;
+}
+
+void sigreg_directions_gpu(float* directions, int d_model, int num_sketches, unsigned long long seed,
+                           unsigned long long draw) {
+    if (d_model <= 0 || num_sketches <= 0) {
+        return;
+    }
+    const int count = d_model * num_sketches;
+    const int threads = 256;
+    sigreg_directions_fill_kernel<<<(count + threads - 1) / threads, threads, 0, GPUManager::get_stream()>>>(
+        directions, count, seed, draw);
+    CUDA_CHECK(cudaGetLastError());
+    sigreg_directions_normalize_kernel<<<num_sketches, threads, threads * sizeof(float), GPUManager::get_stream()>>>(
+        directions, d_model, num_sketches);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+// Two block-wide sums at once into ra/rb, read by every thread; scratch holds 2 * blockDim.x floats.
+__device__ void sigreg_reduce2(float* scratch, float a, float b, float& ra, float& rb) {
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    float* sa = scratch;
+    float* sb = scratch + WG;
+    sa[lid] = a;
+    sb[lid] = b;
+    __syncthreads();
+    for (int st = WG / 2; st > 0; st >>= 1) {
+        if (lid < st) {
+            sa[lid] += sa[lid + st];
+            sb[lid] += sb[lid + st];
+        }
+        __syncthreads();
+    }
+    ra = sa[0];
+    rb = sb[0];
+    __syncthreads();  // before the next reuse (TD-384)
+}
+
+__global__ void sigreg_terms_kernel(const float* proj, int batch, int K, float norm_factor, float* loss_terms,
+                                    float* var_terms, float* grad_proj) {
+    extern __shared__ float scratch[];
+    const int k = blockIdx.x;
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    const float n = static_cast<float>(batch);
+    float s = 0.0f, s2 = 0.0f;
+    for (int i = lid; i < batch; i += WG) {
+        const float p = proj[i * K + k];
+        s += p;
+        s2 += p * p;
+    }
+    float sum = 0.0f, sum_sq = 0.0f;
+    sigreg_reduce2(scratch, s, s2, sum, sum_sq);
+    const float mean = sum / n;
+    const float var = sum_sq / n - mean * mean;
+
+    const bool estimate = batch >= 2;  // the unbiased estimator needs two samples (TD-503)
+    const float unbiased = estimate ? n / (n - 1.0f) : 0.0f;
+    if (grad_proj)
+        for (int i = lid; i < batch; i += WG)
+            grad_proj[i * K + k] = 0.0f;
+    float loss = 0.0f;
+    for (int fj = 0; fj < adai::kSigregNumFrequencies; ++fj) {
+        const float t = adai::sigreg_frequency(fj);
+        float c = 0.0f, sn = 0.0f;
+        for (int i = lid; i < batch; i += WG) {
+            const float p = proj[i * K + k];
+            c += cosf(t * p);
+            sn += sinf(t * p);
+        }
+        float csum = 0.0f, ssum = 0.0f;
+        sigreg_reduce2(scratch, c, sn, csum, ssum);
+        if (!estimate)
+            continue;
+        const float mc = csum / n, ms = ssum / n;
+        const float target = expf(-0.5f * t * t);
+        const float d_real = mc - target;
+        loss += d_real * d_real + ms * ms + (mc * mc + ms * ms - 1.0f) / (n - 1.0f);
+        if (grad_proj) {
+            for (int i = lid; i < batch; i += WG) {  // each thread owns its rows: no race
+                const float p = proj[i * K + k];
+                const float dcos = -t * sinf(t * p) / n;
+                const float dsin = t * cosf(t * p) / n;
+                grad_proj[i * K + k] += (2.0f * unbiased * (mc * dcos + ms * dsin) - 2.0f * target * dcos) * norm_factor;
+            }
+        }
+    }
+    if (lid == 0) {
+        loss_terms[k] = loss;
+        var_terms[k] = var;
+    }
+}
+
+void sigreg_terms_gpu(const float* proj, int batch, int num_sketches, float norm_factor, float* loss_terms,
+                      float* var_terms, float* grad_proj) {
+    if (batch <= 0 || num_sketches <= 0) {
+        return;
+    }
+    const int threads = 256;
+    sigreg_terms_kernel<<<num_sketches, threads, 2 * threads * sizeof(float), GPUManager::get_stream()>>>(
+        proj, batch, num_sketches, norm_factor, loss_terms, var_terms, grad_proj);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+__global__ void sigreg_finish_kernel(const float* loss_terms, const float* var_terms, int K, float norm_factor,
+                                     float* out) {
+    extern __shared__ float scratch[];
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    float l = 0.0f, v = 0.0f;
+    for (int k = lid; k < K; k += WG) {
+        l += loss_terms[k];
+        v += var_terms[k];
+    }
+    float loss = 0.0f, var_sum = 0.0f;
+    sigreg_reduce2(scratch, l, v, loss, var_sum);
+    const float var_mean = K > 0 ? var_sum / static_cast<float>(K) : 0.0f;
+    float d = 0.0f;
+    for (int k = lid; k < K; k += WG) {
+        const float diff = var_terms[k] - var_mean;
+        d += diff * diff;
+    }
+    float d_sum = 0.0f, unused = 0.0f;
+    sigreg_reduce2(scratch, d, 0.0f, d_sum, unused);
+    if (lid == 0) {
+        out[0] = loss * norm_factor;
+        out[1] = var_mean;
+        out[2] = K > 0 ? sqrtf(d_sum / static_cast<float>(K)) : 0.0f;
+    }
+}
+
+void sigreg_finish_gpu(const float* loss_terms, const float* var_terms, int num_sketches, float norm_factor,
+                       float* out) {
+    const int threads = 256;
+    sigreg_finish_kernel<<<1, threads, 2 * threads * sizeof(float), GPUManager::get_stream()>>>(
+        loss_terms, var_terms, num_sketches, norm_factor, out);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+
+// ============================================================================
+// TD-587: LeJEPA view, loss and pooling kernels (CUDA versions of MatrixGPU_SYCL.cpp's).
+// ============================================================================
+
+__global__ void lejepa_context_ids_kernel(const int* target_ids, int* context_ids, int seq_len, int span_start,
+                                          int span_end, int unk_id) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < seq_len)
+        context_ids[i] = (i >= span_start && i < span_end) ? unk_id : target_ids[i];
+}
+
+void lejepa_context_ids_gpu(const int* target_ids, int* context_ids, int seq_len, int span_start, int span_len,
+                            int unk_id) {
+    if (seq_len <= 0) {
+        return;
+    }
+    const int threads = 256;
+    lejepa_context_ids_kernel<<<(seq_len + threads - 1) / threads, threads, 0, GPUManager::get_stream()>>>(
+        target_ids, context_ids, seq_len, span_start, span_start + span_len, unk_id);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+__global__ void lejepa_masked_rows_kernel(const float* predicted, const float* target, int d_model, int span_start,
+                                          int span_end, float inv_n, float* err, float* cosv, float* grad_predicted,
+                                          float* grad_target) {
+    extern __shared__ float scratch[];  // 4 * blockDim.x
+    const int row = blockIdx.x;
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    const float* p = predicted + static_cast<size_t>(row) * d_model;
+    const float* t = target + static_cast<size_t>(row) * d_model;
+    float* gp = grad_predicted + static_cast<size_t>(row) * d_model;
+    float* gt = grad_target + static_cast<size_t>(row) * d_model;
+    if (row < span_start || row >= span_end) {  // the whole block takes this branch
+        for (int j = lid; j < d_model; j += WG) {
+            gp[j] = 0.0f;
+            gt[j] = 0.0f;
+        }
+        return;
+    }
+    float e = 0.0f, dot = 0.0f, np = 0.0f, nt = 0.0f;
+    for (int j = lid; j < d_model; j += WG) {
+        const float diff = p[j] - t[j];
+        const float g = 2.0f * diff * inv_n;
+        gp[j] = g;
+        gt[j] = -g;
+        e += diff * diff;
+        dot += p[j] * t[j];
+        np += p[j] * p[j];
+        nt += t[j] * t[j];
+    }
+    float* s0 = scratch;
+    float* s1 = scratch + WG;
+    float* s2 = scratch + 2 * WG;
+    float* s3 = scratch + 3 * WG;
+    s0[lid] = e;
+    s1[lid] = dot;
+    s2[lid] = np;
+    s3[lid] = nt;
+    __syncthreads();
+    for (int st = WG / 2; st > 0; st >>= 1) {
+        if (lid < st) {
+            s0[lid] += s0[lid + st];
+            s1[lid] += s1[lid + st];
+            s2[lid] += s2[lid + st];
+            s3[lid] += s3[lid + st];
+        }
+        __syncthreads();
+    }
+    if (lid == 0) {
+        const float denom = sqrtf(s2[0]) * sqrtf(s3[0]);
+        err[row] = s0[0];
+        cosv[row] = denom > 1e-8f ? s1[0] / denom : 0.0f;
+    }
+}
+
+__global__ void lejepa_masked_finish_kernel(const float* err, const float* cosv, int span_start, int span_end,
+                                            float inv_n, float* loss_out, float* cos_out) {
+    extern __shared__ float scratch[];  // 2 * blockDim.x
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    float a = 0.0f, b = 0.0f;
+    for (int r = span_start + lid; r < span_end; r += WG) {
+        a += err[r];
+        b += cosv[r];
+    }
+    float sum_err = 0.0f, sum_cos = 0.0f;
+    sigreg_reduce2(scratch, a, b, sum_err, sum_cos);
+    if (lid == 0) {
+        const int span_len = span_end - span_start;
+        *loss_out = sum_err * inv_n;
+        *cos_out = span_len > 0 ? sum_cos / static_cast<float>(span_len) : 0.0f;
+    }
+}
+
+void lejepa_masked_mse_gpu(const float* predicted, const float* target, int seq_len, int d_model, int span_start,
+                           int span_len, float* loss_out, float* cos_out, float* grad_predicted, float* grad_target) {
+    if (seq_len <= 0 || d_model <= 0) {
+        return;
+    }
+    const int threads = 256;
+    const int span_end = span_start + span_len;
+    const float inv_n = span_len > 0 ? 1.0f / static_cast<float>(span_len * d_model) : 0.0f;
+    GPUMemory<float> row_err(static_cast<size_t>(seq_len));
+    GPUMemory<float> row_cos(static_cast<size_t>(seq_len));
+    lejepa_masked_rows_kernel<<<seq_len, threads, 4 * threads * sizeof(float), GPUManager::get_stream()>>>(
+        predicted, target, d_model, span_start, span_end, inv_n, row_err.get(), row_cos.get(), grad_predicted,
+        grad_target);
+    CUDA_CHECK(cudaGetLastError());
+    lejepa_masked_finish_kernel<<<1, threads, 2 * threads * sizeof(float), GPUManager::get_stream()>>>(
+        row_err.get(), row_cos.get(), span_start, span_end, inv_n, loss_out, cos_out);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+__global__ void lejepa_mean_pool_kernel(const float* x, int rows, int d_model, float inv_rows, float* out_row) {
+    const int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j >= d_model)
+        return;
+    float s = 0.0f;
+    for (int i = 0; i < rows; ++i)
+        s += x[static_cast<size_t>(i) * d_model + j];
+    out_row[j] = s * inv_rows;
+}
+
+void lejepa_mean_pool_gpu(const float* x, int rows, int d_model, float* out_row) {
+    if (rows <= 0 || d_model <= 0) {
+        return;
+    }
+    const int threads = 256;
+    lejepa_mean_pool_kernel<<<(d_model + threads - 1) / threads, threads, 0, GPUManager::get_stream()>>>(
+        x, rows, d_model, 1.0f / static_cast<float>(rows), out_row);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+__global__ void lejepa_add_row_broadcast_kernel(float* grad, int count, int d_model, const float* row, float scale) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count)
+        grad[idx] += scale * row[idx % d_model];
+}
+
+void lejepa_add_row_broadcast_gpu(float* grad, int rows, int d_model, const float* row, float scale) {
+    if (rows <= 0 || d_model <= 0) {
+        return;
+    }
+    const int count = rows * d_model;
+    const int threads = 256;
+    lejepa_add_row_broadcast_kernel<<<(count + threads - 1) / threads, threads, 0, GPUManager::get_stream()>>>(
+        grad, count, d_model, row, scale);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+
+// ============================================================================
+// TD-589: device-accumulating diagnostics (one atomicAdd per block).
+// ============================================================================
+
+__global__ void accumulate_kernel(const float* data, int size, float scale, float count_increment, float* acc,
+                                  bool count_below, float threshold) {
+    extern __shared__ float scratch[];
+    const int lid = static_cast<int>(threadIdx.x);
+    const int WG = static_cast<int>(blockDim.x);
+    const int stride = WG * gridDim.x;
+    float part = 0.0f;
+    for (int i = blockIdx.x * WG + lid; i < size; i += stride)
+        part += count_below ? (fabsf(data[i]) < threshold ? 1.0f : 0.0f) : data[i];
+    scratch[lid] = part;
+    __syncthreads();
+    for (int st = WG / 2; st > 0; st >>= 1) {
+        if (lid < st)
+            scratch[lid] += scratch[lid + st];
+        __syncthreads();
+    }
+    if (lid == 0) {
+        atomicAdd(&acc[0], scratch[0] * scale);
+        if (blockIdx.x == 0 && count_increment != 0.0f)
+            atomicAdd(&acc[1], count_increment);
+    }
+}
+
+static void launch_accumulate(const float* data, int size, float scale, float count_increment, float* acc,
+                              bool count_below, float threshold) {
+    const int threads = 256;
+    const int blocks = std::min((size + threads - 1) / threads, 1024);
+    accumulate_kernel<<<blocks, threads, threads * sizeof(float), GPUManager::get_stream()>>>(
+        data, size, scale, count_increment, acc, count_below, threshold);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void matrix_count_below_threshold_accumulate_gpu(const float* data, int size, float threshold, float* acc) {
+    if (size <= 0) {
+        return;
+    }
+    launch_accumulate(data, size, 1.0f / static_cast<float>(size), 1.0f, acc, true, threshold);
+}
+
+void matrix_mean_accumulate_gpu(const float* data, int n, float weight, float count_increment, float* acc) {
+    if (n <= 0) {
+        return;
+    }
+    launch_accumulate(data, n, weight / static_cast<float>(n), count_increment, acc, false, 0.0f);
 }
 
 } // namespace gpu

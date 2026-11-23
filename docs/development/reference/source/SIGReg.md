@@ -1,12 +1,12 @@
 # `SIGReg` — Source File Reference
 
-- **Files:** [`src/SIGReg.hpp`](../../../../src/SIGReg.hpp) (103 lines), [`src/SIGReg.cpp`](../../../../src/SIGReg.cpp) (204 lines)
+- **Files:** [`src/SIGReg.hpp`](../../../../src/SIGReg.hpp) (159 lines), [`src/SIGReg.cpp`](../../../../src/SIGReg.cpp) (277 lines), [`src/SIGRegMath.hpp`](../../../../src/SIGRegMath.hpp) (56 lines, the formulas shared with the GPU kernels, TD-586)
 - **Namespace:** global
 - **Built into:** `adai_lejepa`; owned by [`LeJEPAEncoder`](LeJEPAEncoder.md) (`SIGReg(d_model, WORLD_MODEL_SIGREG_NUM_SKETCHES = 64)`), used in every `incremental_trainer --objective=lejepa` world-model step
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.1.0`, `@adai-reviewed: 2026-09-15` (both files)
-- **Tests:** [`tests/sigreg_test.cpp`](../../../../tests/sigreg_test.cpp) (13 tests, `sigregTests`; all pass)
+- **Status tag:** `@adai-status: beta` (capped by TD-504); `SIGReg.hpp` and `SIGReg.cpp` `@adai-version: 0.3.0`, `@adai-reviewed: 2026-11-22` (TD-586); `SIGRegMath.hpp` `experimental` 0.1.0
+- **Tests:** [`tests/sigreg_test.cpp`](../../../../tests/sigreg_test.cpp) (17 tests, `sigregTests`, plus 4 device tests in GPU builds; all pass, the device ones on the oneAPI CPU device)
 - **Design:** [lejepa_world_model_gated_injection_plan.md](../../../proposals/lejepa_world_model_gated_injection_plan.md), Component 3 (TD-175); the LeJEPA paper (arXiv:2511.08544)
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-17; the directions and the device path 2026-11-22 (TD-586)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real class.
 
@@ -96,6 +96,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Biased loss with a 1/n floor, applied per sequence (§2) | Short texts pushed off the target; logged loss tracks text length | **Verified** | [TD-503](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) |
 | Four unweighted frequencies; no NaN check; repeated projections (§2) | Weaker shape test; minor | By inspection | [TD-504](../../guides/TECHNICAL_DEBT.md#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) |
 | Unseeded initialization generally | Context | — | TD-368 |
+| Host only: directions drawn with a host RNG before every batch, and the loss, gradient and stats on host matrices | GPU LeJEPA training would have uploaded the directions every batch and done this on the CPU | **Fixed November 22, 2026** (addendum below) | [TD-586](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-586-sigreg-runs-only-on-the-host) |
 
 ---
 
@@ -119,3 +120,26 @@ Tests: `RedrawnDirectionsPenalizeCollapseOutsideOneDrawsSpan`, `SetSeedMakesTheD
 In training, SIGReg now runs on a `[batch, d_model]` matrix of mean-pooled embeddings, one row per text (`LeJEPAEncoder::train_batch()`),
 as the LeJEPA paper does, rather than on one text's tokens. `n` in the estimator is then the batch size
 (`WORLD_MODEL_SIGREG_BATCH_SIZE`, default 32).
+
+## Addendum (November 22, 2026): directions from (seed, draw), and the device path (TD-586)
+
+**Directions.** A draw is now a pure function of the seed and a draw number: element `(i, k)` is
+`adai::sigreg_direction_raw(seed, draw, i * num_sketches + k)` (`SIGRegMath.hpp`, a splitmix64 counter hash through Box–Muller), and
+each column is then normalized. `resample_directions()` only increments the draw number. The host matrix is built by
+`ensure_host_directions()` the first time a host method (`compute_loss()`, `backward()`, `compute_variance_stats()`,
+`get_directions()`) needs the current draw, and the device copy by a kernel the first time `gpu_compute()` does, so device training
+neither computes nor uploads directions on the host. `set_seed(s)` sets the seed and restarts the draw count (its first draw is 1); the
+seed still comes from `adai::next_init_seed()` at construction (TD-368). **The random stream changed:** the same `SEED` gives different
+directions than before November 22, 2026 (they used to come from a `std::mt19937`), so runs from before don't replay exactly. The host
+and the device agree to about 1e-4, not bit for bit: `icpx`'s default fast floating-point model approximates `log`/`cos` on the device
+(5e-5 seen on entries of about 0.1). The frequency grid is `adai::sigreg_frequency(j)` = 0.5 × (j + 1), shared with the kernels.
+
+**`gpu_compute(x, out_device, grad)`** (GPU builds): one projection `x · D` on the device, then `sigreg_terms_gpu()` (a work-group per
+direction: the projections' population variance, the four frequencies' cos/sin means and TD-503's unbiased gap, and, with a gradient,
+`d loss / d projection`, each item owning its rows), `sigreg_finish_gpu()` (one work-group: `out[0]` = the loss, `out[1]`/`out[2]` =
+the variance mean and stddev, all left on the device), and the gradient `grad_P · Dᵀ` through `matrix_gemm_strided_gpu()`. One
+projection serves all three results (TD-504's repeated-projection item, on the device; the host methods still recompute it). It throws
+`std::invalid_argument` for a width other than `d_model` or no rows; one row gives a 0 loss and gradient, as on the host.
+
+Tests (`SIGRegGpuTest`, GPU builds): the direction kernel against the host draw; `gpu_compute()` against the host loss, stats and
+gradient at batch 1, 2, 32 and 300; a resample moving the device to the next draw; a bad width throwing.

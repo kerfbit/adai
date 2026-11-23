@@ -1,10 +1,11 @@
 // @adai-status: beta        (capped by TD-386, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.18.1
+// @adai-version: 0.22.0
 // @adai-reviewed: 2026-11-22
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU_SYCL.hpp"
+#include "../../SIGRegMath.hpp"  // TD-586
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -356,6 +357,8 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** 
     q.memcpy(d_a, a_batch, ptr_bytes);
     q.memcpy(d_b, b_batch, ptr_bytes);
     q.memcpy(d_c, c_batch, ptr_bytes);
+    for (int i = 0; i < 3; ++i)
+        note_upload(ptr_bytes);  // TD-590: the pointer arrays
 
     // Vectorized float4 pass over the size/4 aligned prefix + scalar tail —
     // mirrors CUDA's batch_add_kernel_v4 / batch_add_tail_kernel split.
@@ -409,6 +412,8 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch, flo
     q.memcpy(d_a, a_batch, ptr_bytes);
     q.memcpy(d_b, b_batch, ptr_bytes);
     q.memcpy(d_c, c_batch, ptr_bytes);
+    for (int i = 0; i < 3; ++i)
+        note_upload(ptr_bytes);  // TD-590: the pointer arrays
 
     // oneMKL batched GEMM with group API: single group, all same sizes.
     // Same column-major trick: compute B*A = A*B in row-major.
@@ -1011,6 +1016,7 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
     auto& q = GPUManager::get_queue();
     GPUManager::wait_for(q.memcpy(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float)),
                          false);
+    note_download(static_cast<size_t>(count) * sizeof(float));  // TD-590
 }
 
 // ============================================================================
@@ -1032,6 +1038,7 @@ std::vector<T> host_copy_of(const T* device, size_t count) {
     if (count > 0) {
         GPUManager::wait_for(
             GPUManager::get_queue().memcpy(host.data(), device, count * sizeof(T)));
+        note_download(count * sizeof(T));  // TD-590
     }
     return host;
 }
@@ -1041,6 +1048,7 @@ void device_copy_of(T* device, const std::vector<T>& host) {
     if (!host.empty()) {
         GPUManager::wait_for(
             GPUManager::get_queue().memcpy(device, host.data(), host.size() * sizeof(T)));
+        note_upload(host.size() * sizeof(T));  // TD-590
     }
 }
 
@@ -1295,6 +1303,370 @@ void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_ta
             slot(grad_table[static_cast<size_t>(ids[i]) * d + j]);
         slot.fetch_add(dout[idx]);
     });
+}
+
+
+// ============================================================================
+// TD-586: SIGReg (formulas in SIGRegMath.hpp, shared with the host SIGReg). In-order queue: no .wait().
+// ============================================================================
+
+void sigreg_directions_gpu(float* directions, int d_model, int num_sketches, unsigned long long seed,
+                           unsigned long long draw) {
+    GPUManager::trace_kernel("sigreg_directions_gpu");  // TD-574
+    if (d_model <= 0 || num_sketches <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    const std::uint64_t s = seed, dr = draw;
+    q.parallel_for(sycl::range<1>(static_cast<size_t>(d_model) * num_sketches), [=](sycl::id<1> idx) {
+        directions[idx] = adai::sigreg_direction_raw(s, dr, static_cast<std::uint64_t>(idx[0]));
+    });
+    constexpr int WG = 256;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> scratch(sycl::range<1>(WG), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(static_cast<size_t>(num_sketches) * WG, WG), [=](sycl::nd_item<1> item) {
+            const int k = static_cast<int>(item.get_group(0));
+            const int lid = static_cast<int>(item.get_local_id(0));
+            float sq = 0.0f;
+            for (int i = lid; i < d_model; i += WG) {
+                const float v = directions[i * num_sketches + k];
+                sq += v * v;
+            }
+            scratch[lid] = sq;
+            item.barrier(sycl::access::fence_space::local_space);
+            for (int st = WG / 2; st > 0; st >>= 1) {
+                if (lid < st)
+                    scratch[lid] += scratch[lid + st];
+                item.barrier(sycl::access::fence_space::local_space);
+            }
+            const float norm = sycl::fmax(sycl::sqrt(scratch[0]), 1e-8f);
+            for (int i = lid; i < d_model; i += WG)
+                directions[i * num_sketches + k] /= norm;
+        });
+    });
+}
+
+void sigreg_terms_gpu(const float* proj, int batch, int num_sketches, float norm_factor, float* loss_terms,
+                      float* var_terms, float* grad_proj) {
+    GPUManager::trace_kernel("sigreg_terms_gpu");  // TD-574
+    if (batch <= 0 || num_sketches <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG = 256;
+    const bool has_grad = grad_proj != nullptr;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> sa(sycl::range<1>(WG), cgh);
+        sycl::local_accessor<float, 1> sb(sycl::range<1>(WG), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(static_cast<size_t>(num_sketches) * WG, WG), [=](sycl::nd_item<1> item) {
+            const int k = static_cast<int>(item.get_group(0));
+            const int lid = static_cast<int>(item.get_local_id(0));
+            const int K = num_sketches;
+            // Two sums over the batch at once; every item reads the results.
+            auto reduce2 = [&](float a, float b, float& ra, float& rb) {
+                sa[lid] = a;
+                sb[lid] = b;
+                item.barrier(sycl::access::fence_space::local_space);
+                for (int st = WG / 2; st > 0; st >>= 1) {
+                    if (lid < st) {
+                        sa[lid] += sa[lid + st];
+                        sb[lid] += sb[lid + st];
+                    }
+                    item.barrier(sycl::access::fence_space::local_space);
+                }
+                ra = sa[0];
+                rb = sb[0];
+                item.barrier(sycl::access::fence_space::local_space);  // before the next reuse (TD-384)
+            };
+            const float n = static_cast<float>(batch);
+            float s = 0.0f, s2 = 0.0f;
+            for (int i = lid; i < batch; i += WG) {
+                const float p = proj[i * K + k];
+                s += p;
+                s2 += p * p;
+            }
+            float sum = 0.0f, sum_sq = 0.0f;
+            reduce2(s, s2, sum, sum_sq);
+            const float mean = sum / n;
+            const float var = sum_sq / n - mean * mean;
+
+            const bool estimate = batch >= 2;  // the unbiased estimator needs two samples (TD-503)
+            const float unbiased = estimate ? n / (n - 1.0f) : 0.0f;
+            if (has_grad)
+                for (int i = lid; i < batch; i += WG)
+                    grad_proj[i * K + k] = 0.0f;
+            float loss = 0.0f;
+            for (int fj = 0; fj < adai::kSigregNumFrequencies; ++fj) {
+                const float t = adai::sigreg_frequency(fj);
+                float c = 0.0f, sn = 0.0f;
+                for (int i = lid; i < batch; i += WG) {
+                    const float p = proj[i * K + k];
+                    c += sycl::cos(t * p);
+                    sn += sycl::sin(t * p);
+                }
+                float csum = 0.0f, ssum = 0.0f;
+                reduce2(c, sn, csum, ssum);
+                if (!estimate)
+                    continue;
+                const float mc = csum / n, ms = ssum / n;
+                const float target = sycl::exp(-0.5f * t * t);
+                const float d_real = mc - target;
+                loss += d_real * d_real + ms * ms + (mc * mc + ms * ms - 1.0f) / (n - 1.0f);
+                if (has_grad) {
+                    for (int i = lid; i < batch; i += WG) {  // each item owns its rows: no race
+                        const float p = proj[i * K + k];
+                        const float dcos = -t * sycl::sin(t * p) / n;
+                        const float dsin = t * sycl::cos(t * p) / n;
+                        grad_proj[i * K + k] +=
+                            (2.0f * unbiased * (mc * dcos + ms * dsin) - 2.0f * target * dcos) * norm_factor;
+                    }
+                }
+            }
+            if (lid == 0) {
+                loss_terms[k] = loss;
+                var_terms[k] = var;
+            }
+        });
+    });
+}
+
+void sigreg_finish_gpu(const float* loss_terms, const float* var_terms, int num_sketches, float norm_factor,
+                       float* out) {
+    GPUManager::trace_kernel("sigreg_finish_gpu");  // TD-574
+    auto& q = GPUManager::get_queue();
+    constexpr int WG = 256;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> sa(sycl::range<1>(WG), cgh);
+        sycl::local_accessor<float, 1> sb(sycl::range<1>(WG), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(WG, WG), [=](sycl::nd_item<1> item) {
+            const int lid = static_cast<int>(item.get_local_id(0));
+            float l = 0.0f, v = 0.0f;
+            for (int k = lid; k < num_sketches; k += WG) {
+                l += loss_terms[k];
+                v += var_terms[k];
+            }
+            sa[lid] = l;
+            sb[lid] = v;
+            item.barrier(sycl::access::fence_space::local_space);
+            for (int st = WG / 2; st > 0; st >>= 1) {
+                if (lid < st) {
+                    sa[lid] += sa[lid + st];
+                    sb[lid] += sb[lid + st];
+                }
+                item.barrier(sycl::access::fence_space::local_space);
+            }
+            const float loss = sa[0];
+            const float var_mean = num_sketches > 0 ? sb[0] / static_cast<float>(num_sketches) : 0.0f;
+            item.barrier(sycl::access::fence_space::local_space);
+            float d = 0.0f;
+            for (int k = lid; k < num_sketches; k += WG) {
+                const float diff = var_terms[k] - var_mean;
+                d += diff * diff;
+            }
+            sa[lid] = d;
+            item.barrier(sycl::access::fence_space::local_space);
+            for (int st = WG / 2; st > 0; st >>= 1) {
+                if (lid < st)
+                    sa[lid] += sa[lid + st];
+                item.barrier(sycl::access::fence_space::local_space);
+            }
+            if (lid == 0) {
+                out[0] = loss * norm_factor;
+                out[1] = var_mean;
+                out[2] = num_sketches > 0 ? sycl::sqrt(sa[0] / static_cast<float>(num_sketches)) : 0.0f;
+            }
+        });
+    });
+}
+
+
+// ============================================================================
+// TD-587: LeJEPA view, loss and pooling kernels. In-order queue: no .wait().
+// ============================================================================
+
+void lejepa_context_ids_gpu(const int* target_ids, int* context_ids, int seq_len, int span_start, int span_len,
+                            int unk_id) {
+    GPUManager::trace_kernel("lejepa_context_ids_gpu");  // TD-574
+    if (seq_len <= 0) {
+        return;
+    }
+    const int span_end = span_start + span_len;
+    GPUManager::get_queue().parallel_for(sycl::range<1>(static_cast<size_t>(seq_len)), [=](sycl::id<1> idx) {
+        const int i = static_cast<int>(idx[0]);
+        context_ids[i] = (i >= span_start && i < span_end) ? unk_id : target_ids[i];
+    });
+}
+
+void lejepa_masked_mse_gpu(const float* predicted, const float* target, int seq_len, int d_model, int span_start,
+                           int span_len, float* loss_out, float* cos_out, float* grad_predicted, float* grad_target) {
+    GPUManager::trace_kernel("lejepa_masked_mse_gpu");  // TD-574
+    if (seq_len <= 0 || d_model <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG = 256;
+    const int span_end = span_start + span_len;
+    const float inv_n = span_len > 0 ? 1.0f / static_cast<float>(span_len * d_model) : 0.0f;
+    // Per masked row: its squared error and its cosine, summed afterwards in a fixed order.
+    GPUMemory<float> row_err(static_cast<size_t>(seq_len));
+    GPUMemory<float> row_cos(static_cast<size_t>(seq_len));
+    float* err = row_err.get();
+    float* cosv = row_cos.get();
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> s0(sycl::range<1>(WG), cgh), s1(sycl::range<1>(WG), cgh),
+            s2(sycl::range<1>(WG), cgh), s3(sycl::range<1>(WG), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(static_cast<size_t>(seq_len) * WG, WG), [=](sycl::nd_item<1> item) {
+            const int row = static_cast<int>(item.get_group(0));
+            const int lid = static_cast<int>(item.get_local_id(0));
+            const float* p = predicted + static_cast<size_t>(row) * d_model;
+            const float* t = target + static_cast<size_t>(row) * d_model;
+            float* gp = grad_predicted + static_cast<size_t>(row) * d_model;
+            float* gt = grad_target + static_cast<size_t>(row) * d_model;
+            if (row < span_start || row >= span_end) {  // the whole work-group takes this branch
+                for (int j = lid; j < d_model; j += WG) {
+                    gp[j] = 0.0f;
+                    gt[j] = 0.0f;
+                }
+                return;
+            }
+            float e = 0.0f, dot = 0.0f, np = 0.0f, nt = 0.0f;
+            for (int j = lid; j < d_model; j += WG) {
+                const float diff = p[j] - t[j];
+                const float g = 2.0f * diff * inv_n;
+                gp[j] = g;
+                gt[j] = -g;
+                e += diff * diff;
+                dot += p[j] * t[j];
+                np += p[j] * p[j];
+                nt += t[j] * t[j];
+            }
+            s0[lid] = e;
+            s1[lid] = dot;
+            s2[lid] = np;
+            s3[lid] = nt;
+            item.barrier(sycl::access::fence_space::local_space);
+            for (int st = WG / 2; st > 0; st >>= 1) {
+                if (lid < st) {
+                    s0[lid] += s0[lid + st];
+                    s1[lid] += s1[lid + st];
+                    s2[lid] += s2[lid + st];
+                    s3[lid] += s3[lid + st];
+                }
+                item.barrier(sycl::access::fence_space::local_space);
+            }
+            if (lid == 0) {
+                const float denom = sycl::sqrt(s2[0]) * sycl::sqrt(s3[0]);
+                err[row] = s0[0];
+                cosv[row] = denom > 1e-8f ? s1[0] / denom : 0.0f;
+            }
+        });
+    });
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> sa(sycl::range<1>(WG), cgh), sb(sycl::range<1>(WG), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(WG, WG), [=](sycl::nd_item<1> item) {
+            const int lid = static_cast<int>(item.get_local_id(0));
+            float a = 0.0f, b = 0.0f;
+            for (int r = span_start + lid; r < span_end; r += WG) {
+                a += err[r];
+                b += cosv[r];
+            }
+            sa[lid] = a;
+            sb[lid] = b;
+            item.barrier(sycl::access::fence_space::local_space);
+            for (int st = WG / 2; st > 0; st >>= 1) {
+                if (lid < st) {
+                    sa[lid] += sa[lid + st];
+                    sb[lid] += sb[lid + st];
+                }
+                item.barrier(sycl::access::fence_space::local_space);
+            }
+            if (lid == 0) {
+                *loss_out = sa[0] * inv_n;
+                *cos_out = span_len > 0 ? sb[0] / static_cast<float>(span_len) : 0.0f;
+            }
+        });
+    });
+    // row_err/row_cos go back to GPUManager's pool here; their next user is queued after these kernels
+    // on the in-order queue (TD-390), so the early release is safe.
+}
+
+void lejepa_mean_pool_gpu(const float* x, int rows, int d_model, float* out_row) {
+    GPUManager::trace_kernel("lejepa_mean_pool_gpu");  // TD-574
+    if (rows <= 0 || d_model <= 0) {
+        return;
+    }
+    const float inv_rows = 1.0f / static_cast<float>(rows);
+    GPUManager::get_queue().parallel_for(sycl::range<1>(static_cast<size_t>(d_model)), [=](sycl::id<1> j) {
+        float s = 0.0f;
+        for (int i = 0; i < rows; ++i)
+            s += x[static_cast<size_t>(i) * d_model + j];
+        out_row[j] = s * inv_rows;
+    });
+}
+
+void lejepa_add_row_broadcast_gpu(float* grad, int rows, int d_model, const float* row, float scale) {
+    GPUManager::trace_kernel("lejepa_add_row_broadcast_gpu");  // TD-574
+    if (rows <= 0 || d_model <= 0) {
+        return;
+    }
+    GPUManager::get_queue().parallel_for(sycl::range<2>(static_cast<size_t>(rows), static_cast<size_t>(d_model)),
+                                         [=](sycl::id<2> idx) {
+                                             grad[idx[0] * d_model + idx[1]] += scale * row[idx[1]];
+                                         });
+}
+
+
+// ============================================================================
+// TD-589: device-accumulating diagnostics (a bounded grid; one atomic add per work-group, like
+// matrix_sum_squares_accumulate_gpu()). In-order queue: no .wait().
+// ============================================================================
+
+namespace {
+void submit_accumulate(const float* data, int size, float scale, float count_increment, float* acc, bool count_below,
+                       float threshold) {
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    const int num_groups = std::min((size + WG_SIZE - 1) / WG_SIZE, 1024);
+    const int stride = num_groups * WG_SIZE;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(stride, WG_SIZE), [=](sycl::nd_item<1> item) {
+            float part = 0.0f;
+            for (int i = static_cast<int>(item.get_global_id(0)); i < size; i += stride) {
+                part += count_below ? (sycl::fabs(data[i]) < threshold ? 1.0f : 0.0f) : data[i];
+            }
+            part = workgroup_reduce_sum(item, subgroup_sums, part);
+            if (item.get_local_id(0) == 0) {
+                sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                                 sycl::access::address_space::global_space>
+                    sum(acc[0]);
+                sum.fetch_add(part * scale);
+                if (item.get_group(0) == 0 && count_increment != 0.0f) {
+                    sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                                     sycl::access::address_space::global_space>
+                        count(acc[1]);
+                    count.fetch_add(count_increment);
+                }
+            }
+        });
+    });
+}
+}  // namespace
+
+void matrix_count_below_threshold_accumulate_gpu(const float* data, int size, float threshold, float* acc) {
+    GPUManager::trace_kernel("matrix_count_below_threshold_accumulate_gpu");  // TD-574
+    if (size <= 0) {
+        return;
+    }
+    submit_accumulate(data, size, 1.0f / static_cast<float>(size), 1.0f, acc, true, threshold);
+}
+
+void matrix_mean_accumulate_gpu(const float* data, int n, float weight, float count_increment, float* acc) {
+    GPUManager::trace_kernel("matrix_mean_accumulate_gpu");  // TD-574
+    if (n <= 0) {
+        return;
+    }
+    submit_accumulate(data, n, weight / static_cast<float>(n), count_increment, acc, false, 0.0f);
 }
 
 }  // namespace gpu

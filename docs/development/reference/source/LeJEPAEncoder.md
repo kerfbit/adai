@@ -1,12 +1,12 @@
 # `LeJEPAEncoder` — Source File Reference
 
-- **Files:** [`src/LeJEPAEncoder.hpp`](../../../../src/LeJEPAEncoder.hpp) (386 lines), [`src/LeJEPAEncoder.cpp`](../../../../src/LeJEPAEncoder.cpp) (585)
+- **Files:** [`src/LeJEPAEncoder.hpp`](../../../../src/LeJEPAEncoder.hpp) (473 lines), [`src/LeJEPAEncoder.cpp`](../../../../src/LeJEPAEncoder.cpp) (890)
 - **Namespace:** global
 - **Built into:** `adai_lejepa`; used by `incremental_trainer --objective=lejepa` (pretraining, [IncrementalTrainingTool.md](IncrementalTrainingTool.md)) and attached frozen to the chatbot by `IncrementalTrainer::maybe_attach_world_model()` and `chatbot_api_server`
-- **Status tag:** `@adai-status: beta` (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes); `.cpp` `@adai-version: 0.12.0`, `.hpp` `0.11.3`; both `@adai-reviewed: 2026-11-19`
-- **Tests:** [`tests/lejepaencoder_test.cpp`](../../../../tests/lejepaencoder_test.cpp) (50 tests)
+- **Status tag:** `@adai-status: beta` (capped by TD-504; TD-566's device-loss stop doesn't cover LeJEPA passes); `.cpp` `@adai-version: 0.13.0`, `.hpp` `0.12.0`, both `@adai-reviewed: 2026-11-22` (training on the device, TD-588; prepared texts and device diagnostics, TD-589)
+- **Tests:** [`tests/lejepaencoder_test.cpp`](../../../../tests/lejepaencoder_test.cpp) (51 tests, plus 5 device tests in GPU builds, passing on the oneAPI CPU device)
 - **Design:** [lejepa_world_model_gated_injection_plan.md](../../../proposals/lejepa_world_model_gated_injection_plan.md) (TD-176–TD-189, TD-196)
-- **Last traced against the code:** 2026-11-19 (§2, §3's smaller items, §4 and §5; the addenda record earlier changes)
+- **Last traced against the code:** 2026-11-19 (§2, §3's smaller items, §4 and §5; the addenda record earlier changes); device training 2026-11-22 (TD-588, TD-589)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by training and saving/reloading
 > the real class in a scratch program.
@@ -122,6 +122,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Two sequential `update_weights()` per sample, justified by a TD-189 overwrite problem that TD-195 fixed (§3) | Two optimizer steps per sample; momentum applied twice; stale rationale | By inspection | [TD-428](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) |
 | `TokenizerEncodingError` escapes the caller's `invalid_argument` catch; `std::cout`; unchecked loads; `max_seq_length` not compared (§3) | — | **Fixed November 19, 2026** | [TD-429](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) |
 | SIGReg's frequency grid, NaN inputs and repeated projections | Caps the status at `beta` | By inspection | [TD-504](../../guides/TECHNICAL_DEBT.md#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) |
+| `train_batch()` trains on the host even with a GPU in use: only `Matrix::multiply()`'s implicit dispatch reaches the device, with an upload and download per product; the view, loss and pooling loops are host-only; texts are re-tokenized every epoch (filed November 22, 2026) | A LeJEPA pass does its math on the CPU, against the owner rule that GPU training stays on the device | **Fixed November 22, 2026** for GPU builds: `gpu_begin_training()` and `gpu_train_batch()` (addenda below); re-tokenization every epoch fixed by TD-589 | [TD-587](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-587-lejepas-view-loss-and-pooling-arithmetic-is-host-loops), [TD-588](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-588-lejepa-has-no-device-resident-training-step), [TD-589](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host) |
 
 ---
 
@@ -187,3 +188,48 @@ The constructor logs one debug line and save/load, the tokenizer methods and `pr
 `max_seq_length` loads with a warning. The exception escape was already gone (TD-503); `TrainBatchSkipsInvalidUtf8` now covers it.
 Tests: `ShortOrOverLongConfigThrowsAndLeavesTheEncoderUnchanged`, `DifferentMaxSeqLengthLoadsWithAWarning`, `WritesNothingToStdout`,
 `TrainBatchSkipsInvalidUtf8`.
+
+## Addendum (November 22, 2026): training on the device (TD-588)
+
+**Turning it on.** `gpu_begin_training()` (GPU builds) uploads every weight (embedding, blocks, final norm, predictor and the positional
+table, through `gpu_ensure_weights()`, which `gpu_encode()` shares) and binds a `GPUOptimizer` to the optimizer given to
+`register_parameters_with_optimizer()` (`std::logic_error` without one). It returns the number of groups left on the host; all of them
+have device copies, so it's 0. From then on `train_batch()` tokenizes as before (`tokenize_batch()`) and hands the IDs to
+`gpu_train_batch()`. The device weights and Adam moments are the live copy: `sync_host_from_device()` downloads both, and must come
+before `save()` (`run_lejepa_training_pass()` calls it before every checkpoint). `gpu_encode()` uses the device weights while they are
+current, so a world model trained this way encodes with its trained weights.
+
+**`gpu_train_batch(ids)`** has `train_batch()`'s semantics with the host math replaced by TD-585 to TD-587's device pieces:
+- the batch's IDs go up in one copy (each text 2 to `max_seq_length` IDs, `std::invalid_argument` otherwise);
+- phase 1 encodes each target view on the device and mean-pools it into SIGReg's batch; `SIGReg::gpu_compute()` takes the loss, the
+  variance stats and the pooled gradient;
+- phase 2, per text: `choose_span()` (shared with the host step, so both draw the same spans from `span_rng_`), the context view's IDs
+  built on the device, the context and target encoder passes through `TokenEmbedding`'s device-ID lookup, the predictor, the masked
+  loss and gradients into per-text device floats, the pooled SIGReg gradient spread over the text (`λ·batch/seq_len`), the backward
+  through the target view, the predictor and (after re-encoding) the context view, then one `GPUOptimizer` step and zeroed device
+  gradients. The re-encode stays: each layer's device state holds one set of activations, and a second set per layer would save one
+  forward pass per text but touch every layer.
+- The batch's results (SIGReg loss, variance mean and stddev, each text's predictor loss and cosine) collect in one device buffer and
+  come down in one download at the end; the optimizer reads its one float per group per step, as in chatbot training.
+
+**Checked against the host** (`DeviceTrainingMatchesHostTraining`, oneAPI CPU device): same weights, vocabulary, span seed and SIGReg
+seed (`seed_sigreg()`, new), two batches: the same texts skipped, per-text losses, SIGReg loss, masking ratio, cosine, gradient norm
+and variance mean within float tolerance, the same final encodings, and `gpu_encode()` matching. `DeviceTrainedWeightsSurviveSaveAfterSync`
+checks the host copy is stale until synced and a checkpoint after the sync restores the trained weights. Copies are deleted
+(`LeJEPAEncoder` was never copyable in practice; it holds `unique_ptr`s), and the destructor moved to the `.cpp`.
+
+## Addendum (November 22, 2026): prepared texts and device diagnostics (TD-589)
+
+`prepare_texts(texts)` tokenizes a pass's texts once (`tokenize_one()`, the same truncation and skips as `train_batch()`) and
+`train_prepared(first, last)` trains the range `[first, last)` with them, on the host (`train_ids_host()`) or the device
+(`gpu_train_core()`) as `train_batch()` would; its `trained` counts from `first`. On the device every prepared text's IDs go up in one
+upload, when training first needs them, and stay for the pass, so an epoch moves no IDs. `texts_tokenized()` counts tokenizations (a
+pass now tokenizes each text once, not once per epoch). `train_batch()` and `gpu_train_batch()` still tokenize and upload per call;
+both share the cores.
+
+`set_gpu_diagnostics(acc)` points every encoder block's feed-forward saturation accumulator at `acc[0..1]` and attention entropy
+accumulator at `acc[2..3]` ([FeedForward.md](FeedForward.md), [MultiHeadAttention.md](MultiHeadAttention.md)); `nullptr` clears them.
+
+Tests: `PreparedTextsTrainLikeTrainBatchAndTokenizeOnce` (host: identical losses over two epochs, each text tokenized once),
+`PreparedTextsOnTheDeviceMatchTheHost`, `DeviceDiagnosticsAccumulateOnTheDevice` (one sample per block call, saturation matching the host
+hook, `nullptr` stopping it).

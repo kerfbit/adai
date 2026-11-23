@@ -1,10 +1,275 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (504 on November 22, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (509 on November 22, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-589: The LeJEPA Pass Re-Tokenizes Every Epoch and Reads Diagnostics on the Host
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | Training / LeJEPATrainingPass | Code fix (MEDIUM, created November 22, 2026) |
+
+Description:
+Part of moving LeJEPA training onto the GPU (see TD-585; needs TD-588). Around the training step, `run_lejepa_training_pass()` and
+`train_batch()` do host work that would remain:
+- **Tokenization every epoch.** `train_batch()` BPE-encodes each text on every call, so every epoch re-tokenizes the whole pass's data.
+  Tokenization is string work and belongs on the host, but once per pass is enough.
+- **Per-batch scalar reads.** The pass reads the predictor losses, SIGReg loss, masking ratio, cosine similarity, variance stats and
+  gradient norm after every batch for its log, the admin API and `MetricsPushClient::update_sample_metrics()`. On the device those
+  would be one download each.
+- **Diagnostics hooks.** The activation-saturation and attention-entropy hooks take host matrices. `ChatbotTrainer`'s GPU versions
+  (`gpu_activation_stats_hook_`, `gpu_attention_stats_hook_`) call `matrix_count_below_threshold_gpu()`/`matrix_row_entropy_gpu()`,
+  which each download a value, and a LeJEPA step runs every layer three times per text.
+
+Action Items:
+
+- [x] Tokenize the pass's texts once (truncated to `max_seq_length`, the skips of TD-429 applied), upload all their IDs into one device
+      buffer with offsets, and keep it on the device for every epoch; the epoch shuffle permutes offsets on the host (an index list, no
+      data).
+- [x] Gather every per-batch diagnostic into one small device stats buffer (sums and counts) and download it once per batch, or only
+      every N batches with a config key if the metrics cadence allows; derive the logged and pushed values from it. **Done with TD-588
+      (November 22, 2026):** `gpu_train_batch()` collects the SIGReg loss and variance stats and each text's loss and cosine in one device
+      buffer and downloads it once per batch. Every N batches isn't done: the pass pushes per batch.
+- [x] (Since TD-588 these diagnostics read -1 on the device path, so this restores them.) Device-accumulating variants of the
+      saturation and entropy reductions (write into the stats buffer instead of returning a float,
+      as `matrix_sum_squares_accumulate_gpu()` does), used by GPU hooks registered on the world model's layers.
+- [x] Keep TD-566's device-loss handling: a failed batch still checks `GPUManager::device_usable()` and stops the pass.
+- [x] Test (`lejepaTrainingPassTests`, oneAPI CPU device): a pass on the device tokenizes each text once, trains, checkpoints and reports
+      the same metrics fields as the CPU pass.
+
+**Fix (November 22, 2026):**
+- **Tokenized once.** `LeJEPAEncoder::prepare_texts()` tokenizes a pass's texts once and `train_prepared(first, last)` trains a range of
+  them; on the device all their IDs go up in one upload and stay for the pass. `run_lejepa_training_pass()` uses them, so an epoch
+  neither tokenizes nor moves IDs. (There's no epoch shuffle to permute: the pass trains its texts in order.) `texts_tokenized()` counts
+  tokenizations for the test.
+- **Diagnostics on the device.** New kernels `matrix_count_below_threshold_accumulate_gpu()`/`matrix_mean_accumulate_gpu()` (both
+  backends) add into device floats; `FeedForward::set_gpu_saturation_accumulator()` and
+  `MultiHeadAttention::set_gpu_entropy_accumulator()` use them in `gpu_forward()`; `LeJEPAEncoder::set_gpu_diagnostics()` points every
+  encoder block at one four-float buffer. The pass zeroes it each epoch and downloads it once at the end, only when something reports the
+  values (a metrics client or the new `LeJEPAPassHooks::epoch_diagnostics`), so the device path reports them instead of -1. The entropy
+  is each head's average, as chatbot GPU training reports it (the host hook takes the head-averaged weights).
+- **TD-566** is unchanged: a failed batch still checks the device.
+
+Tests: `PreparedTextsTrainLikeTrainBatchAndTokenizeOnce`, `PreparedTextsOnTheDeviceMatchTheHost`, `DeviceDiagnosticsAccumulateOnTheDevice`
+(lejepaencoderTests), `DiagnosticAccumulatorsAddOnTheDevice` (gpuKernelReferenceTests), `AnEpochReportsItsDiagnostics` and the device
+pass test, now checking its diagnostics (lejepaTrainingPassTests), on the oneAPI CPU device and, for the host ones, in the debug build.
+
+Location in code: `src/LeJEPATrainingPass.{hpp,cpp}`, `src/LeJEPAEncoder.{hpp,cpp}` (`prepare_texts()`, `train_prepared()`,
+`set_gpu_diagnostics()`), `src/FeedForward.{hpp,cpp}`, `src/MultiHeadAttention.{hpp,cpp}`, `src/gpu/MatrixGPU.cu`,
+`src/gpu/sycl/MatrixGPU_SYCL.cpp`.
+
+Files to Modify:
+
+- `src/LeJEPATrainingPass.cpp`, `src/LeJEPAEncoder.{hpp,cpp}`
+- `src/gpu/MatrixGPU.hpp`, `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- `tests/lejepa_training_pass_test.cpp`
+
+---
+
+### TD-588: LeJEPA Has No Device-Resident Training Step
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | World model / LeJEPAEncoder | Code fix (MEDIUM, created November 22, 2026) |
+
+Description:
+Part of moving LeJEPA training onto the GPU (see TD-585; needs TD-585 to TD-587). With the predictor, SIGReg and the loss arithmetic
+on the device, `LeJEPAEncoder` still needs a training step that keeps everything there. The pieces exist: `TokenEmbedding`,
+`EncoderBlock` and `LayerNorm` have `gpu_forward()`/`gpu_backward()` and device gradients (TD-547 put the embeddings on the device), and
+`GPUOptimizer` (TD-468) steps Adam on device moments, downloading one float per parameter group. `gpu_encode()` (TD-342) already runs
+the encoder's forward on the device, but for inference only.
+
+Action Items:
+
+- [x] `LeJEPAEncoder::gpu_train_batch(const std::vector<std::vector<int>>& ids)` with `train_batch()`'s semantics: phase 1 encodes each
+      text's target view on the device and mean-pools it into the SIGReg batch; SIGReg's loss and pooled gradient (TD-586); phase 2, per
+      text, the context view (TD-587), both encoder passes, the predictor, the masked loss and gradients, the backward through both
+      views, and one `GPUOptimizer` step, as `train_tokens()` does now (one update per text, TD-428).
+- [x] `gpu_collect_parameters()` over the embedding, blocks, final norm and predictor, and a `GPUOptimizer` bound to them for the whole
+      pass; `get_last_gradient_norm()` from its device-reduced group norms. Expect 0 host groups.
+- [x] The device weights are the live copy during a pass: `sync_host_from_device()` (weights and Adam moments) only before a checkpoint
+      `save()`, and at the end of the pass, as `ChatbotTrainer` does; `gpu_encode()` must then use the trained device weights rather
+      than re-uploading stale host ones.
+- [x] Avoid the third encoder pass: `train_tokens()` re-encodes the context view because the layers keep one activation cache. Either
+      give the device layers a second cache slot (one per view) or record why the recompute stays.
+- [x] Keep `train_batch()` (CPU) for builds without a GPU; choose the path with `GPUManager::is_available()`, as the chatbot trainer
+      does.
+- [x] Test (oneAPI CPU device): one `gpu_train_batch()` against `train_batch()` from the same weights, directions (TD-586) and spans
+      gives the same losses and, within tolerance, the same updated weights.
+
+**Fix (November 22, 2026):**
+- **`LeJEPAEncoder`** (`.cpp` 0.13.0, `.hpp` 0.12.0): `gpu_begin_training()` uploads every weight and binds a `GPUOptimizer` to the
+  registered Adam optimizer (0 host groups); after it, `train_batch()` tokenizes (`tokenize_batch()`, shared) and calls
+  `gpu_train_batch()`, which has `train_batch()`'s semantics on the device: one upload of the batch's IDs, phase 1 pooling into
+  `SIGReg::gpu_compute()`, phase 2 per text with `choose_span()` (shared, so both paths draw the same spans), the context view built on
+  the device, both encoder passes, the predictor (TD-585), TD-587's loss and broadcast kernels, the backward through both views, one
+  optimizer step and zeroed gradients. The batch's results come down in one download. `sync_host_from_device()` downloads weights and
+  moments; `gpu_encode()` shares `gpu_ensure_weights()` and so encodes with the trained device weights. New `seed_sigreg()` for tests.
+- **The third encoder pass stays**, recorded in the code: each layer's device state holds one set of activations, so re-encoding the
+  context view is cheaper to keep than a second set in every layer.
+- **`TokenEmbedding`** gained a `gpu_forward()` from device IDs (no range check: the caller's IDs come from the tokenizer), and its
+  backward scatters to whichever IDs the last forward used.
+- **`run_lejepa_training_pass()`** calls `gpu_begin_training()` when the GPU is in use and `sync_host_from_device()` before every save.
+  Until TD-589 the activation-saturation and attention-entropy diagnostics read -1 on the device path (their hooks take host matrices).
+
+Tests (oneAPI CPU device): `DeviceTrainingMatchesHostTraining` (two batches with the same weights and seeds: per-text losses, SIGReg
+loss, masking ratio, cosine, gradient norm, variance mean and final encodings match the host), `DeviceTrainedWeightsSurviveSaveAfterSync`,
+`DeviceTrainingNeedsARegisteredOptimizer`, and `WithAGpuThePassTrainsOnTheDeviceAndCheckpoints` (lejepaTrainingPassTests, 10 pass). The
+host suites pass in the debug build; the CUDA build compiles.
+
+Location in code: `src/LeJEPAEncoder.{hpp,cpp}` (`train_batch()`, `gpu_train_batch()`, `gpu_begin_training()`,
+`sync_host_from_device()`, `gpu_encode()`), `src/TokenEmbedding.{hpp,cpp}`, `src/LeJEPATrainingPass.cpp`.
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.hpp`, `src/LeJEPAEncoder.cpp`
+- `tests/lejepaencoder_test.cpp`, `tests/gpu_optimizer_test.cpp`
+
+---
+
+### TD-587: LeJEPA's View, Loss and Pooling Arithmetic Is Host Loops
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | World model / LeJEPAEncoder | Code fix (MEDIUM, created November 22, 2026) |
+
+Description:
+Part of moving LeJEPA training onto the GPU (see TD-585). Around the layers, `train_tokens()` and `train_batch()` do element loops on
+host matrices:
+- the context view: a copy of the token IDs with a span replaced by the unk ID;
+- the predictor loss: MSE between predicted and target embeddings over the masked rows only, and its two gradients (`±2·diff/n` on those
+  rows, 0 elsewhere);
+- the predictor-target cosine similarity over the masked rows (a diagnostic);
+- the mean pool of each text's target view into one row of the SIGReg batch, and spreading that row's SIGReg gradient (scaled by
+  `λ·batch/seq_len`) back over the text's rows, added to the target gradient.
+
+Action Items:
+
+- [x] Kernels (CUDA and SYCL): build the context view's IDs on the device from the target IDs (copy, then fill `[span_start,
+      span_start + span_len)` with the unk ID; the host only chooses `span_start`, a kernel argument); masked MSE loss plus both gradients
+      in one pass, the loss added into a device scalar; masked-row cosine similarity into a device scalar; mean-pool rows into row `b` of
+      a `[batch, d_model]` device matrix; broadcast-add a scaled row to every row of a gradient.
+- [x] Add them to `tests/gpu_kernel_reference_test.cpp` against CPU references (spans at the start, middle and end; one masked row;
+      `seq_len` 2 and `max_seq_length`).
+
+**Fix (November 22, 2026):** four kernels in both backends, declared in `MatrixGPU.hpp`/`MatrixGPU_SYCL.hpp`:
+`lejepa_context_ids_gpu()`, `lejepa_masked_mse_gpu()` (loss and mean cosine written to device floats the caller names, so each text's
+values stay separate for TD-589's stats buffer; one work-group per row, then a fixed-order sum over the span, so no float atomics),
+`lejepa_mean_pool_gpu()` and `lejepa_add_row_broadcast_gpu()` (the scale carries `λ·batch/seq_len`). `gpuKernelReferenceTests` checks
+them against CPU references (spans at the start, middle and end, a one-row span, `seq_len` 2, 300 rows of width 257): 20 tests pass on
+the oneAPI CPU device; the CUDA build compiles and skips. `train_tokens()`/`train_batch()` still use the host loops until TD-588 calls
+the kernels.
+
+Location in code: `src/LeJEPAEncoder.cpp` (`train_tokens()`, `train_batch()`); `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.hpp`, `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.hpp`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- `tests/gpu_kernel_reference_test.cpp`
+
+---
+
+### TD-586: `SIGReg` Runs Only on the Host
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | World model / SIGReg | Code fix (MEDIUM, created November 22, 2026) |
+
+Description:
+Part of moving LeJEPA training onto the GPU (see TD-585). `SIGReg::compute_loss()`, `backward()` and `compute_variance_stats()` take a
+host `Matrix`: each forms `projections = X · D` (`[batch, num_sketches]`) and loops over every direction `k` and frequency `t`
+(`kFrequencies` = 0.5, 1, 1.5, 2) computing the mean cos/sin of `t·p` over the batch; the gradient is `grad_P · Dᵀ`. And
+`resample_directions()` draws `D` (`[d_model, num_sketches]`, normalized columns) from a host `std::mt19937` before every batch, so even
+with the rest on the device, `D` would be uploaded every batch (d_model × 64 floats: 196 KB at d_model 768).
+
+Action Items:
+
+- [x] Draw the directions on the device: a counter-based Gaussian (a hash of seed, draw and index through Box–Muller, as
+      `adai::dropout_mask_value()` does for dropout, TD-344) shared by a host function and a kernel, plus a column-normalize kernel. The
+      CPU `SIGReg` uses the same function, so both backends draw identical directions for a seed. This changes the CPU path's random
+      stream (`SEED` replays of earlier runs won't match, as for any TD-368 change); record it.
+- [x] `gpu_compute_loss_and_grad(const GPUMatrix& x, float* loss_device, GPUMatrix& grad)`: the projection and the gradient's product
+      with `matrix_gemm_strided_gpu`, and one kernel per (direction, frequency) pair, a work-group each, reducing cos/sin over the batch
+      and writing both the loss term (TD-503's unbiased form, accumulated into a device scalar) and `grad_P`. The loss stays on the
+      device; nothing is downloaded.
+- [x] `gpu_variance_stats()`: per-direction projected variance and its mean/stddev over directions, into two device floats.
+- [x] Compute the projection once per step and share it between loss, gradient and stats (TD-504's repeated-projection item, on the
+      device).
+- [x] Tests: on the oneAPI CPU device, loss, gradient and stats match the CPU `SIGReg` for the same directions, at batch 1 (0 loss), 2,
+      32 and 300; the host and device Gaussian draws are identical.
+
+**Fix (November 22, 2026):**
+- **Directions** are a pure function of (seed, draw number): `adai::sigreg_direction_raw()` in the new `src/SIGRegMath.hpp` (a
+  splitmix64 counter hash through Box–Muller, `ADAI_HOST_DEVICE`), with each column then normalized. `resample_directions()` only
+  advances the draw number; the host builds its matrix when a host method needs the current draw, and the device by
+  `sigreg_directions_gpu()` when `gpu_compute()` does, so device training does no host work and no upload for them. `set_seed()` keeps
+  working (same seed, same directions). The random stream changed: earlier `SEED` runs don't replay exactly. Host and device agree to
+  about 1e-4, not bit for bit (`icpx`'s default fast float model approximates `log`/`cos` on the device).
+- **One entry point instead of three:** `SIGReg::gpu_compute(x, out_device, grad)` writes the loss, variance mean and variance stddev
+  into three device floats and, with `grad`, the gradient, from one projection (the TD-504 repeated-projection item, on the device).
+  Kernels in both backends: `sigreg_directions_gpu()`, `sigreg_terms_gpu()` (a work-group per direction) and `sigreg_finish_gpu()`.
+- **Tests** are in `tests/sigreg_test.cpp` (`SIGRegGpuTest`, GPU builds), not `gpu_kernel_reference_test.cpp`, since they test the
+  kernels through `gpu_compute()` against the host `SIGReg`: the direction kernel against the host draw; loss, stats and gradient at
+  batch 1, 2, 32 and 300; a resample; a bad width. 21 pass on the oneAPI CPU device (three runs); the debug build's 17 and the LeJEPA
+  suites pass; the CUDA build compiles the kernels and skips.
+
+Location in code: `src/SIGReg.{hpp,cpp}`, `src/SIGRegMath.hpp` (`resample_directions()`, `compute_loss()`, `backward()`, `compute_variance_stats()`);
+new kernels in `src/gpu/MatrixGPU.cu` and `src/gpu/sycl/MatrixGPU_SYCL.cpp`.
+
+Files to Modify:
+
+- `src/SIGReg.hpp`, `src/SIGReg.cpp`
+- `src/gpu/MatrixGPU.hpp`, `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.hpp`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- `tests/sigreg_test.cpp`, `tests/gpu_kernel_reference_test.cpp`
+
+---
+
+### TD-585: LeJEPA's `Predictor` Has No GPU Path
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 22, 2026 | World model / Predictor | Code fix (MEDIUM, created November 22, 2026) |
+
+Description:
+Filed November 22, 2026, at the owner's request: move LeJEPA training fully onto the GPU (TD-585 to TD-590, in order). Today a
+`--objective=lejepa` pass trains on the CPU. `run_lejepa_training_pass()` → `LeJEPAEncoder::train_batch()` → `train_tokens()` runs the
+host forward, backward and update of every layer; the GPU is initialized, but only `Matrix::multiply()`'s implicit dispatch reaches it,
+one matrix product at a time with an upload and a download each (`src/Matrix.cpp`), which is what the owner rule against host↔device
+transfers forbids. Device-resident training (TD-003, TD-468, TD-547) went into `ChatbotTrainer`/`EncoderDecoderModel` only, and TD-342
+put just the frozen world model's inference on the device (`LeJEPAEncoder::gpu_encode()`).
+
+The first piece: `Predictor` is a thin wrapper around a `FeedForward` (d_model → hidden → d_model, GELU), and `FeedForward` already has
+`gpu_forward()`/`gpu_backward()` and device weight and gradient mirrors (used by every `EncoderBlock` in GPU training), but `Predictor`
+exposes none of them.
+
+Action Items:
+
+- [x] Add `Predictor::gpu_forward(const GPUMatrix&)`, `gpu_backward(const GPUMatrix&)`, `gpu_upload_weights()`, `gpu_download_weights()`,
+      `gpu_zero_grads()` and `gpu_collect_parameters()` (its `GPUParamRef`s for a `GPUOptimizer`), delegating to the wrapped `FeedForward`.
+- [x] Test (oneAPI CPU device, `ADAI_SYCL_ALLOW_CPU_DEVICE=1`): forward and backward match the CPU `forward()`/`backward()`, and the
+      gradients land in the device mirrors.
+
+**Fix (November 22, 2026):** `Predictor` (0.3.0) gained `gpu_forward()`, `gpu_backward()`, `gpu_upload_weights()`,
+`gpu_download_weights()`, `gpu_zero_grads()` and `gpu_collect_parameters()` in GPU builds, delegating to its `FeedForward`. It uploads its
+weights on first use, and again after `load()`; `gpu_collect_parameters()` uploads first, since `FeedForward` reports nothing before its
+device state exists. `gpu_backward()` checks it has a forward to differentiate (`FeedForward::gpu_backward()` would dereference a null
+state, TD-370) and that the gradient has that forward's shape. Tests (`PredictorGpuTest` in `tests/predictor_test.cpp`, GPU builds only):
+forward and backward match the host path; one Adam step through a `GPUOptimizer` (4 device groups, 0 host groups) matches a host step;
+weights loaded after a first device use reach the device; bad shapes throw. All 20 tests pass on the oneAPI CPU device
+(`build/sycl-cpudev`); the debug build's 16 pass and the CUDA build compiles and skips them. LeJEPA doesn't use the device path yet
+(TD-588).
+
+Location in code: `src/Predictor.{hpp,cpp}`; `src/FeedForward.hpp` (`gpu_forward()`, `gpu_backward()`).
+
+Files to Modify:
+
+- `src/Predictor.hpp`, `src/Predictor.cpp`
+- `tests/predictor_test.cpp` (or `tests/gpu_optimizer_test.cpp`, next to `WorldModelGpuEncodeMatchesEncode`)
+
+---
 
 ### TD-394: GPU Kernel Tests Can't Run Without a GPU
 

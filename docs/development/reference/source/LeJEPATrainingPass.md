@@ -1,11 +1,11 @@
 # `LeJEPATrainingPass` and `TrainingPassFiles` — Source File Reference
 
-- **Files:** [`src/LeJEPATrainingPass.hpp`](../../../../src/LeJEPATrainingPass.hpp) (42 lines), [`src/LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp) (678), [`src/TrainingPassFiles.hpp`](../../../../src/TrainingPassFiles.hpp) (32), [`src/TrainingPassFiles.cpp`](../../../../src/TrainingPassFiles.cpp) (83)
+- **Files:** [`src/LeJEPATrainingPass.hpp`](../../../../src/LeJEPATrainingPass.hpp) (45 lines), [`src/LeJEPATrainingPass.cpp`](../../../../src/LeJEPATrainingPass.cpp) (721), [`src/TrainingPassFiles.hpp`](../../../../src/TrainingPassFiles.hpp) (32), [`src/TrainingPassFiles.cpp`](../../../../src/TrainingPassFiles.cpp) (83)
 - **Namespace:** `adai`
 - **Built into:** `incremental_trainer` (with [IncrementalTrainingTool.cpp](IncrementalTrainingTool.md), which calls them) and `lejepaTrainingPassTests`
-- **Status tags:** all four `stable` 1.0.0, reviewed 2026-11-12 (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, to `beta` the same day, and to `stable` once their tests landed and the LeJEPA pass ran on ai-machine; [TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
-- **Tests:** [`tests/lejepa_training_pass_test.cpp`](../../../../tests/lejepa_training_pass_test.cpp) → `lejepaTrainingPassTests` (9, against a local registry and a tiny world model: a whole pass, a failed batch on a working GPU, a lost GPU, an epoch that trains nothing, a second pass resuming and finding nothing pending, a re-queued file training again, a checkpoint that can't load, a pause, a checkpoint request); [`tests/training_pass_files_test.cpp`](../../../../tests/training_pass_files_test.cpp) → `trainingPassFilesTests` (5, `TrainingPassFiles` against a loopback `FtpDataServer`)
-- **Last traced against the code:** 2026-11-12
+- **Status tags:** all four `stable` 1.0.0, reviewed 2026-11-12, except `LeJEPATrainingPass.cpp` 1.1.0, reviewed 2026-11-22 (training on the device, TD-588; a TD-589 tag) (moved out of `IncrementalTrainingTool.cpp` that day for TD-566, to `beta` the same day, and to `stable` once their tests landed and the LeJEPA pass ran on ai-machine; [TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable))
+- **Tests:** [`tests/lejepa_training_pass_test.cpp`](../../../../tests/lejepa_training_pass_test.cpp) → `lejepaTrainingPassTests` (10, plus a device pass in GPU builds, TD-588/TD-589; against a local registry and a tiny world model: a whole pass, a failed batch on a working GPU, a lost GPU, an epoch that trains nothing, a second pass resuming and finding nothing pending, a re-queued file training again, a checkpoint that can't load, a pause, a checkpoint request); [`tests/training_pass_files_test.cpp`](../../../../tests/training_pass_files_test.cpp) → `trainingPassFilesTests` (5, `TrainingPassFiles` against a loopback `FtpDataServer`)
+- **Last traced against the code:** 2026-11-12; device training 2026-11-22 (TD-588, TD-589)
 
 > Code-traced reference. The code was moved unchanged from `IncrementalTrainingTool.cpp` on November 12, 2026, then given TD-566's GPU-loss
 > handling; the history of the LeJEPA pass before that is in [IncrementalTrainingTool.md](IncrementalTrainingTool.md) §5.
@@ -76,3 +76,24 @@ batch (TD-569). A batch that throws, `TokenizerEncodingError` included, has been
 |---|---|---|
 | A real device loss has never reached this pass: 220 passes on ai-machine's Arc B60 caused no engine reset (the chatbot pass's workload does, about once in five passes) | The loss branch is tested with an injected check, and its probe, `GPUManager::device_usable()`, is the chatbot pass's, proved on every one of its losses | Accepted at promotion ([TD-572](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-572-lejepatrainingpass-and-trainingpassfiles-what-stands-between-them-and-stable)) |
 | The pass has no validation split | Its loss is the training predictor loss only | By design (TD-183) |
+| The pass trained on the host, re-tokenized every epoch, and read its diagnostics through host-matrix hooks | — | **Fixed November 22, 2026**: TD-588, [TD-589](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host) |
+
+## Addendum (November 22, 2026): the pass trains on the device (TD-588)
+
+After registering the Adam optimizer, a GPU build with the GPU in use (`GPUManager::is_available()`) calls
+`world_model.gpu_begin_training()`, so every batch trains on the device ([LeJEPAEncoder.md](LeJEPAEncoder.md)). Both saves, the
+periodic/requested/pause checkpoint and the end-of-pass one, call `sync_host_from_device()` first (a no-op on the host path), so the
+checkpoint holds the trained weights and Adam moments. TD-566's device-loss handling is unchanged. Until TD-589, the activation
+saturation and attention entropy are reported as -1 on the device path: their hooks take host matrices, and the device layers don't
+call them. Test: `WithAGpuThePassTrainsOnTheDeviceAndCheckpoints` (the log shows device training and no host groups; the pass
+checkpoints and records its file), on the oneAPI CPU device.
+
+## Addendum (November 22, 2026): tokenized once, diagnostics on the device (TD-589)
+
+The pass calls `world_model.prepare_texts(texts)` once, then `train_prepared(first, last)` per batch, so each text is tokenized once
+per pass (and, on the device, its IDs uploaded once). On the device path, when something reports them (a metrics client, or the new
+`LeJEPAPassHooks::epoch_diagnostics`), the encoder blocks accumulate activation saturation and attention entropy into four device
+floats (`set_gpu_diagnostics()`), zeroed each epoch and downloaded once at its end; they replace the host hooks' sums there, so the
+values are measured instead of -1. The entropy is the per-head average, as chatbot GPU training reports it. `epoch_diagnostics` is
+called after every epoch with the values pushed to the metrics server. Tests: `AnEpochReportsItsDiagnostics` (host) and the device pass
+test, now checking its diagnostics too.

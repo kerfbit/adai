@@ -18,6 +18,8 @@
 #include <string>
 #include <random>
 #include <stdexcept>
+#include <unistd.h>
+#include <algorithm>
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 
@@ -366,3 +368,126 @@ TEST(PredictorTest, LoadRejectsTruncatedAndMismatchedFilesWithoutChangingWeights
     std::filesystem::remove(path);
 }
 
+
+#ifdef ADAI_ENABLE_GPU
+// TD-585: the predictor's device path, against its host path, on the oneAPI CPU device in a SYCL build
+// (ADAI_SYCL_ALLOW_CPU_DEVICE=1); skipped without a device.
+#include "../src/GPUOptimizer.hpp"
+#include "../src/gpu/GPUUtils.hpp"
+
+namespace {
+
+bool predictor_gpu_ready() {
+    return adai::gpu::GPUManager::probe() && adai::gpu::GPUManager::initialize(0, 0.5f);
+}
+
+Matrix random_input(int rows, int cols, unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> d(-1.0f, 1.0f);
+    Matrix m(rows, cols);
+    for (auto& row : m.data)
+        for (auto& v : row)
+            v = d(rng);
+    return m;
+}
+
+float max_abs_diff(const Matrix& a, const Matrix& b) {
+    float worst = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            worst = std::max(worst, std::abs(a(i, j) - b(i, j)));
+    return worst;
+}
+
+// A second predictor with the first one's weights (through save()/load()).
+Predictor clone_of(const Predictor& p, int d_model, int hidden, const std::string& tag) {
+    const std::string path =
+        (std::filesystem::temp_directory_path() / ("adai_predictor_gpu_" + tag + "_" + std::to_string(::getpid()) + ".bin"))
+            .string();
+    p.save(path);
+    Predictor copy(d_model, hidden);
+    EXPECT_TRUE(copy.load(path));
+    std::filesystem::remove(path);
+    return copy;
+}
+
+}  // namespace
+
+TEST(PredictorGpuTest, ForwardAndBackwardMatchTheHost) {
+    if (!predictor_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const int d_model = 16, hidden = 24, rows = 5;
+    Predictor p(d_model, hidden);
+    const Matrix x = random_input(rows, d_model, 1);
+    const Matrix dout = random_input(rows, d_model, 2);
+
+    const Matrix host_out = p.forward(x);
+    const Matrix host_dx = p.backward(dout);
+    const Matrix dev_out = Matrix::from_gpu(p.gpu_forward(x.to_gpu()));
+    const Matrix dev_dx = Matrix::from_gpu(p.gpu_backward(dout.to_gpu()));
+    EXPECT_LT(max_abs_diff(dev_out, host_out), 1e-5f);
+    EXPECT_LT(max_abs_diff(dev_dx, host_dx), 1e-5f);
+}
+
+// One optimizer step from the device gradients equals one from the host gradients: the gradients land
+// in the device mirrors, and every parameter is a device group.
+TEST(PredictorGpuTest, ADeviceStepMatchesAHostStep) {
+    if (!predictor_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const int d_model = 16, hidden = 24, rows = 7;
+    Predictor host_p(d_model, hidden);
+    Predictor dev_p = clone_of(host_p, d_model, hidden, "step");
+    const Matrix x = random_input(rows, d_model, 3);
+    const Matrix dout = random_input(rows, d_model, 4);
+
+    Optimizer host_opt(OptimizerType::ADAM, 0.01f);
+    host_p.register_parameters_with_optimizer(host_opt);
+    host_p.forward(x);
+    host_p.backward(dout);
+    host_p.update_weights();
+
+    Optimizer dev_opt(OptimizerType::ADAM, 0.01f);
+    dev_p.register_parameters_with_optimizer(dev_opt);
+    dev_p.gpu_zero_grads();
+    std::vector<adai::gpu::GPUParamRef> params;
+    dev_p.gpu_collect_parameters(params);
+    ASSERT_EQ(params.size(), 4u) << "W1, W2, b1, b2";
+    GPUOptimizer gpu_opt(dev_opt, params);
+    EXPECT_EQ(gpu_opt.host_group_count(), 0u);
+    dev_p.gpu_forward(x.to_gpu());
+    dev_p.gpu_backward(dout.to_gpu());
+    gpu_opt.gradient_sq_norms();
+    gpu_opt.step(1.0f);
+    dev_p.gpu_download_weights();
+
+    const Matrix probe = random_input(3, d_model, 5);
+    EXPECT_LT(max_abs_diff(dev_p.forward(probe), host_p.forward(probe)), 1e-5f);
+}
+
+TEST(PredictorGpuTest, LoadedWeightsReachTheDevice) {
+    if (!predictor_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const int d_model = 16, hidden = 24;
+    Predictor source(d_model, hidden);
+    Predictor p(d_model, hidden);
+    const Matrix x = random_input(4, d_model, 6);
+    p.gpu_forward(x.to_gpu());  // uploads p's own weights first
+    const std::string path =
+        (std::filesystem::temp_directory_path() / ("adai_predictor_gpu_load_" + std::to_string(::getpid()) + ".bin"))
+            .string();
+    source.save(path);
+    ASSERT_TRUE(p.load(path));
+    std::filesystem::remove(path);
+    EXPECT_LT(max_abs_diff(Matrix::from_gpu(p.gpu_forward(x.to_gpu())), source.forward(x)), 1e-5f);
+}
+
+TEST(PredictorGpuTest, BadShapesAndBackwardBeforeForwardThrow) {
+    if (!predictor_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    Predictor p(16, 24);
+    EXPECT_THROW(p.gpu_backward(random_input(2, 16, 7).to_gpu()), std::logic_error);
+    EXPECT_THROW(p.gpu_forward(random_input(2, 15, 8).to_gpu()), std::invalid_argument);
+    p.gpu_forward(random_input(2, 16, 9).to_gpu());
+    EXPECT_THROW(p.gpu_backward(random_input(3, 16, 10).to_gpu()), std::invalid_argument);
+}
+#endif  // ADAI_ENABLE_GPU

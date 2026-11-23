@@ -1059,3 +1059,240 @@ TEST(LeJEPAEncoderTokenizerMode, FollowsTheConfiguredModeUnlessTheVocabularyReco
     EXPECT_EQ(defaulted.get_tokenizer_mode(), TokenizerMode::UNICODE);  // TD-564: the default
     fs::remove_all(dir);
 }
+
+// TD-589: prepared texts train exactly like train_batch() on the same batches, and are tokenized once for
+// every epoch instead of once per epoch.
+TEST_F(LeJEPAEncoderTest, PreparedTextsTrainLikeTrainBatchAndTokenizeOnce) {
+    const std::vector<std::string> texts = {"hello world test", "", "encoder test case", "this is a test",
+                                            "another test sentence"};
+    const std::string dir = temp_dir + "/prepared";
+    LeJEPAEncoder a(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    a.build_tokenizer(create_test_corpus(), 50);
+    a.save(dir);
+    LeJEPAEncoder b(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    b.build_tokenizer(create_test_corpus(), 50);
+    b.load(dir);
+    for (LeJEPAEncoder* e : {&a, &b}) {
+        e->seed_span_rng(3);
+        e->seed_sigreg(4);
+    }
+    Optimizer oa(OptimizerType::ADAM, 0.001f), ob(OptimizerType::ADAM, 0.001f);
+    a.register_parameters_with_optimizer(oa);
+    b.register_parameters_with_optimizer(ob);
+    b.prepare_texts(texts);
+    for (int epoch = 0; epoch < 2; ++epoch) {
+        for (size_t first = 0; first < texts.size(); first += 3) {
+            const size_t last = std::min(texts.size(), first + 3);
+            const auto ra = a.train_batch(std::vector<std::string>(texts.begin() + first, texts.begin() + last));
+            const auto rb = b.train_prepared(first, last);
+            EXPECT_EQ(rb.trained, ra.trained);
+            EXPECT_EQ(rb.predictor_losses, ra.predictor_losses);
+            EXPECT_EQ(rb.sigreg_loss, ra.sigreg_loss);
+        }
+    }
+    EXPECT_EQ(b.texts_tokenized(), texts.size()) << "once for both epochs";
+    EXPECT_EQ(a.texts_tokenized(), 2 * texts.size());
+}
+
+#ifdef ADAI_ENABLE_GPU
+// TD-588: training on the device against training on the host, on the oneAPI CPU device in a SYCL build
+// (ADAI_SYCL_ALLOW_CPU_DEVICE=1); skipped without a device.
+#include "../src/gpu/GPUUtils.hpp"
+
+namespace {
+bool lejepa_gpu_ready() {
+    return adai::gpu::GPUManager::probe() && adai::gpu::GPUManager::initialize(0, 0.5f);
+}
+const std::vector<std::string> kGpuCorpus = {
+    "the cat sat on the mat and looked at the door", "a dog ran far away from home in the rain",
+    "birds sing in the morning when the sun comes up", "the river runs past the old mill by the hill",
+    "she read the letter twice before she put it down", "tomorrow the market opens early for the fair"};
+}  // namespace
+
+// Same weights, vocabulary, span seed and SIGReg seed: two batches on the device give the host's losses,
+// diagnostics and weights, with every optimizer group on the device.
+TEST_F(LeJEPAEncoderTest, DeviceTrainingMatchesHostTraining) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const std::string dir = temp_dir + "/gpu_parity";
+    LeJEPAEncoder host(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    host.build_tokenizer(kGpuCorpus, 120);
+    host.save(dir);
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    device.load(dir);
+    for (LeJEPAEncoder* e : {&host, &device}) {
+        e->seed_span_rng(11);
+        e->seed_sigreg(12);
+    }
+    Optimizer host_opt(OptimizerType::ADAM, 0.001f);
+    host.register_parameters_with_optimizer(host_opt);
+    Optimizer device_opt(OptimizerType::ADAM, 0.001f);
+    device.register_parameters_with_optimizer(device_opt);
+    EXPECT_EQ(device.gpu_begin_training(), 0u) << "every optimizer group has a device copy";
+    ASSERT_TRUE(device.gpu_training());
+
+    const std::vector<std::vector<std::string>> batches = {{kGpuCorpus[0], kGpuCorpus[1], kGpuCorpus[2], ""},
+                                                           {kGpuCorpus[3], kGpuCorpus[4], kGpuCorpus[5]}};
+    for (size_t i = 0; i < batches.size(); ++i) {
+        SCOPED_TRACE("batch " + std::to_string(i));
+        const auto h = host.train_batch(batches[i]);
+        const auto d = device.train_batch(batches[i]);
+        EXPECT_EQ(d.trained, h.trained) << "the same texts are skipped (the empty one)";
+        ASSERT_EQ(d.predictor_losses.size(), h.predictor_losses.size());
+        for (size_t b = 0; b < h.predictor_losses.size(); ++b)
+            EXPECT_NEAR(d.predictor_losses[b], h.predictor_losses[b], 2e-3f * std::max(1.0f, h.predictor_losses[b]));
+        EXPECT_NEAR(d.sigreg_loss, h.sigreg_loss, 2e-3f * std::max(1.0f, std::abs(h.sigreg_loss)));
+        EXPECT_FLOAT_EQ(device.get_last_masking_ratio(), host.get_last_masking_ratio()) << "the same spans";
+        EXPECT_NEAR(device.get_last_predictor_target_cosine_sim(), host.get_last_predictor_target_cosine_sim(), 2e-3f);
+        EXPECT_NEAR(device.get_last_gradient_norm(), host.get_last_gradient_norm(),
+                    5e-3f * std::max(1.0f, host.get_last_gradient_norm()));
+        EXPECT_NEAR(device.get_last_sigreg_variance_mean(), host.get_last_sigreg_variance_mean(),
+                    2e-3f * std::max(1.0f, host.get_last_sigreg_variance_mean()));
+    }
+    // The device weights are the live copy until synced; then both encoders encode the same.
+    device.sync_host_from_device();
+    const Matrix want = host.encode(kGpuCorpus[1]);
+    const Matrix got = device.encode(kGpuCorpus[1]);
+    EXPECT_LT(max_abs_diff(got, want), 5e-3f);
+    // And gpu_encode() uses the trained device weights, not a stale upload.
+    EXPECT_LT(max_abs_diff(Matrix::from_gpu(device.gpu_encode(kGpuCorpus[1])), want), 5e-3f);
+}
+
+// A checkpoint written after syncing restores the device-trained weights.
+TEST_F(LeJEPAEncoderTest, DeviceTrainedWeightsSurviveSaveAfterSync) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const std::string dir = temp_dir + "/gpu_checkpoint";
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    Optimizer opt(OptimizerType::ADAM, 0.01f);
+    device.register_parameters_with_optimizer(opt);
+    const Matrix before = device.encode(kGpuCorpus[0]);
+    device.gpu_begin_training();
+    device.train_batch({kGpuCorpus[0], kGpuCorpus[1], kGpuCorpus[2]});
+    EXPECT_EQ(max_abs_diff(device.encode(kGpuCorpus[0]), before), 0.0f) << "the host copy is stale until synced";
+    device.sync_host_from_device();
+    const Matrix trained = device.encode(kGpuCorpus[0]);
+    EXPECT_GT(max_abs_diff(trained, before), 0.0f);
+    device.save(dir);
+    LeJEPAEncoder restored(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    restored.build_tokenizer(kGpuCorpus, 120);
+    restored.load(dir);
+    EXPECT_EQ(max_abs_diff(restored.encode(kGpuCorpus[0]), trained), 0.0f);
+}
+
+// TD-589: on the device, prepared texts (uploaded once) train like the host's train_batch().
+TEST_F(LeJEPAEncoderTest, PreparedTextsOnTheDeviceMatchTheHost) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const std::string dir = temp_dir + "/gpu_prepared";
+    LeJEPAEncoder host(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    host.build_tokenizer(kGpuCorpus, 120);
+    host.save(dir);
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    device.load(dir);
+    for (LeJEPAEncoder* e : {&host, &device}) {
+        e->seed_span_rng(21);
+        e->seed_sigreg(22);
+    }
+    Optimizer host_opt(OptimizerType::ADAM, 0.001f), device_opt(OptimizerType::ADAM, 0.001f);
+    host.register_parameters_with_optimizer(host_opt);
+    device.register_parameters_with_optimizer(device_opt);
+    device.gpu_begin_training();
+    device.prepare_texts(kGpuCorpus);
+    for (int epoch = 0; epoch < 2; ++epoch) {
+        for (size_t first = 0; first < kGpuCorpus.size(); first += 3) {
+            SCOPED_TRACE("epoch " + std::to_string(epoch) + " batch at " + std::to_string(first));
+            const auto h = host.train_batch(std::vector<std::string>(kGpuCorpus.begin() + first, kGpuCorpus.begin() + first + 3));
+            const auto d = device.train_prepared(first, first + 3);
+            EXPECT_EQ(d.trained, h.trained);
+            ASSERT_EQ(d.predictor_losses.size(), h.predictor_losses.size());
+            for (size_t b = 0; b < h.predictor_losses.size(); ++b)
+                EXPECT_NEAR(d.predictor_losses[b], h.predictor_losses[b], 2e-3f * std::max(1.0f, h.predictor_losses[b]));
+            EXPECT_NEAR(d.sigreg_loss, h.sigreg_loss, 2e-3f * std::max(1.0f, std::abs(h.sigreg_loss)));
+        }
+    }
+    EXPECT_EQ(device.texts_tokenized(), kGpuCorpus.size());
+}
+
+// TD-589: the device diagnostics count one sample per encoder-block forward call, and the saturation agrees
+// with the host hook on the same weights. (The entropy is each head's average, as in chatbot GPU training;
+// the host hook takes the entropy of the head-averaged weights, a different number.)
+TEST_F(LeJEPAEncoderTest, DeviceDiagnosticsAccumulateOnTheDevice) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    Optimizer opt(OptimizerType::ADAM, 0.001f);
+    device.register_parameters_with_optimizer(opt);
+    // The host hook on the untrained weights, for the target views phase 1 encodes first.
+    float host_sat = 0.0f;
+    int host_calls = 0;
+    for (int l = 0; l < NUM_LAYERS; ++l) {
+        device.get_encoder_block(l)->get_feed_forward()->set_activation_hook([&](const Matrix& m) {
+            int s = 0;
+            for (const auto& row : m.data)
+                for (float v : row)
+                    s += std::abs(v) < 0.01f ? 1 : 0;
+            host_sat += static_cast<float>(s) / static_cast<float>(m.rows * m.cols);
+            ++host_calls;
+        });
+    }
+    for (int i = 0; i < 2; ++i)
+        device.encode(kGpuCorpus[static_cast<size_t>(i)]);
+    device.gpu_begin_training();
+    adai::gpu::GPUMatrix acc(1, 4);
+    acc.zero();
+    device.set_gpu_diagnostics(acc.device_ptr());
+    // Two texts: phase 1 encodes both target views (2 x NUM_LAYERS block calls) before any step.
+    device.gpu_encode(kGpuCorpus[0]);
+    device.gpu_encode(kGpuCorpus[1]);
+    float d[4];
+    acc.download(d, 4);
+    EXPECT_FLOAT_EQ(d[1], 2.0f * NUM_LAYERS) << "one saturation sample per feed-forward call";
+    EXPECT_FLOAT_EQ(d[3], 2.0f * NUM_LAYERS) << "one entropy sample per attention call";
+    EXPECT_NEAR(d[0] / d[1], host_sat / static_cast<float>(host_calls), 1e-3f);
+    EXPECT_GT(d[2] / d[3], 0.0f);
+    device.set_gpu_diagnostics(nullptr);
+    device.gpu_encode(kGpuCorpus[2]);
+    acc.download(d, 4);
+    EXPECT_FLOAT_EQ(d[1], 2.0f * NUM_LAYERS) << "nullptr turns it off";
+}
+
+// TD-590: a device batch of prepared texts moves only its scalars: per text, the optimizer's one float per
+// group, and one download of the batch's results. No IDs (uploaded once for the pass), weights, activations
+// or gradients, and no host Matrix operation sent to the device.
+TEST_F(LeJEPAEncoderTest, ADeviceBatchMovesOnlyItsScalars) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    Optimizer opt(OptimizerType::ADAM, 0.001f);
+    device.register_parameters_with_optimizer(opt);
+    device.gpu_begin_training();
+    device.prepare_texts(kGpuCorpus);
+    device.train_prepared(0, 3);  // uploads the prepared IDs once
+    const auto before = adai::gpu::transfer_stats();
+    const auto result = device.train_prepared(3, 6);
+    const auto d = adai::gpu::transfer_delta(adai::gpu::transfer_stats(), before);
+    const auto batch = result.trained.size();
+    ASSERT_EQ(batch, 3u);
+    EXPECT_EQ(d.uploads, 0u) << "the IDs are already on the device";
+    EXPECT_EQ(d.downloads, batch + 1) << "one norm download per optimizer step, one for the batch's results";
+    // The weights alone are VOCAB_SIZE x D_MODEL floats for the embedding (128 KB here): the scalars are
+    // a few hundred bytes.
+    EXPECT_LT(d.download_bytes, 4096u) << d.download_bytes << " bytes";
+    EXPECT_EQ(d.host_round_trips, 0u) << "no host Matrix operation went to the device";
+}
+
+TEST_F(LeJEPAEncoderTest, DeviceTrainingNeedsARegisteredOptimizer) {
+    if (!lejepa_gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    LeJEPAEncoder device(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN, 16);
+    device.build_tokenizer(kGpuCorpus, 120);
+    EXPECT_THROW(device.gpu_begin_training(), std::logic_error);
+    EXPECT_THROW(device.gpu_train_batch({{1, 2, 3}}), std::logic_error);
+}
+#endif  // ADAI_ENABLE_GPU

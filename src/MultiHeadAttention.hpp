@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-22
 
 #include <functional>
 #include <memory>
@@ -142,6 +142,7 @@ class MultiHeadAttention {
 #ifdef ADAI_ENABLE_GPU
     // GPU-path equivalent, fired after softmax in gpu_forward() (see GPUAttentionStatsHookFn).
     GPUAttentionStatsHookFn gpu_attention_stats_hook_;
+    float* gpu_entropy_acc_ = nullptr;  // TD-589: device [sum, count], or nullptr
 #endif
 
     // TD-301: uploads W_q/W_k/W_v/W_o to the device mirror, when there is one.
@@ -347,6 +348,15 @@ class MultiHeadAttention {
 
     void clear_gpu_attention_stats_hook() {
         gpu_attention_stats_hook_ = nullptr;
+    }
+
+    /**
+     * TD-589: the same statistic accumulated on the device: every gpu_forward() adds the heads' average
+     * per-row attention entropy to acc[0] and 1 to acc[1], two device floats. nullptr (the default) turns
+     * it off. Nothing is downloaded.
+     */
+    void set_gpu_entropy_accumulator(float* acc) {
+        gpu_entropy_acc_ = acc;
     }
 #endif
 

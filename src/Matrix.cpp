@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033, TD-435 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-15
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-22
 
 #include "Matrix.hpp"
 #include <algorithm>
@@ -224,6 +224,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     // are large enough for cuBLAS SGEMM to outperform AVX2.  We do NOT gate on
     // 'rows' so that short-sequence inputs (seq_len < 32) still benefit from
     // fast weight-matrix multiplications (d_model × d_model, d_model × d_ff).
+    // TD-590: each dispatch uploads and downloads (counted as a host round trip in multiply_gpu()).
     // TD-382: a thread holding adai::gpu::ScopedCpuOnly (e.g. the async quality scorer) stays on
     // the CPU instead of sharing the training thread's GPU stream/queue.
     if (adai::gpu::GPUManager::is_available() && adai::gpu::implicit_gpu_dispatch_allowed() &&
@@ -921,6 +922,7 @@ Matrix Matrix::multiply_gpu(const Matrix& other) const {
     auto b_flat = flatten_matrix(other);
 
     // Allocate GPU memory
+    adai::gpu::note_host_round_trip();  // TD-590
     adai::gpu::GPUMemory<float> d_a(rows * cols);
     adai::gpu::GPUMemory<float> d_b(other.rows * other.cols);
     adai::gpu::GPUMemory<float> d_c(rows * other.cols);
@@ -953,6 +955,7 @@ Matrix Matrix::add_gpu(const Matrix& other) const {
     auto a_flat = flatten_matrix(*this);
     auto b_flat = flatten_matrix(other);
 
+    adai::gpu::note_host_round_trip();  // TD-590
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_b(size);
     adai::gpu::GPUMemory<float> d_c(size);
@@ -976,6 +979,7 @@ Matrix Matrix::transpose_gpu() const {
 
     auto a_flat = flatten_matrix(*this);
 
+    adai::gpu::note_host_round_trip();  // TD-590
     adai::gpu::GPUMemory<float> d_input(rows * cols);
     adai::gpu::GPUMemory<float> d_output(rows * cols);
 
@@ -998,6 +1002,7 @@ Matrix Matrix::scale_gpu(float scalar) const {
     int size = rows * cols;
     auto a_flat = flatten_matrix(*this);
 
+    adai::gpu::note_host_round_trip();  // TD-590
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_c(size);
 
@@ -1025,6 +1030,7 @@ Matrix Matrix::hadamard_gpu(const Matrix& other) const {
     auto a_flat = flatten_matrix(*this);
     auto b_flat = flatten_matrix(other);
 
+    adai::gpu::note_host_round_trip();  // TD-590
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_b(size);
     adai::gpu::GPUMemory<float> d_c(size);
