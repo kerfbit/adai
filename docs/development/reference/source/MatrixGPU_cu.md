@@ -1,10 +1,10 @@
 # `gpu/MatrixGPU.cu` — Source File Reference
 
-- **File:** [`src/gpu/MatrixGPU.cu`](../../../../src/gpu/MatrixGPU.cu) (1,787 lines, CUDA)
+- **File:** [`src/gpu/MatrixGPU.cu`](../../../../src/gpu/MatrixGPU.cu) (1,798 lines, CUDA)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in CUDA builds (`ENABLE_GPU`, the `gpu` preset). The free functions are declared in `src/gpu/MatrixGPU.hpp` (documented separately), which also defines `GPUMatrix` on top of them
 - **SYCL counterpart:** `src/gpu/sycl/MatrixGPU_SYCL.cpp`. The training kernels here were ported from it "formula-for-formula", so most findings apply to both (see §4)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.18.0`, `@adai-reviewed: 2026-11-22` (TD-586 SIGReg, TD-587 LeJEPA and TD-589 accumulator kernels; earlier TD-384 barriers, TD-382 cuBLAS lock)
+- **Status tag:** `@adai-status: beta` (capped by TD-386), `@adai-version: 0.20.0`, `@adai-reviewed: 2026-11-23` (TD-395's `matrix_zero_gpu()`; earlier TD-586 SIGReg, TD-587 LeJEPA and TD-589 accumulator kernels, TD-384 barriers, TD-382 cuBLAS lock)
 - **Tests:** none run real kernels in any environment used so far. `matrixgpuTd003Tests` and, since November 22, 2026, `gpuKernelReferenceTests` (every `matrix_*_gpu` against a CPU reference, TD-394) build in `build/cuda-gputest` and skip without a device; on a CUDA host they check this file against the same references the SYCL backend passes
 - **Last traced against the code:** 2026-10-19
 
@@ -205,3 +205,8 @@ CUDA versions (`atomicAdd`) of `matrix_count_below_threshold_accumulate_gpu(data
 `acc[1]`) and `matrix_mean_accumulate_gpu(data, n, weight, count_increment, acc)` (adds `weight · mean` and `count_increment`): a bounded
 grid (at most 1,024 work-groups, grid-stride), each group reducing its share and adding one partial with a float atomic. Diagnostics
 only, so the atomics' order doesn't matter. Compiled in `build/cuda-gputest`; the SYCL versions are tested in `gpuKernelReferenceTests` (`DiagnosticAccumulatorsAddOnTheDevice`).
+
+## Addendum (November 23, 2026): `matrix_zero_gpu()` (TD-395)
+
+`GPUMatrix::zero()` for the single, backend-shared `GPUMatrix` ([MatrixGPU.md](MatrixGPU.md)): a `cudaMemsetAsync` of `count`
+floats on `GPUManager::get_stream()`, with no synchronization. Compile-checked only, like the rest of this file.

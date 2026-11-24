@@ -1,12 +1,13 @@
 #ifndef MATRIX_GPU_HPP
 #define MATRIX_GPU_HPP
 
-// @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.20.0
-// @adai-reviewed: 2026-11-22
+// @adai-status: beta        (capped by TD-389 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-11-23
 
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #ifdef ADAI_ENABLE_GPU
@@ -170,6 +171,8 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 // calls that only compiled under SYCL).
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count);
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count);
+// TD-395: sets `count` floats to zero, queued like every kernel (no wait).
+void matrix_zero_gpu(float* data, int count);
 
 // TD-468: device-resident optimizer kernels (see GPUOptimizerKernels.hpp and GPUOptimizer.hpp).
 // Adds sum(data[i]^2) into *out_device (a device float) without synchronizing; zero it first.
@@ -234,9 +237,18 @@ void matrix_count_below_threshold_accumulate_gpu(const float* data, int size, fl
 // acc[0] += weight * mean(data[0..n)), acc[1] += count_increment.
 void matrix_mean_accumulate_gpu(const float* data, int n, float weight, float count_increment, float* acc);
 
+}  // namespace gpu
+}  // namespace adai
+
+#endif  // CUDA backend
+
+namespace adai {
+namespace gpu {
+
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)
-// TODO: See TD-395 in TECHNICAL_DEBT.md - duplicated in sycl/MatrixGPU_SYCL.hpp; merge into one definition
+// TD-395: one definition for both backends, built only from the backend functions declared above
+// (as GPUKVCache below is), so a change to it can't make CUDA and SYCL diverge.
 // ============================================================================
 
 /**
@@ -303,15 +315,14 @@ class GPUMatrix {
     /** @brief Return a fresh on-device copy of this matrix. */
     GPUMatrix copy() const {
         GPUMatrix result(rows, cols);
-        CUDA_CHECK(cudaMemcpyAsync(result.data_.get(), data_.get(),
-                                   static_cast<size_t>(rows * cols) * sizeof(float),
-                                   cudaMemcpyDeviceToDevice, GPUManager::get_stream()));
+        // Queued without a wait (TD-395): the in-order queue/stream orders it before later work.
+        matrix_copy_device_to_device_gpu(data_.get(), result.data_.get(), size());
         return result;
     }
 
     // ---- On-device arithmetic -------------------------------------------
 
-    /** @brief Matrix multiplication (C = this × other).  Uses cuBLAS SGEMM. */
+    /** @brief Matrix multiplication (C = this × other).  cuBLAS SGEMM (CUDA) or oneMKL GEMM (SYCL). */
     GPUMatrix operator*(const GPUMatrix& other) const {
         if (cols != other.rows)
             throw std::invalid_argument(
@@ -380,8 +391,7 @@ class GPUMatrix {
     // ---- TD-003 persistent-training operations ----------------------------
 
     void zero() {
-        CUDA_CHECK(cudaMemsetAsync(data_.get(), 0, static_cast<size_t>(rows * cols) * sizeof(float),
-                                   GPUManager::get_stream()));
+        matrix_zero_gpu(data_.get(), size());
     }
 
     // TODO: See TD-389 in TECHNICAL_DEBT.md - no size check (also softmax_backward, gelu_backward, add_row_bias,
@@ -457,14 +467,6 @@ class GPUMatrix {
         return matrix_sum_gpu(row_ent.get(), rows) / static_cast<float>(rows);
     }
 };
-
-}  // namespace gpu
-}  // namespace adai
-
-#endif  // CUDA backend
-
-namespace adai {
-namespace gpu {
 
 // ============================================================================
 // GPUKVCache / GPUDecoderKVCache — GPU-resident KV cache for incremental

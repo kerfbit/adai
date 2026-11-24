@@ -1,11 +1,11 @@
 # `gpu/sycl/MatrixGPU_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 316 lines)
-- **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, the SYCL `GPUMatrix`)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.hpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.hpp) (header-only, 133 lines)
+- **Namespace:** `adai::gpu` (`ActivationType` and the `matrix_*_gpu` declarations; `GPUMatrix` is in `MatrixGPU.hpp` since TD-395)
 - **Built into:** SYCL builds; included by `gpu/MatrixGPU.hpp` in place of its CUDA section. Kernels in [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md); queue and memory in [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
-- **CUDA counterpart:** the CUDA section of [MatrixGPU.md](MatrixGPU.md) (`gpu/MatrixGPU.hpp`), which also holds the shared `GPUKVCache`/`GPUDecoderKVCache`
-- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.20.0`, `@adai-reviewed: 2026-11-22` (TD-586's SIGReg, TD-587's LeJEPA and TD-589's accumulator declarations)
-- **Last traced against the code:** 2026-11-14 (the TD-574 wait timeout)
+- **CUDA counterpart:** the CUDA section of [MatrixGPU.md](MatrixGPU.md) (`gpu/MatrixGPU.hpp`), which also holds the shared `GPUMatrix` (TD-395) and `GPUKVCache`/`GPUDecoderKVCache`
+- **Status tag:** `@adai-status: beta` (capped by TD-389), `@adai-version: 0.21.0`, `@adai-reviewed: 2026-11-23` (TD-395: `GPUMatrix` moved to `MatrixGPU.hpp`, `matrix_zero_gpu()` declared)
+- **Last traced against the code:** 2026-11-23 (TD-395)
 
 > Code-traced reference. The `GPUMatrix` here, and the shared `GPUKVCache`/`GPUDecoderKVCache`
 > built on it, were **run** on the oneAPI CPU device through the scratch harness described in
@@ -16,28 +16,14 @@
 
 ## 1. What this file is
 
-The SYCL half of the GPU math API:
-- `ActivationType` and the `matrix_*_gpu` declarations, matching `MatrixGPU.hpp`'s CUDA block line
-  for line;
-- a **second, hand-maintained copy of `GPUMatrix`**.
+The SYCL half of the GPU math API: `ActivationType` and the `matrix_*_gpu` declarations, matching
+`MatrixGPU.hpp`'s CUDA block line for line (including TD-395's `matrix_zero_gpu()`).
 
-`gpu/MatrixGPU.hpp` includes this file under `ADAI_GPU_BACKEND_SYCL` and then defines the
-backend-agnostic `GPUKVCache`/`GPUDecoderKVCache` after the backend split, so on ai-machine every
-layer's GPU path uses the `GPUMatrix` defined here.
-
-### Differences from the CUDA `GPUMatrix`
-
-| Member | CUDA | SYCL (this file) |
-|---|---|---|
-| `copy()` | Async device copy | `GPUManager::wait_for(q.memcpy(...), false)` (with TD-574's wait timeout), an **unnecessary full-queue drain** on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule (and the TD-390 bubbles) |
-| `zero()` | `cudaMemsetAsync` | `q.memset` (async) |
-| Everything else | — | The same code, member for member (operators, LayerNorm, softmax, bias, diagnostics) |
-
-Only those two members actually depend on the backend, and both have backend-agnostic primitives
-already (`matrix_copy_device_to_device_gpu`, plus a trivial zero kernel). Yet the class is
-duplicated in full, so every `GPUMatrix` change has to be made twice, and a missed one makes the two
-backends silently diverge. `GPUKVCache` already shows the alternative: one definition after the
-backend split, built only on the shared API.
+`gpu/MatrixGPU.hpp` includes this file under `ADAI_GPU_BACKEND_SYCL` and then, after the backend
+split, defines `GPUMatrix` and `GPUKVCache`/`GPUDecoderKVCache` once for both backends
+([MatrixGPU.md](MatrixGPU.md) §2–§3). Until November 23, 2026 (TD-395) this file held a second,
+hand-maintained copy of `GPUMatrix` that differed only in `copy()` (which drained the queue) and
+`zero()`; see the addendum below.
 
 ---
 
@@ -59,9 +45,8 @@ from the TD-384 and TD-393 failures recorded there.
 
 ## 3. Who calls what
 
-The same as the CUDA `GPUMatrix` ([MatrixGPU.md](MatrixGPU.md) §4): every layer's GPU path,
-`EncoderDecoderModel`'s GPU training and generation, and `Matrix::to_gpu()`/`from_gpu()`. Under SYCL
-the `GPUKVCache` from `MatrixGPU.hpp` wraps this class.
+Everything that uses the GPU math API includes `MatrixGPU.hpp`, never this file directly; see
+[MatrixGPU.md](MatrixGPU.md) §4.
 
 ---
 
@@ -72,11 +57,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `GPUMatrix` is duplicated in full between the CUDA and SYCL headers, though only `copy()`/`zero()` differ (§1) | Every change must be made twice; drift between backends is silent | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
-| SYCL `copy()` does a `.wait()` (§1) | An extra full-queue drain wherever a matrix is copied | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
+| ~~`GPUMatrix` is duplicated in full between the CUDA and SYCL headers, though only `copy()`/`zero()` differ~~ **Fixed November 23, 2026**: one definition in `MatrixGPU.hpp` | — | Tested on the CPU device | [TD-395](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
+| ~~SYCL `copy()` does a `.wait()`~~ **Fixed November 23, 2026**: queued with no wait | — | Tested on the CPU device | [TD-395](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 | Unchecked `add_inplace` and other operations; uninitialized memory (§2). Zero-size throws, fixed November 18, 2026 (TD-392) | As in the CUDA class | **Verified** on the CPU device (TD-389, TD-392) | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (amended), [TD-392](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | Over-length encoder output throws from the cross-attention cache (§2) | GPU serving fails over-length requests | **Verified** at the cache level (TD-387) | [TD-387](../../guides/TECHNICAL_DEBT.md#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (amended) |
-| Header status note says "capped by TD-050", but TD-050 is resolved (November 17, 2026: the GPU KV cache validated and benchmarked on ai-machine's Arc) | Stale status note | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
+| ~~Header status note says "capped by TD-050", though TD-050 is resolved~~ **Fixed November 23, 2026** | — | — | [TD-395](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
 
 ## Addendum (November 4, 2026): `matrix_token_correct_gpu()` (TD-276)
 
@@ -95,3 +80,10 @@ and out-of-range targets), run on the oneAPI CPU device; the CUDA version is com
 
 `GPUMatrix::copy()`'s wait goes through `GPUManager::wait_for()`, so it gives up after `GPU_WAIT_TIMEOUT_SECONDS` on a GPU that
 stopped running work, like every other wait in the SYCL backend ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)).
+
+## Addendum (November 23, 2026): `GPUMatrix` moved out (TD-395)
+
+This file no longer defines `GPUMatrix`; the single definition is in `MatrixGPU.hpp`, after the backend split. Its `copy()` now
+calls `matrix_copy_device_to_device_gpu()` (traced as `matrix_copy_device_to_device_gpu`) and no longer waits, so the two addenda
+above describe the removed copy: the `gpu_matrix_copy`/`gpu_matrix_zero` trace names are gone (`zero()` is traced as
+`matrix_zero_gpu`), and `copy()` has no wait to time out.

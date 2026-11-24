@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-386, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-11-22
+// @adai-status: beta        (capped by TD-386 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-11-23
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -1009,6 +1009,13 @@ void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
     // In-order queue: no .wait() needed, ordering with subsequent kernels on
     // the same queue is guaranteed.
     q.memcpy(dst, src, static_cast<size_t>(count) * sizeof(float));
+}
+
+// TD-395: GPUMatrix::zero(). In-order queue: no wait, later kernels see the zeros.
+void matrix_zero_gpu(float* data, int count) {
+    GPUManager::trace_kernel("matrix_zero_gpu");  // TD-574
+    auto& q = GPUManager::get_queue();
+    q.memset(data, 0, static_cast<size_t>(count) * sizeof(float));
 }
 
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {

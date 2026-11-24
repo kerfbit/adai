@@ -1,12 +1,12 @@
 # `gpu/sycl/MatrixGPU_SYCL.cpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,668 lines, SYCL/oneMKL)
+- **File:** [`src/gpu/sycl/MatrixGPU_SYCL.cpp`](../../../../src/gpu/sycl/MatrixGPU_SYCL.cpp) (1,682 lines, SYCL/oneMKL)
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta` (capped by TD-386, TD-395), `@adai-version: 0.21.0`, `@adai-reviewed: 2026-11-22` (TD-586 SIGReg kernels, TD-587 LeJEPA kernels, TD-589 accumulators)
-- **Tests:** [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (21: every `matrix_*_gpu` against a CPU reference, TD-587's LeJEPA kernels and TD-589's accumulators; all pass on the oneAPI CPU device; 1 disabled, below); `matrixgpuTd003Tests` (22), `gpuOptimizerTests` (19), `gpuDebugSyncTests` (19); all skip without a device, and run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (`build/sycl-cpudev`)
+- **Status tag:** `@adai-status: beta` (capped by TD-386), `@adai-version: 0.23.0`, `@adai-reviewed: 2026-11-23` (TD-395's `matrix_zero_gpu()`; earlier TD-586 SIGReg kernels, TD-587 LeJEPA kernels, TD-589 accumulators)
+- **Tests:** [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (21: every `matrix_*_gpu` against a CPU reference, TD-587's LeJEPA kernels and TD-589's accumulators; all pass on the oneAPI CPU device; 1 disabled, below); `matrixgpuTd003Tests` (24), `gpuOptimizerTests` (19), `gpuDebugSyncTests` (19); all skip without a device, and run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (`build/sycl-cpudev`)
 - **Last traced against the code:** 2026-11-14 (the TD-574 addenda; §2–§5 describe the October 17–19 state, since amended by the addenda below); tests 2026-11-22 (TD-394)
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
@@ -249,3 +249,9 @@ end, a one-row span, `seq_len` 2, and 300 rows of width 257), all passing on the
 `acc[1]`) and `matrix_mean_accumulate_gpu(data, n, weight, count_increment, acc)` (adds `weight · mean` and `count_increment`): a bounded
 grid (at most 1,024 work-groups, grid-stride), each group reducing its share and adding one partial with a float atomic. Diagnostics
 only, so the atomics' order doesn't matter. Tested in `gpuKernelReferenceTests` (`DiagnosticAccumulatorsAddOnTheDevice`).
+
+## Addendum (November 23, 2026): `matrix_zero_gpu()` (TD-395)
+
+`GPUMatrix::zero()` for the single, backend-shared `GPUMatrix` ([MatrixGPU.md](MatrixGPU.md)): `q.memset` of `count` floats,
+traced as `matrix_zero_gpu` and not waited for (the in-order queue orders it). Tested through
+`MatrixGPUTD395Test.ZeroClearsEveryElementAndOnlyThatMatrix` on the oneAPI CPU device.

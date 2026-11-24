@@ -194,6 +194,44 @@ TEST(MatrixGPUTD003Test, CopyDeviceToDeviceRoundTrip) {
     EXPECT_FLOAT_EQ(host[3], 4.0f);
 }
 
+// TD-395: GPUMatrix is one definition for both backends; copy() and zero() go through
+// matrix_copy_device_to_device_gpu()/matrix_zero_gpu() and are queued without a wait.
+TEST(MatrixGPUTD395Test, CopyIsIndependentAndOutlivesItsSource) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    std::vector<float> values(3 * 700);
+    for (size_t i = 0; i < values.size(); ++i) values[i] = static_cast<float>(i) * 0.5f - 7.0f;
+    GPUMatrix copied(1, 1);
+    {
+        GPUMatrix src = upload(values, 3, 700);
+        copied = src.copy();
+        src.zero();  // queued after the copy: must not reach it
+        EXPECT_EQ(download(src), std::vector<float>(values.size(), 0.0f));
+    }  // src's block goes back to the pool while nothing waited on the copy
+    GPUMatrix reuse = upload(std::vector<float>(values.size(), 99.0f), 3, 700);  // may take src's block
+    EXPECT_EQ(copied.rows, 3);
+    EXPECT_EQ(copied.cols, 700);
+    EXPECT_EQ(download(copied), values);
+    EXPECT_EQ(download(reuse), std::vector<float>(values.size(), 99.0f));
+}
+
+TEST(MatrixGPUTD395Test, ZeroClearsEveryElementAndOnlyThatMatrix) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    GPUMatrix a = upload(std::vector<float>(5 * 333, 3.0f), 5, 333);
+    GPUMatrix b = upload(std::vector<float>(4, -2.0f), 2, 2);
+    a.zero();
+    a.add_inplace(upload(std::vector<float>(5 * 333, 1.5f), 5, 333));  // ordered after the memset
+    EXPECT_EQ(download(a), std::vector<float>(5 * 333, 1.5f));
+    EXPECT_EQ(download(b), std::vector<float>(4, -2.0f));
+}
+
 TEST(MatrixGPUTD003Test, DownloadAtOffsetReadsCorrectRow) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";

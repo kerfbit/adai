@@ -1,10 +1,50 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (510 on November 23, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (511 on November 23, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 23, 2026 | GPU / GPUMatrix | Code fix (LOW, created October 12, 2026) |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.hpp`, by inspection. `GPUMatrix` is defined twice: in the CUDA
+block of `src/gpu/MatrixGPU.hpp` and again in `src/gpu/sycl/MatrixGPU_SYCL.hpp`. The two are the same
+member for member except `copy()` (CUDA: async device copy; SYCL: `q.memcpy(...).wait()`) and `zero()`
+(`cudaMemsetAsync` vs. `q.memset`). Every `GPUMatrix` change has to be made twice, and a missed one
+makes the backends diverge silently. `GPUKVCache` already shows the alternative: one definition after
+the backend split, using only the shared API. The SYCL `copy()`'s `.wait()` is also an unnecessary
+full-queue drain on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule
+(compare TD-390). The SYCL header's status note ("capped by TD-050") is stale, since TD-050 is mostly
+resolved.
+
+Action Items:
+
+- [x] Add a backend `matrix_zero_gpu()` (and use `matrix_copy_device_to_device_gpu()` for `copy()`), then move `GPUMatrix` below the backend split in `MatrixGPU.hpp` as a single definition and delete the SYCL copy.
+- [x] Drop the `.wait()` from `copy()`; refresh the SYCL header's status note.
+
+Resolution (November 23, 2026): `GPUMatrix` is defined once, in `src/gpu/MatrixGPU.hpp` after the backend split (next to
+`GPUKVCache`), and the SYCL copy is deleted. `copy()` calls `matrix_copy_device_to_device_gpu()` and `zero()` the new
+`matrix_zero_gpu()` (`cudaMemsetAsync` on the stream; SYCL `q.memset`, traced). Neither waits: the in-order queue orders them, and
+a freed source block returns to the pool, whose next owner queues behind the copy (TD-390), so the SYCL `copy()`'s queue drain is
+gone. Both headers' status notes now name only TD-389. Tests: `MatrixGPUTD395Test.CopyIsIndependentAndOutlivesItsSource` (a copy
+survives its source being zeroed, freed and its block reused) and `ZeroClearsEveryElementAndOnlyThatMatrix`; `matrixgpuTd003Tests`'
+24 pass on the oneAPI CPU device (`build/sycl-cpudev`), and the CUDA build compiles. References: MatrixGPU.md, MatrixGPU_SYCL.md,
+MatrixGPU_cu.md, MatrixGPU_SYCL_cpp.md.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.hpp`
+- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
+- `src/gpu/MatrixGPU.cu`
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
 
 ### TD-590: Nothing Checks That GPU Training Stays on the Device
 

@@ -17,12 +17,12 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 80 open items:
+**Where things stand.** Of the 79 open items:
 - **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **59 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **58 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
@@ -34,6 +34,9 @@ that are still open; the earlier ones are in the archive's
 passes moved exactly that budget (the token IDs once, then one small download per text and per batch, no host round trip) with no
 engine reset in 739 passes. The first run had gone through OpenCL (`libumf.so.1` moved by an apt upgrade); the GPU test package now
 checks the Level Zero adapters and fails a run that isn't on Level Zero.
+
+**November 23, 2026:** Closed [TD-395](../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW): `GPUMatrix` is one
+definition for both backends, after the backend split, and its SYCL `copy()` no longer drains the queue.
 
 **November 22, 2026:** Closed [TD-589](../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host)
 (MEDIUM): a LeJEPA pass tokenizes each text once (its IDs uploaded once on the device), and on the device its activation-saturation and
@@ -222,16 +225,16 @@ error) and adding the barrier fixes all four kernels. TD-385 and TD-386 were ame
 **Now:** TD-393 was fixed in code October 17, 2026, and TD-394's opt-in CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`) landed
 October 19, 2026; both closed November 22, 2026, with a kernel-versus-reference suite and no CI job (owner decision).
 
-**October 12, 2026:** Filed [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) from the code-traced
+**October 12, 2026:** Filed [TD-395](../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) from the code-traced
 [MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md): `GPUMatrix` is maintained twice, once per
 backend, although only `copy()`/`zero()` differ, and the SYCL `copy()` drains the queue. Running the
 SYCL `GPUMatrix` and the shared `GPUKVCache` on the oneAPI CPU device (their first run anywhere)
 verified TD-387 at the cache level and TD-389's SYCL findings; both were amended.
-**Now:** TD-387 is fixed in code (a CPU-match test on the Arc remains); TD-395 and TD-389 are open.
+**Now:** TD-387 is fixed in code (a CPU-match test on the Arc remains); TD-395 closed November 23, 2026; TD-389 is open.
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (80 since TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (79 since TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -291,7 +294,7 @@ None left: the last, TD-581, closed November 22, 2026.
   device-resident training step, and [TD-589](../archive/TECHNICAL_DEBT_RESOLVED.md#td-589-the-lejepa-pass-re-tokenizes-every-epoch-and-reads-diagnostics-on-the-host),
   tokenizing once and device diagnostics, closed November 22, and [TD-590](../archive/TECHNICAL_DEBT_RESOLVED.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device),
   the transfer budget, closed November 23 after its ai-machine run): done.
-- [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) before [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (LOW): make `GPUMatrix` one definition, then add its shape checks and the GPU KV-cache tests once.
+- [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (LOW): `GPUMatrix`'s shape checks and the GPU KV-cache tests, now in one place since [TD-395](../archive/TECHNICAL_DEBT_RESOLVED.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (closed November 23) made `GPUMatrix` one definition.
 - [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) (MEDIUM)'s asynchronous uploads and [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) (MEDIUM)'s vectorized update loops, measured on ai-machine (section 1).
 - [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) (MEDIUM): GPU replays match losses but not the last bits of the weights (float atomics); make the device reductions
   deterministic if exact replay is wanted.
@@ -390,7 +393,6 @@ as TD-426 and TD-467 were:
   - [TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length)
   - [TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches)
   - [TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue)
-  - [TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers)
   - [TD-397: Hippocampal Swap File Grows Without Bound](#td-397-hippocampal-swap-file-grows-without-bound)
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
   - [TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented)
@@ -2979,8 +2981,7 @@ Location in code: `src/gpu/MatrixGPU.hpp` (`GPUMatrix` constructor and unchecked
 
 Files to Modify:
 
-- `src/gpu/MatrixGPU.hpp`
-- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
+- `src/gpu/MatrixGPU.hpp` (the one `GPUMatrix` since TD-395)
 - `tests/matrixgpu_td003_test.cpp`
 
 ---
@@ -3075,38 +3076,6 @@ Compile-checked only (no CUDA device here). New CUDA-only tests, which skip with
 
 ---
 
-### TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | GPU / GPUMatrix | October 12, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `MatrixGPU_SYCL.hpp`, by inspection. `GPUMatrix` is defined twice: in the CUDA
-block of `src/gpu/MatrixGPU.hpp` and again in `src/gpu/sycl/MatrixGPU_SYCL.hpp`. The two are the same
-member for member except `copy()` (CUDA: async device copy; SYCL: `q.memcpy(...).wait()`) and `zero()`
-(`cudaMemsetAsync` vs. `q.memset`). Every `GPUMatrix` change has to be made twice, and a missed one
-makes the backends diverge silently. `GPUKVCache` already shows the alternative: one definition after
-the backend split, using only the shared API. The SYCL `copy()`'s `.wait()` is also an unnecessary
-full-queue drain on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule
-(compare TD-390). The SYCL header's status note ("capped by TD-050") is stale, since TD-050 is mostly
-resolved.
-
-Action Items:
-
-- [ ] Add a backend `matrix_zero_gpu()` (and use `matrix_copy_device_to_device_gpu()` for `copy()`), then move `GPUMatrix` below the backend split in `MatrixGPU.hpp` as a single definition and delete the SYCL copy.
-- [ ] Drop the `.wait()` from `copy()`; refresh the SYCL header's status note.
-
-Location in code: `src/gpu/MatrixGPU.hpp` and `src/gpu/sycl/MatrixGPU_SYCL.hpp` (`GPUMatrix`); tagged `TODO: See TD-395`.
-
-Files to Modify:
-
-- `src/gpu/MatrixGPU.hpp`
-- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
-- `src/gpu/MatrixGPU.cu`
-- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
-
----
 
 ### TD-397: Hippocampal Swap File Grows Without Bound
 

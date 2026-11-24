@@ -1,11 +1,11 @@
 # `gpu/MatrixGPU.hpp` — Source File Reference
 
-- **File:** [`src/gpu/MatrixGPU.hpp`](../../../../src/gpu/MatrixGPU.hpp) (header-only, 664 lines)
+- **File:** [`src/gpu/MatrixGPU.hpp`](../../../../src/gpu/MatrixGPU.hpp) (header-only, 666 lines)
 - **Namespace:** `adai::gpu` (`ActivationType`, the `matrix_*_gpu` declarations, `GPUMatrix`, `GPUKVCache`, `GPUDecoderKVCache`)
 - **Built into:** everything compiled with `ADAI_ENABLE_GPU`; implementations in [MatrixGPU_cu.md](MatrixGPU_cu.md) (CUDA) and `sycl/MatrixGPU_SYCL.cpp` (SYCL)
-- **Status tag:** `@adai-status: beta` (capped by TD-050, TD-389, TD-395), `@adai-version: 0.20.0`, `@adai-reviewed: 2026-11-22` (TD-586's SIGReg, TD-587's LeJEPA and TD-589's accumulator declarations)
-- **Tests:** [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) → `matrixgpuTd003Tests` (22 tests) and [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (21: every `matrix_*_gpu` against a CPU reference, TD-394, TD-587's LeJEPA kernels and TD-589's accumulators), both skipping without a device and passing on the oneAPI CPU device in a SYCL build; GPU tests inside `feedforward_test.cpp` and `multiheadattention_test.cpp`; **no tests for `GPUKVCache`/`GPUDecoderKVCache`**
-- **Last traced against the code:** 2026-10-12, with the addenda below; §3 re-traced 2026-11-13
+- **Status tag:** `@adai-status: beta` (capped by TD-389), `@adai-version: 0.21.0`, `@adai-reviewed: 2026-11-23` (TD-395: `GPUMatrix` defined once for both backends)
+- **Tests:** [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) → `matrixgpuTd003Tests` (24 tests) and [`tests/gpu_kernel_reference_test.cpp`](../../../../tests/gpu_kernel_reference_test.cpp) → `gpuKernelReferenceTests` (21: every `matrix_*_gpu` against a CPU reference, TD-394, TD-587's LeJEPA kernels and TD-589's accumulators), both skipping without a device and passing on the oneAPI CPU device in a SYCL build; GPU tests inside `feedforward_test.cpp` and `multiheadattention_test.cpp`; **no tests for `GPUKVCache`/`GPUDecoderKVCache`**
+- **Last traced against the code:** 2026-10-12, with the addenda below; §3 re-traced 2026-11-13; §1–§2 re-traced 2026-11-23 (TD-395)
 
 > Code-traced reference. No GPU device is available here (the CUDA test build skips all 13
 > `matrixgpuTd003Tests`), so everything below is **by inspection**.
@@ -19,7 +19,7 @@ The **GPU math API** that the model layers program against. It has three parts:
 | Part | Where defined | Purpose |
 |---|---|---|
 | `ActivationType` + the `matrix_*_gpu` free functions | CUDA: declared here, implemented in `MatrixGPU.cu`. SYCL: this header includes `sycl/MatrixGPU_SYCL.hpp` instead, which declares the same API | Raw device-pointer kernels |
-| `GPUMatrix` | CUDA: here. SYCL: `sycl/MatrixGPU_SYCL.hpp` | A move-only, row-major, device-resident matrix built on `GPUMemory<float>` with on-device operators |
+| `GPUMatrix` | Here, **after** the backend split (TD-395), one definition for both backends, built only on the declared `matrix_*_gpu` API | A move-only, row-major, device-resident matrix built on `GPUMemory<float>` with on-device operators |
 | `GPUKVCache`, `GPUDecoderKVCache` (TD-050) | Here, **outside** the backend split, so one definition serves both backends | Pre-allocated device KV caches for incremental GPU decoding |
 
 ### Why it matters
@@ -31,19 +31,19 @@ GPU training (`EncoderDecoderModel::gpu_train_step`) and GPU generation
 
 ---
 
-## 2. `GPUMatrix` (CUDA definition)
+## 2. `GPUMatrix` (both backends)
 
 | Member | Behaviour |
 |---|---|
-| `GPUMatrix(r, c)` | Allocates `r × c` floats via `GPUMemory` (counted against the budget). **The memory isn't initialized** (`cudaMalloc` doesn't zero), unlike CPU `Matrix`, so anything that accumulates into a fresh `GPUMatrix` must `zero()` it first. The layers' gradient buffers rely on `gpu_zero_grads()`, which `ChatbotTrainer` calls before the first backward. `r × c` is an unchecked `int` product |
-| Move-only | Copy is deleted; `copy()` makes an explicit device-to-device copy |
+| `GPUMatrix(r, c)` | Allocates `r × c` floats via `GPUMemory` (counted against the budget). **The memory isn't initialized** (neither `cudaMalloc` nor the SYCL pool zeroes it), unlike CPU `Matrix`, so anything that accumulates into a fresh `GPUMatrix` must `zero()` it first. The layers' gradient buffers rely on `gpu_zero_grads()`, which `ChatbotTrainer` calls before the first backward. `r × c` is an unchecked `int` product |
+| Move-only | Copy is deleted; `copy()` makes an explicit device-to-device copy through `matrix_copy_device_to_device_gpu()`, queued with no wait on either backend (TD-395; the SYCL copy used to drain the queue) |
 | `device_ptr()`, `size()` | Raw pointer and `rows × cols` |
 | `upload(ptr, n)` / `download(ptr, n)` | Via `GPUMemory`. Throws if `n > size()`; **a short upload leaves the rest uninitialized** |
-| `operator*` | cuBLAS GEMM; **checks** `cols == other.rows` |
+| `operator*` | cuBLAS (CUDA) or oneMKL (SYCL) GEMM; **checks** `cols == other.rows` |
 | `operator+`, `hadamard` | **Check** shapes |
 | `operator-` | Checks shapes; computes `a + (−1)·b` through a temporary (two launches, one extra allocation) |
 | `scale`, `transpose`, `apply_activation_inplace`, `sum` | No shape concerns. `sum()` waits once, for its final value (TD-385) |
-| `zero`, `add_inplace(other)` | `cudaMemsetAsync`; in-place add. **`add_inplace` doesn't check that sizes match**, so a smaller `other` reads past its end and a larger one is silently truncated |
+| `zero`, `add_inplace(other)` | `matrix_zero_gpu()` (`cudaMemsetAsync`, or `q.memset` with no wait; TD-395); in-place add. **`add_inplace` doesn't check that sizes match**, so a smaller `other` reads past its end and a larger one is silently truncated |
 | `softmax_rows_inplace`, `softmax_backward(dout)`, `gelu_backward(dout)` | Kernels from `MatrixGPU.cu` (softmax is subject to the TD-384 race). **The two backward ops don't check `dout`'s shape** |
 | `add_row_bias(bias)`, `sum_rows()`, `masked_fill_inplace(mask, v)` | **No shape checks** on `bias` (must be `1 × cols`) or `mask` (must be `rows × cols`) |
 | `layer_norm(γ, β, eps, &normed, &mean, &rstd)` / `layer_norm_backward(...)` | Write into caller-provided outputs; **no shape checks** on any of them (`dγ`/`dβ` accumulate) |
@@ -150,3 +150,13 @@ and out-of-range targets), run on the oneAPI CPU device; the CUDA version is com
 `GPUKVCache` gains `source_tag()`/`set_source_tag()` (§3), reset by `clear()`, the device counterpart of `KVCache::source_tag`
 ([KVCache.md](KVCache.md)). `CrossAttention::gpu_forward_with_cache()` checks the encoder row count and the layer's weights against
 it; the content isn't sampled on the device. Test: `CrossAttentionGPUContractTest.ACachedGpuCallChecksTheEncoderLengthAndTheWeights`.
+
+## Addendum (November 23, 2026): one `GPUMatrix` for both backends (TD-395)
+
+`GPUMatrix` used to be defined twice, in this header's CUDA block and again in `sycl/MatrixGPU_SYCL.hpp`, identical except
+`copy()` and `zero()`. It is now defined once, after the backend split, next to `GPUKVCache`, and uses only the declared kernel API:
+`copy()` calls `matrix_copy_device_to_device_gpu()` and `zero()` calls the new `matrix_zero_gpu()` (CUDA `cudaMemsetAsync` on the
+stream; SYCL `q.memset`, traced as `matrix_zero_gpu`). The SYCL `copy()` no longer waits for the queue: the in-order queue orders
+the copy before later work, and a freed source block goes back to the pool, whose next owner queues behind the copy (TD-390), so
+nothing needs the wait. Tests: `MatrixGPUTD395Test.CopyIsIndependentAndOutlivesItsSource` (a copy survives its source being zeroed
+and freed, and the freed block reused) and `ZeroClearsEveryElementAndOnlyThatMatrix`, run on the oneAPI CPU device.

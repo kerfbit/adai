@@ -1,9 +1,9 @@
 #ifndef MATRIX_GPU_SYCL_HPP
 #define MATRIX_GPU_SYCL_HPP
 
-// @adai-status: beta        (capped by TD-050, TD-389, TD-395 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.20.0
-// @adai-reviewed: 2026-11-22
+// @adai-status: beta        (capped by TD-389 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-11-23
 
 #include "../GPUOptimizerKernels.hpp"
 #include "GPUUtils_SYCL.hpp"
@@ -61,6 +61,8 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 // calls that only compiled under SYCL).
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count);
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count);
+// TD-395: sets `count` floats to zero, queued like every kernel (no wait).
+void matrix_zero_gpu(float* data, int count);
 
 // TD-468: device-resident optimizer kernels (see GPUOptimizerKernels.hpp and GPUOptimizer.hpp).
 // Adds sum(data[i]^2) into *out_device (a device float) without waiting; zero it first.
@@ -124,191 +126,6 @@ void lejepa_add_row_broadcast_gpu(float* grad, int rows, int d_model, const floa
 void matrix_count_below_threshold_accumulate_gpu(const float* data, int size, float threshold, float* acc);
 // acc[0] += weight * mean(data[0..n)), acc[1] += count_increment.
 void matrix_mean_accumulate_gpu(const float* data, int n, float weight, float count_increment, float* acc);
-
-// TODO: See TD-395 in TECHNICAL_DEBT.md - a second hand-maintained copy of MatrixGPU.hpp's CUDA GPUMatrix; only
-// copy()/zero() differ, so define it once after the backend split (as GPUKVCache already is)
-class GPUMatrix {
-   public:
-    int rows = 0;
-    int cols = 0;
-
-   private:
-    GPUMemory<float> data_;
-
-   public:
-    GPUMatrix(int r, int c) : rows(r), cols(c), data_(r * c) {}
-
-    GPUMatrix(const GPUMatrix&) = delete;
-    GPUMatrix& operator=(const GPUMatrix&) = delete;
-    GPUMatrix(GPUMatrix&&) = default;
-    GPUMatrix& operator=(GPUMatrix&&) = default;
-
-    float* device_ptr() {
-        return data_.get();
-    }
-    const float* device_ptr() const {
-        return data_.get();
-    }
-    int size() const {
-        return rows * cols;
-    }
-
-    void upload(const float* host_ptr, int count) {
-        data_.copy_from_host(host_ptr, static_cast<size_t>(count));
-    }
-
-    void download(float* host_ptr, int count) const {
-        data_.copy_to_host(host_ptr, static_cast<size_t>(count));
-    }
-
-    // TODO: See TD-395 in TECHNICAL_DEBT.md - the .wait() below drains the in-order queue unnecessarily
-    GPUMatrix copy() const {
-        GPUMatrix result(rows, cols);
-        GPUManager::trace_kernel("gpu_matrix_copy");  // TD-574
-        auto& q = GPUManager::get_queue();
-        GPUManager::wait_for(q.memcpy(result.data_.get(), data_.get(),
-                                      static_cast<size_t>(rows * cols) * sizeof(float)),
-                             false);
-        return result;
-    }
-
-    GPUMatrix operator*(const GPUMatrix& other) const {
-        if (cols != other.rows)
-            throw std::invalid_argument(
-                "GPUMatrix dimensions incompatible for multiply: [" + std::to_string(rows) + "x" +
-                std::to_string(cols) + "] * [" + std::to_string(other.rows) + "x" +
-                std::to_string(other.cols) + "]");
-        GPUMatrix result(rows, other.cols);
-        matrix_multiply_gpu(data_.get(), other.data_.get(), result.data_.get(), rows, cols,
-                            other.cols);
-        return result;
-    }
-
-    GPUMatrix operator+(const GPUMatrix& other) const {
-        if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument("GPUMatrix dimensions must match for add");
-        GPUMatrix result(rows, cols);
-        matrix_add_gpu(data_.get(), other.data_.get(), result.data_.get(), size());
-        return result;
-    }
-
-    GPUMatrix operator-(const GPUMatrix& other) const {
-        if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument("GPUMatrix dimensions must match for subtract");
-        GPUMatrix neg_b(rows, cols);
-        matrix_multiply_scalar_gpu(other.data_.get(), -1.0f, neg_b.data_.get(), size());
-        GPUMatrix result(rows, cols);
-        matrix_add_gpu(data_.get(), neg_b.data_.get(), result.data_.get(), size());
-        return result;
-    }
-
-    GPUMatrix scale(float scalar) const {
-        GPUMatrix result(rows, cols);
-        matrix_multiply_scalar_gpu(data_.get(), scalar, result.data_.get(), size());
-        return result;
-    }
-
-    GPUMatrix hadamard(const GPUMatrix& other) const {
-        if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument("GPUMatrix dimensions must match for hadamard");
-        GPUMatrix result(rows, cols);
-        matrix_multiply_elementwise_gpu(data_.get(), other.data_.get(), result.data_.get(), size());
-        return result;
-    }
-
-    GPUMatrix transpose() const {
-        GPUMatrix result(cols, rows);
-        matrix_transpose_gpu(data_.get(), result.data_.get(), rows, cols);
-        return result;
-    }
-
-    void apply_activation_inplace(ActivationType type) {
-        matrix_apply_activation_gpu(data_.get(), size(), type);
-    }
-
-    float sum() const {
-        return matrix_sum_gpu(data_.get(), size());
-    }
-
-    // ---- TD-003 persistent-training operations ----------------------------
-
-    void zero() {
-        GPUManager::trace_kernel("gpu_matrix_zero");  // TD-574
-        auto& q = GPUManager::get_queue();
-        q.memset(data_.get(), 0, static_cast<size_t>(rows * cols) * sizeof(float));
-    }
-
-    void add_inplace(const GPUMatrix& other) {
-        matrix_add_inplace_gpu(other.data_.get(), data_.get(), size());
-    }
-
-    void softmax_rows_inplace() {
-        matrix_softmax_rows_gpu(data_.get(), rows, cols);
-    }
-
-    GPUMatrix softmax_backward(const GPUMatrix& dout) const {
-        GPUMatrix result(rows, cols);
-        matrix_softmax_backward_gpu(data_.get(), dout.data_.get(), result.data_.get(), rows, cols);
-        return result;
-    }
-
-    GPUMatrix gelu_backward(const GPUMatrix& dout) const {
-        GPUMatrix result(rows, cols);
-        matrix_gelu_backward_gpu(data_.get(), dout.data_.get(), result.data_.get(), size());
-        return result;
-    }
-
-    GPUMatrix add_row_bias(const GPUMatrix& bias) const {
-        GPUMatrix result(rows, cols);
-        matrix_add_row_bias_gpu(data_.get(), bias.data_.get(), result.data_.get(), rows, cols);
-        return result;
-    }
-
-    GPUMatrix sum_rows() const {
-        GPUMatrix result(1, cols);
-        matrix_sum_rows_gpu(data_.get(), result.data_.get(), rows, cols);
-        return result;
-    }
-
-    void masked_fill_inplace(const GPUMatrix& mask, float fill_val) {
-        matrix_masked_fill_gpu(data_.get(), mask.data_.get(), fill_val, size());
-    }
-
-    GPUMatrix layer_norm(const GPUMatrix& gamma, const GPUMatrix& beta, float eps,
-                         GPUMatrix& out_normed, GPUMatrix& out_mean, GPUMatrix& out_rstd) const {
-        GPUMatrix result(rows, cols);
-        matrix_layer_norm_fwd_gpu(data_.get(), result.data_.get(), out_normed.data_.get(),
-                                  gamma.data_.get(), beta.data_.get(), out_mean.data_.get(),
-                                  out_rstd.data_.get(), rows, cols, eps);
-        return result;
-    }
-
-    GPUMatrix layer_norm_backward(const GPUMatrix& input_norm, const GPUMatrix& gamma,
-                                  const GPUMatrix& mean, const GPUMatrix& rstd, GPUMatrix& dgamma,
-                                  GPUMatrix& dbeta) const {
-        GPUMatrix dx(rows, cols);
-        matrix_layer_norm_bwd_gpu(data_.get(), input_norm.data_.get(), gamma.data_.get(),
-                                  mean.data_.get(), rstd.data_.get(), dx.data_.get(),
-                                  dgamma.data_.get(), dbeta.data_.get(), rows, cols);
-        return dx;
-    }
-
-    // ---- Training-diagnostics reductions (activation saturation / attention entropy) --
-
-    /** @brief Fraction of elements with |x| < threshold (e.g. post-GELU saturation). */
-    float count_below_threshold(float threshold) const {
-        return matrix_count_below_threshold_gpu(data_.get(), size(), threshold) /
-               static_cast<float>(size());
-    }
-
-    /** @brief Average per-row Shannon entropy of an already-normalized (e.g. post-softmax) matrix.
-     */
-    float row_entropy_avg() const {
-        GPUMemory<float> row_ent(rows);
-        matrix_row_entropy_gpu(data_.get(), row_ent.get(), rows, cols);
-        return matrix_sum_gpu(row_ent.get(), rows) / static_cast<float>(rows);
-    }
-};
 
 }  // namespace gpu
 }  // namespace adai

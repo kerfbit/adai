@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-386, TD-395; CUDA kernels compile-checked only — see TECHNICAL_DEBT.md)
-// @adai-version: 0.19.0
-// @adai-reviewed: 2026-11-22
+// @adai-status: beta        (capped by TD-386; CUDA kernels compile-checked only — see TECHNICAL_DEBT.md)
+// @adai-version: 0.20.0
+// @adai-reviewed: 2026-11-23
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -1161,6 +1161,12 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
     CUDA_CHECK(cudaMemcpyAsync(dst, src, static_cast<size_t>(count) * sizeof(float),
                                cudaMemcpyDeviceToDevice, GPUManager::get_stream()));
+}
+
+// TD-395: GPUMatrix::zero(), queued on the stream like every kernel.
+void matrix_zero_gpu(float* data, int count) {
+    CUDA_CHECK(cudaMemsetAsync(data, 0, static_cast<size_t>(count) * sizeof(float),
+                               GPUManager::get_stream()));
 }
 
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
