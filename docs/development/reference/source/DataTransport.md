@@ -1,10 +1,10 @@
 # `DataTransport` — Source File Reference
 
-- **File:** [`src/DataTransport.hpp`](../../../../src/DataTransport.hpp) (544 lines, header-only)
+- **File:** [`src/DataTransport.hpp`](../../../../src/DataTransport.hpp) (564 lines, header-only)
 - **Built into:** `incremental_trainer`; included by `DatasetRegistry.hpp` and `TrainingPassFiles.cpp` too; the real implementation only with `BUILD_FTP_TRANSPORT` (libcurl), else both methods throw
-- **Status tag:** `@adai-status: stable`, `@adai-version: 2.0.0` (MAJOR, TD-340: the global `using adai::Logger;` and `fs` alias, which includers could rely on, are gone), `@adai-reviewed: 2026-11-21`
-- **Tests:** [`tests/DataTransportFtpTests.cpp`](../../../../tests/DataTransportFtpTests.cpp) (34), `dataTransportFtpsTests` (8, a real `FtpDataServer` and libcurl on loopback), [`tests/DataTransportTests.cpp`](../../../../tests/DataTransportTests.cpp) (13 run in a libcurl build), [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10, the trainer's download-directory sweep)
-- **Last traced against the code:** 2026-11-21 (TD-340)
+- **Status tag:** `@adai-status: stable`, `@adai-version: 2.1.0` (TD-591: a refused resume downloads the whole file; 2.0.0 was TD-340's MAJOR, removing the global `using adai::Logger;` and `fs` alias), `@adai-reviewed: 2026-11-26`
+- **Tests:** [`tests/DataTransportFtpTests.cpp`](../../../../tests/DataTransportFtpTests.cpp) (34), `dataTransportFtpsTests` (9, a real `FtpDataServer` and libcurl on loopback), [`tests/DataTransportTests.cpp`](../../../../tests/DataTransportTests.cpp) (13 run in a libcurl build), [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10, the trainer's download-directory sweep)
+- **Last traced against the code:** 2026-11-26 (TD-591)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed end-to-end on loopback: a local `registry_server` with its FTP server,
 > a large JSONL file queued in TD-205 segments, acquired with `RemoteTransport` and downloaded with the real `DataTransport`.
@@ -51,6 +51,11 @@ its own and works with the default self-signed certificate. A `ca_file` turns on
    - retries only `is_transient()` errors (refused connection, timeout, recv/send error, got nothing, partial file, accept timeout) after
      1, 2 and 4 s (`set_retry_base_backoff_ms()` changes the 1 s base; the tests use 1 ms). Login and URL errors fail at once. A refused
      connection is retried since TD-340: a `registry_server` restarting mid-pass refuses connections for a few seconds.
+   - **a refused resume starts over (TD-591):** when an attempt that resumed fails with `CURLE_FTP_COULDNT_USE_REST` or
+     `CURLE_BAD_DOWNLOAD_RESUME`, the partial file is deleted (its sidecar kept, the version is the same) and the whole file is downloaded
+     at once, without using up a retry; this happens at most once per fetch. `FtpDataServer` doesn't implement `REST`
+     ([FtpDataServer.md](FtpDataServer.md)), so before this every resume against it failed, and since TD-340 kept the partial file, every
+     later pass failed the same way (ai-machine, November 2026: 50 passes in a row on a 58% TinyStories download).
 9. On final failure, keep the file and its sidecar when it has any bytes, so the next fetch (the next pass) resumes it against the same
    checksum; delete an empty one; throw (TD-340: it used to delete the file, so a failed pass started over). Otherwise check the size (when
    `size_bytes > 0`); on a mismatch, delete both and throw.
@@ -98,12 +103,13 @@ Without `BUILD_FTP_TRANSPORT`, both methods throw "FTP transport not compiled"; 
 - **`DataTransportFtpTests.cpp` (32):** Condition B (skip, size mismatch, unknown size, a different or missing checksum); `fetch_all()` order and
   error propagation; segment tokens of one file downloading once; full-path naming with same-basename files kept apart; URL encoding; every
   `is_transient()` code; the retry constants.
-- **`dataTransportFtpsTests` (8):** a real FTPS `FtpDataServer` and libcurl on loopback: the pin, the CA file, refusing plain FTP when
-  verification is configured, a wrong pin or CA.
+- **`dataTransportFtpsTests` (9):** a real FTPS `FtpDataServer` and libcurl on loopback: the pin, the CA file, refusing plain FTP when
+  verification is configured, a wrong pin or CA; and (TD-591, plain FTP) a partial file the server can't resume, downloaded whole
+  (`ARefusedResumeDownloadsTheWholeFile`).
 - **`DataTransportTests.cpp` (13 with libcurl):** stubs and struct defaults.
 - **`StartupSweepTests.cpp` (10):** the download-directory sweep.
 
-**Not covered:** a real transfer that resumes or retries.
+**Not covered:** a real transfer that resumes (no server here implements `REST`) or retries.
 
 ---
 
@@ -112,6 +118,8 @@ Without `BUILD_FTP_TRANSPORT`, both methods throw "FTP transport not compiled"; 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | No `curl_global_init()`; partial file deleted on failure; `COULDNT_CONNECT` not retried; global `using`/alias in a header | A possible init race on an old libcurl; lost resume across passes; a registry restart fails a pass; namespace pollution | **Fixed November 21, 2026** | [TD-340](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-340-datatransport-robustness-and-header-hygiene) (LOW) |
+| A partial file the server can't resume (no `REST` in `FtpDataServer`) failed every later pass | A training pool stuck until someone deletes the file | **Fixed November 26, 2026** on the trainer side (restart from byte 0); real resume in the server is TD-592 | [TD-591](../../guides/TECHNICAL_DEBT.md#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM), [TD-592](../../guides/TECHNICAL_DEBT.md#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume) (LOW) |
+| `fetch_all()` rethrows the first error, so one undownloadable file fails the whole pass (§2) | The other files of the pass don't train | **Verified** on ai-machine (TD-591's incident) | [TD-593](../../guides/TECHNICAL_DEBT.md#td-593-one-failed-download-fails-the-whole-training-pass) (LOW) |
 | Basename names: segments downloaded N times to one path, same-named files colliding | — | **Fixed October 19, 2026** | [TD-337](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
 | Condition B reusing a same-size stale file | — | **Fixed October 19, 2026** | [TD-338](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
 | FTPS without server verification | — | **Fixed October 24, 2026** when a pin or CA file is set | [TD-339](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
@@ -125,3 +133,4 @@ connection's retries and an empty leftover being removed (`AFailedTransferKeepsA
 - **October 19, 2026:** full-path names, one download per file, checksum sidecars (TD-337, TD-338).
 - **October 24, 2026:** FTPS verification (TD-339).
 - **November 11, 2026:** progress per downloaded chunk (TD-569). This document was re-traced against the code, folding in its addenda.
+- **November 26, 2026:** a refused resume downloads the whole file (TD-591).

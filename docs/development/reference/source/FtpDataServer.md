@@ -1,10 +1,10 @@
 # `FtpDataServer` — Source File Reference
 
-- **File:** [`src/FtpDataServer.hpp`](../../../../src/FtpDataServer.hpp) (header-only, 1,064 lines)
+- **File:** [`src/FtpDataServer.hpp`](../../../../src/FtpDataServer.hpp) (header-only, 1,388 lines)
 - **Namespace:** global (`TokenStore`, `VirtualUser`, `FtpDataServer`), plus `ftp_detail` helpers
 - **Built into:** `registry_server` (started with `--ftp-enabled`); `DataTransport.hpp` and `RegistryTransport.hpp` include it for shared types
 - **Build flags:** `BUILD_FTPS` (OpenSSL: FTPS, HMAC passwords, `RAND_bytes`, constant-time compare)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.9.0`, `@adai-reviewed: 2026-09-13`
+- **Status tag:** `@adai-status: beta` (capped by TD-376, TD-377, TD-592), `@adai-version: 0.13.2`, `@adai-reviewed: 2026-11-26` (TD-592's `TODO` at the unimplemented-command reply)
 - **Tests:** [`tests/FtpDataServerTests.cpp`](../../../../tests/FtpDataServerTests.cpp) → `ftpDataServerTests` (62 tests); [`tests/registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4 end-to-end tests)
 - **Client side:** [DataTransport.md](DataTransport.md) (libcurl downloader in the trainer)
 - **Design history:** [dataset-transport-proposal.md](../../archive/dataset-transport-proposal.md) (archived proposal)
@@ -108,7 +108,7 @@ ignored).
 | Authenticated only: `PASV` | Takes the **lowest free port** in the pool, binds `INADDR_ANY:port` (backlog 1), and replies with `advertise_ip`, or **`127.0.0.1` when `--ftp-ip` isn't set**, so remote trainers can't connect unless the operator sets it |
 | `RETR <path>` | Exact match against the token's path (leading `/` stripped); the file must exist; `PASV` must have been sent. Sends `150`, then `accept()`s on the PASV socket with a 30 s timeout, **from any address**, and streams the file in 64 KiB chunks (TLS-wrapped under `PROT P`). On success it marks the token consumed and sends `226` |
 | `SIZE <path>` | Same path check; returns the size |
-| `PORT` (502), `CWD`/`CDUP`/listings (550), writes (502), anything else (502) | Refused |
+| `PORT` (502), `CWD`/`CDUP`/listings (550), writes (502), anything else (502), including `REST`, so a download can't resume (TD-592) | Refused |
 
 ### Verified security gaps
 
@@ -151,6 +151,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `FEAT` written unencrypted after `AUTH TLS` (§4) | Breaks the TLS control channel for clients that send it | **Verified** | [TD-376](../../guides/TECHNICAL_DEBT.md#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures) |
 | Token expiry checked only at login; consumed tokens can still `RETR` on their open connection; 32-bit usernames silently overwrite on collision (§2) | A token's limits are looser than documented | By inspection | [TD-377](../../guides/TECHNICAL_DEBT.md#td-377-ftpdataserver-token-semantics-and-setup-gaps) |
 | `PASV` advertises `127.0.0.1` without `--ftp-ip`; `start()` reports failure only in logs; no constructor validation; empty line disconnects; HMAC benefit overstated; `--ftp-secret` visible in `ps`; `local_ip()`/`remove()` unused (§3–4) | Confusing setup failures and dead code | By inspection | [TD-377](../../guides/TECHNICAL_DEBT.md#td-377-ftpdataserver-token-semantics-and-setup-gaps) |
+| No `REST`: a download can't resume, it starts again (§4) | A failed 2 GB download is downloaded whole again; before the trainer-side fix, the partial file failed every later pass | **Verified** on ai-machine and on loopback (`ARefusedResumeDownloadsTheWholeFile`) | [TD-592](../../guides/TECHNICAL_DEBT.md#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume) (the trainer side: [TD-591](../../guides/TECHNICAL_DEBT.md#td-591-a-download-the-registry-cant-resume-fails-every-training-pass)) |
 | FTPS certificate not verified by the client | Already tracked | — | TD-339 |
 | FTP/FTPS security keys ignored in `config.registry.conf` (CLI-only) | Already tracked | — | TD-284 |
 

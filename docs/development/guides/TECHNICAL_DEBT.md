@@ -17,17 +17,23 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 79 open items:
-- **21 wait on something outside a coding session:** 8 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+**Where things stand.** Of the 82 open items:
+- **22 wait on something outside a coding session:** 9 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **58 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **60 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
+
+**November 26, 2026:** Filed [TD-591](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): on ai-machine the LeJEPA trainer
+failed 50 passes in a row on a half-downloaded 2 GB TinyStories file, because the trainer kept resuming it with FTP's `REST`, which
+`FtpDataServer` doesn't implement. The trainer now downloads the whole file again when the server refuses to resume. Split out the
+same day: [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume) (LOW), `REST` in the server, and [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) (LOW), training the
+files that arrived when one download fails.
 
 **November 23, 2026:** Closed [TD-590](../archive/TECHNICAL_DEBT_RESOLVED.md#td-590-nothing-checks-that-gpu-training-stays-on-the-device)
 (MEDIUM): host↔device copies are counted and held to budget by tests, and on ai-machine's Arc, on Level Zero, device-resident LeJEPA
@@ -234,7 +240,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (79 since TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (82 since TD-591 to TD-593 were filed and TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -248,6 +254,8 @@ rounds; the decode benchmark lost the device or hung before any result every tim
 - [TD-575](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) (MEDIUM): first. The deployed `incremental_trainer` aborts at startup in `BPETokenizer::load_vocab`;
   read the dump and journal on ai-machine, then fix the cause and make the failure a clean failed pass. TD-574 closed November 18:
   Ubuntu's 7.0 kernel resets nothing, and it is ai-machine's default kernel.
+- [TD-591](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): deploy the trainer-side fix (a refused resume downloads the whole file); the world-model pool
+  trains nothing until then, or until the partial TinyStories file is deleted by hand.
 - [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (MEDIUM): the over-length prompt already runs on the Arc without throwing; a test comparing its output with the CPU path's
   is still to be written.
 - Measurements of fixes that landed in code: [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) (MEDIUM, a training pass's wall time with the `icpx` SIMD flags),
@@ -283,7 +291,8 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
-None left: the last, TD-581, closed November 22, 2026.
+- [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) (LOW): train the files that arrived when one download fails, instead of failing the pass.
+- [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume) (LOW): `REST` in `FtpDataServer`, so an interrupted download resumes (needs `registry_server` redeployed).
 
 ### 5. Code work: GPU
 
@@ -432,6 +441,9 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
+  - [TD-591: A Download the Registry Can't Resume Fails Every Training Pass](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass)
+  - [TD-592: `FtpDataServer` Doesn't Implement `REST`, So Downloads Can't Resume](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume)
+  - [TD-593: One Failed Download Fails the Whole Training Pass](#td-593-one-failed-download-fails-the-whole-training-pass)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4672,6 +4684,113 @@ Location in code: `src/IncrementalTrainer.cpp` (`build_model()`), `src/BPETokeni
 `src/IncrementalTrainingTool.cpp`.
 
 Related: TD-574 (archived), TD-563, TD-560.
+
+---
+
+### TD-591: A Download the Registry Can't Resume Fails Every Training Pass
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — the trainer-side fix landed November 26, 2026; deploying it to ai-machine remains. `REST` in `FtpDataServer` is [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume), training the files that did arrive is [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) | Data / DataTransport | November 26, 2026 | A deployment |
+
+Description:
+Found on ai-machine, November 26, 2026. The LeJEPA trainer (`adai-trainer@lejepa`, pool `bb01/world_model`) failed 50 passes in a
+row, each a few seconds after start, with `FTP transfer failed for 'bb01/world_model/datasets/roneneldan_TinyStories_train_…jsonl':
+FTP: command REST failed`. An earlier pass had stopped downloading that file at 1,198,997,576 of 2,058,492,441 bytes (58%).
+TD-340 keeps a partial download so the next pass resumes it with `CURLOPT_RESUME_FROM_LARGE`, which sends FTP's `REST`. But
+`FtpDataServer` doesn't implement `REST`: it falls through to `502 Command not implemented`, curl reports
+`CURLE_FTP_COULDNT_USE_REST`, which `is_transient()` doesn't retry, and the failure keeps the partial file again. So every pass failed
+the same way, `trainer_service` backed off to 900 s, and the pool trained nothing although its other 14 files were downloaded. One
+file that can't be downloaded also fails the whole pass. The resume path had never run against the real server: TD-340's tests only
+check that the partial file is kept.
+
+Action Items:
+
+- [x] Trainer side: when a resumed attempt fails with `CURLE_FTP_COULDNT_USE_REST` or `CURLE_BAD_DOWNLOAD_RESUME`, delete the
+      partial file and download the whole file in the same fetch, without using up a retry (once per fetch). Test against a real
+      `FtpDataServer` on loopback. (November 26, 2026: `DataTransport::fetch()`;
+      `FtpsVerificationTest.ARefusedResumeDownloadsTheWholeFile` failed with the production error before the fix.)
+- [ ] Deploy the fixed `incremental_trainer` to ai-machine. Until then, delete the partial file (and its `.checksum` sidecar) under
+      the trainer's download directory and restart `adai-trainer@lejepa`.
+- [ ] Find what interrupted the first download (the journal before the first `REST failed`).
+- Split out November 26, 2026: `REST` in `FtpDataServer`, so a download really resumes, is [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume); training the
+  files that did arrive when one download fails is [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass).
+
+Location in code: `src/DataTransport.hpp` (`fetch()`, the restart after a refused resume).
+
+Related: TD-340 (archived), TD-569, TD-575, TD-592, TD-593.
+
+---
+
+### TD-592: `FtpDataServer` Doesn't Implement `REST`, So Downloads Can't Resume
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / FtpDataServer | November 26, 2026 | 2-4 hours |
+
+Description:
+Split from TD-591 (November 26, 2026). `FtpDataServer`'s command loop has no `REST`: it falls through to `502 Command not implemented`.
+The trainer resumes a partial download with `CURLOPT_RESUME_FROM_LARGE`, which sends `REST <offset>` before `RETR`. Since TD-591's
+trainer-side fix, a refused resume downloads the whole file again, so nothing is stuck any more, but every interrupted download starts
+from byte 0: on ai-machine that is up to 2 GB (TinyStories) again after a pass stops at 58%. TD-340's resume across passes only pays off
+with a server that resumes.
+
+Action Items:
+
+- [ ] Implement `REST <offset>`: parse a non-negative 64-bit offset (`501` on a bad one), keep it on the session, reply
+      `350 Restarting at <offset>.`, apply it to the next `RETR` (seek the file; `554` or `551` if the offset is past its end) and reset
+      it after that `RETR` (and on any other transfer command), per RFC 3659's stream-mode restart. Advertise `REST STREAM` in `FEAT`.
+- [ ] Check the token semantics still hold: a resumed `RETR` uses the same single-use token as the first try only if TD-377's
+      "consumed token" rules allow it; otherwise the trainer's next pass gets a fresh token anyway (each pass acquires again).
+- [ ] Test: a unit test of `REST` + `RETR` in `FtpDataServerTests.cpp`, and an end-to-end resume in `DataTransportFtpsTests.cpp`
+      (a partial file with the right first bytes is completed, and only the missing bytes are sent).
+- [ ] Redeploy `registry_server` on the server host (192.168.1.16).
+
+Location in code: `src/FtpDataServer.hpp` (the command loop's unimplemented-command reply); tagged `TODO: See TD-592`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `tests/FtpDataServerTests.cpp`, `tests/DataTransportFtpsTests.cpp`
+
+Related: TD-591, TD-340 (archived), TD-377.
+
+---
+
+### TD-593: One Failed Download Fails the Whole Training Pass
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / TrainingPassFiles | November 26, 2026 | 2-4 hours |
+
+Description:
+Split from TD-591 (November 26, 2026). `resolve_pass_files()` (`src/TrainingPassFiles.cpp`) calls `DataTransport::fetch_all()`, which
+rethrows the first download error after every thread finishes; `resolve_pass_files()` then returns false and the pass fails, releasing
+every claimed file. On ai-machine the 14 Gutenberg files of `bb01/world_model` were downloaded and ready, but the one TinyStories file
+that couldn't be downloaded failed 50 passes in a row, so none of them trained. Whatever makes one file undownloadable (a server bug, a
+file deleted on the registry, a corrupt checksum) blocks the whole pool.
+
+Action Items:
+
+- [ ] Have `fetch_all()` (or a new variant) report each file's result instead of only the first error, and have `resolve_pass_files()`
+      train the files that arrived, releasing the failed ones back to pending (or recording the failure on the registry), with a
+      warning naming each.
+- [ ] Decide what a pass in which every download failed returns (still a failed pass, so `trainer_service` backs off), and what
+      happens to a file that fails pass after pass (a failure count, then leave it for an operator).
+- [ ] Keep the TD-205 segment semantics: segment tokens of one file share a download, so they succeed or fail together.
+- [ ] Test with a `fetch_all()` where one token fails: the others train, the failed one is released; all four callers
+      (`IncrementalTrainingTool.cpp` ×3, `LeJEPATrainingPass.cpp`).
+
+Location in code: `src/TrainingPassFiles.cpp` (`resolve_pass_files()`), `src/DataTransport.hpp` (`fetch_all()`).
+
+Files to Modify:
+
+- `src/TrainingPassFiles.{hpp,cpp}`
+- `src/DataTransport.hpp`
+- `src/IncrementalTrainingTool.cpp`, `src/LeJEPATrainingPass.cpp`
+- `tests/training_pass_files_test.cpp`
+
+Related: TD-591, TD-333 (archived: a failed pass releases its exact units).
 
 ---
 

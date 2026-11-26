@@ -1,13 +1,14 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-26
 
 /**
  * DataTransport — trainer-side FTP download client.
  *
  * Phase 1: single-file fetch via libcurl with size verification and large-file
  *          warnings; sequential fetch_all.
- * Phase 2: resume partial downloads via FTP REST; automatic retry with
+ * Phase 2: resume partial downloads via FTP REST (or, when the server refuses REST, download the
+ *          whole file again, TD-591); automatic retry with
  *          exponential backoff on transient errors; parallel fetch_all via
  *          thread pool; skip already-complete files (Condition B).
  *
@@ -325,6 +326,9 @@ inline std::filesystem::path DataTransport::fetch(const FileToken& token, const 
     const auto t_start = std::chrono::steady_clock::now();
     CURLcode rc = CURLE_OK;
 
+    // TD-591: set once a server refused to resume, so the restart from byte 0 happens only once.
+    bool restarted_after_refused_resume = false;
+
     for (int attempt = 0; attempt <= kMaxRetries; ++attempt) {
         // ── Determine resume offset from current on-disk state ────────────
         std::size_t resume_from = 0;
@@ -403,6 +407,22 @@ inline std::filesystem::path DataTransport::fetch(const FileToken& token, const 
 
         if (rc == CURLE_OK)
             break;  // success — fall through to verification
+
+        // TD-591: a server that can't resume (FtpDataServer has no REST) refuses before sending any
+        // bytes. Keeping the partial file then failed every later pass the same way, so drop it and
+        // download the whole file now; this doesn't use up a retry.
+        if (resume_from > 0 && !restarted_after_refused_resume &&
+            (rc == CURLE_FTP_COULDNT_USE_REST || rc == CURLE_BAD_DOWNLOAD_RESUME)) {
+            restarted_after_refused_resume = true;
+            adai::Logger::warn(
+                "[DataTransport] The server can't resume '{}' at byte {} ({}); downloading the whole "
+                "file again.",
+                token.ftp_path, resume_from, curl_easy_strerror(rc));
+            std::error_code ec;
+            std::filesystem::remove(local_path, ec);
+            --attempt;
+            continue;
+        }
 
         const bool retryable = dt_detail::is_transient(rc) && (attempt < kMaxRetries);
         if (retryable) {

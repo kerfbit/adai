@@ -186,4 +186,21 @@ TEST_F(FtpsVerificationTest, UnverifiedFtpsStillDownloads) {
     EXPECT_EQ(read_file(got), kPayload);
 }
 
+// TD-591: FtpDataServer doesn't implement REST, so resuming a partial file failed with "FTP: command
+// REST failed" on every pass, keeping the partial file each time (ai-machine, November 2026: 50 failed
+// passes in a row on a 58% TinyStories download). A refused resume now restarts the download from
+// byte 0 in the same fetch. The partial bytes here are wrong on purpose: they must not survive.
+TEST_F(FtpsVerificationTest, ARefusedResumeDownloadsTheWholeFile) {
+    start_server(21398, /*ftps=*/false);
+    fs::create_directories(download_dir_);
+    const FileToken tok = token();
+    const fs::path local = DataTransport::local_path_for(tok, download_dir_);
+    std::ofstream(local, std::ios::binary) << "XXXXXXXXXX";  // a partial download, 10 of 36 bytes
+    DataTransport dt;
+    fs::path got;
+    ASSERT_NO_THROW(got = dt.fetch(tok, "127.0.0.1", port_, download_dir_, 0, /*ftps=*/false));
+    EXPECT_EQ(got, local);
+    EXPECT_EQ(read_file(got), kPayload);
+}
+
 #endif  // _WIN32

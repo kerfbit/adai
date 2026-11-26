@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-376, TD-377 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.1
-// @adai-reviewed: 2026-11-10
+// @adai-status: beta        (capped by TD-376, TD-377, TD-592 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.13.2
+// @adai-reviewed: 2026-11-26
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -941,6 +941,8 @@ class FtpDataServer {
                        cmd == "MKD" || cmd == "RMD" || cmd == "RNFR" || cmd == "RNTO") {
                 send_reply(st, 502, "Write commands not permitted.");
             } else {
+                // TODO: See TD-592 in TECHNICAL_DEBT.md - REST lands here, so no download can resume; the
+                // trainer downloads the whole file again instead
                 send_reply(st, 502, "Command not implemented.");
             }
         }
