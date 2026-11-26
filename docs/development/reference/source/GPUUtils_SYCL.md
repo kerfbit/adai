@@ -1,11 +1,11 @@
 # `gpu/sycl/GPUUtils_SYCL.hpp` — Source File Reference
 
-- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 676 lines)
+- **File:** [`src/gpu/sycl/GPUUtils_SYCL.hpp`](../../../../src/gpu/sycl/GPUUtils_SYCL.hpp) (header-only, 844 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.13.0`, `@adai-reviewed: 2026-11-22` (TD-590 transfer counts)
-- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (28 tests in a SYCL build, all run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (one skips with a device present), including TD-392's `EmptyGPUMemoryIsValid`; the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
-- **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); §3's zero-size case 2026-11-18 (TD-392)
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.14.0`, `@adai-reviewed: 2026-11-26` (TD-596: a bounded pool)
+- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (31 tests in a SYCL build, all run on the oneAPI CPU device with `ADAI_SYCL_ALLOW_CPU_DEVICE=1` (one skips with a device present), including TD-392's `EmptyGPUMemoryIsValid`; the two SYCL-only priority tests, `QueueCarriesTheStrategysPriority` and `DefaultPriorityIsNormal`, run on the oneAPI CPU device; 9 skip without a GPU, as they do in `build/sycl-gputest` here); the wait timeout in [`tests/gpu_debug_sync_test.cpp`](../../../../tests/gpu_debug_sync_test.cpp) (`AWaitOnStuckWorkTimesOutAndTheDeviceCountsAsLost`, on the oneAPI CPU device)
+- **Last traced against the code:** 2026-11-14 (the wait timeout, TD-574); `make_queue()`, `initialize()` and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); §3's zero-size case 2026-11-18 (TD-392); the pool 2026-11-26 (TD-596)
 
 > Code-traced reference. There's no Intel GPU here, and `GPUManager` deliberately ignores the oneAPI
 > CPU device this machine does have. The SYCL behaviours marked **verified** were measured with a
@@ -105,6 +105,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `GPUMemory(0)` threw on SYCL but not CUDA (§3) | — | **Fixed November 18, 2026** (verified on the oneAPI CPU device) | [TD-392](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | `set_device()` frees old-context allocations with the new queue and doesn't recompute the budget; `cleanup()` leaks live buffers by design and zeroes the counter; `initialize()` ignores new arguments when already initialized (§2) | Latent traps for multi-GPU and re-initialization | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (amended) |
 | Unlike CUDA, the budget is locked; the queue itself is thread-safe for submission | TD-382 is milder on SYCL; the shared fix (`ScopedCpuOnly` for the async quality thread) covers it | By inspection; **fixed in code October 17, 2026** | [TD-382](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) (amended) |
+| The pool kept every freed block, reusing only an exact size, until live plus cached memory reached the budget (TD-390 addendum) | A world-model trainer needing about 3 GB held up to 22 GB of the Arc | **Verified** on the oneAPI CPU device; **fixed in code November 26, 2026** (see the TD-596 addendum) | [TD-596](../../guides/TECHNICAL_DEBT.md#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget) |
 | Nothing has run on a real Intel GPU in the development environment | — | — | — |
 
 ## Addendum (October 19, 2026): CPU-device opt-in (TD-394)
@@ -167,3 +168,25 @@ wait has timed out (`gpu_work_stuck()`, `exit_without_gpu_teardown()`).
 `GPUMemory::copy_from_host()`/`copy_to_host()` count an upload or a download through `src/gpu/TransferCounter.hpp`
 ([GPUUtils.md](GPUUtils.md) has the counter); so do `matrix_download_gpu()`, the host-kernel diagnostics' `host_copy_of()`/
 `device_copy_of()` and the batch helpers' pointer-array copies in `MatrixGPU_SYCL.cpp`. Device-to-device copies don't.
+
+## Addendum (November 26, 2026): a bounded pool (TD-596)
+
+TD-390's pool kept every released block and reused one only for the same `pool_size()`, whose 512-byte steps ran up to 1 MiB.
+Training on texts of varying length asks for new sizes every step, so the cache grew by about 30 MB per text (768 wide, 4 layers, on
+the oneAPI CPU device) until live plus cached memory reached the budget, `GPU_MEMORY_FRACTION` of the card, when
+`trim_pool_locked()` freed it all and it grew again. On ai-machine that budget is 22 GB, and qmassa showed the world-model trainer at
+16 GB. Now:
+- **Steps:** 512 bytes up to 64 KiB, then an eighth of the next power of two.
+- **Larger blocks:** `allocate_block()` takes the smallest cached block of at least the request's size and at most a quarter larger
+  (`free_blocks_` is an ordered `std::map`). `live_block_size_` records every live block's size, so `release_block()` returns it at
+  that size.
+- **The limit:** `set_pool_cache_limit_bytes()` (`GPU_POOL_CACHE_MB`, default 1024 MiB; `incremental_trainer` and
+  `chatbot_api_server` set it at start-up). When a release takes the cache over it, the least recently released blocks are
+  evicted down to three quarters of it. `sycl::free()` isn't ordered against the queue, so they wait in `deferred_frees_` behind a
+  barrier queued at eviction and are freed, without waiting, by a later allocation or release once it has completed; they count
+  against the budget until then, and `get_cached_memory_bytes()` includes them. `trim_pool_locked()` frees them too.
+- **Reporting:** `get_peak_used_memory_bytes()`/`reset_peak_memory()` and `memory_summary()` ("X MB in use (peak Y MB), Z MB cached
+  (limit L MB)", starting a new peak), which the LeJEPA pass and `ChatbotTrainer` log once per epoch.
+
+Tests: `TheCacheStaysUnderItsLimit`, `ARequestTakesASlightlyLargerCachedBlock`, `PeakAndSummaryReportWhatAnEpochHeld`,
+`GPUManagerPoolSize.FineStepsEndAt64KiB`.

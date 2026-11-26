@@ -436,6 +436,79 @@ TEST_F(GPUManagerTest, BlockFromBeforeCleanupIsNotPooled) {
     EXPECT_EQ(GPUManager::get_used_memory_bytes(), 0u);
 }
 
+// TD-596: the pool kept every freed block until live plus cached memory reached the budget (22 GB on
+// ai-machine's Arc for a trainer that needed about 3 GB), since varying sequence lengths kept asking for
+// new sizes. The cache is now capped (GPU_POOL_CACHE_MB), a request takes a block up to a quarter
+// larger, and the trainers log the peak.
+TEST_F(GPUManagerTest, TheCacheStaysUnderItsLimit) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t limit = size_t{4} << 20;
+    GPUManager::set_pool_cache_limit_bytes(limit);
+    // 60 distinct sizes from 64 KiB to 2 MiB, each freed at once: about 60 MB of distinct blocks.
+    for (int i = 0; i < 60; ++i) {
+        GPUMemory<float> m(static_cast<size_t>(16384 + i * 8192));
+        EXPECT_LE(GPUManager::get_cached_memory_bytes() + 0, limit + (size_t{4} << 20)) << i;
+    }
+    GPUManager::synchronize();
+    { GPUMemory<float> poll(1); }  // frees the evicted batches whose barrier has completed
+    EXPECT_LE(GPUManager::get_cached_memory_bytes(), limit);
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), 0u);
+    GPUManager::set_pool_cache_limit_bytes(size_t{1024} << 20);
+}
+
+TEST_F(GPUManagerTest, ARequestTakesASlightlyLargerCachedBlock) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t big = GPUManager::pool_size(120000 * sizeof(float));
+    const size_t small = GPUManager::pool_size(100000 * sizeof(float));
+    ASSERT_GT(big, small);
+    ASSERT_LE(big, small + small / 4);
+    void* first = nullptr;
+    {
+        GPUMemory<float> a(120000);
+        first = a.get();
+    }
+    ASSERT_EQ(GPUManager::get_cached_memory_bytes(), big);
+    {
+        GPUMemory<float> b(100000);  // a different size, within a quarter: takes the cached block
+        EXPECT_EQ(static_cast<void*>(b.get()), first);
+        EXPECT_EQ(GPUManager::get_cached_memory_bytes(), 0u);
+        EXPECT_EQ(GPUManager::get_used_memory_bytes(), big) << "counted at the block's own size";
+    }
+    EXPECT_EQ(GPUManager::get_cached_memory_bytes(), big) << "and returned at it";
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), 0u);
+    {
+        GPUMemory<float> c(40000);  // far smaller: a new block, the cached one stays
+        EXPECT_NE(static_cast<void*>(c.get()), first);
+    }
+}
+
+TEST_F(GPUManagerTest, PeakAndSummaryReportWhatAnEpochHeld) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    GPUManager::reset_peak_memory();
+    { GPUMemory<float> m(size_t{3} << 20); }  // 12 MiB, released
+    EXPECT_GE(GPUManager::get_peak_used_memory_bytes(), size_t{12} << 20);
+    const std::string s = GPUManager::memory_summary();
+    EXPECT_NE(s.find("0 MB in use (peak 12 MB)"), std::string::npos) << s;
+    EXPECT_NE(s.find("12 MB cached (limit 1024 MB)"), std::string::npos) << s;
+    EXPECT_EQ(GPUManager::get_peak_used_memory_bytes(), 0u) << "the summary starts a new peak";
+}
+
+TEST(GPUManagerPoolSize, FineStepsEndAt64KiB) {
+    EXPECT_EQ(GPUManager::pool_size(size_t{1} << 16), size_t{1} << 16);
+    // Above 64 KiB, eighths of the next power of two (16 KiB steps up to 128 KiB).
+    EXPECT_EQ(GPUManager::pool_size((size_t{1} << 16) + 1), (size_t{1} << 16) + (size_t{1} << 14));
+    EXPECT_EQ(GPUManager::pool_size(100000), 114688u);
+}
+
 TEST(GPUManagerPoolSize, RoundsToSharedSizes) {
     EXPECT_EQ(GPUManager::pool_size(1), 512u);
     EXPECT_EQ(GPUManager::pool_size(1024), 1024u);

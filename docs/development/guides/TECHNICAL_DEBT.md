@@ -17,17 +17,23 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 84 open items:
-- **23 wait on something outside a coding session:** 10 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+**Where things stand.** Of the 86 open items:
+- **24 wait on something outside a coding session:** 11 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
-- **61 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
+- **62 are code work** that can be done now, most of them LOW cleanups found by the code-traced reference docs. 8 of those are
   deferred with RLHF or LoRA, which have no production entry point, and a few wait on an owner decision.
 
 The order to take them in is in [Recommended Execution Order](#recommended-execution-order). The dated notes below are about items
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
+
+**November 26, 2026:** Filed [TD-596](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget) (MEDIUM), with its code fix: the SYCL memory pool kept
+freed blocks of every size until it filled 90% of the card, so ai-machine's world-model trainer held 16 GB for a few GB of real use.
+It now reuses blocks up to a quarter larger and caps its cache (`GPU_POOL_CACHE_MB`, 1 GB), and the trainers log their GPU memory
+every epoch. Filed [TD-597](#td-597-a-gpu-build-cant-train-a-chatbot-without-a-gpu) (MEDIUM) while testing it: a GPU build's chatbot training fails
+outright when no GPU is initialized.
 
 **November 26, 2026:** Filed [TD-595](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM), with its code fix: the world-model pass ran
 at only 0.56 samples per second on the GPU because the GPU attention's per-head split copied every row of every head separately, 88%
@@ -247,7 +253,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (84 since TD-591 to TD-595 were filed and TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (86 since TD-591 to TD-597 were filed and TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -261,6 +267,8 @@ rounds; the decode benchmark lost the device or hung before any result every tim
 - [TD-575](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab) (MEDIUM): first. The deployed `incremental_trainer` aborts at startup in `BPETokenizer::load_vocab`;
   read the dump and journal on ai-machine, then fix the cause and make the failure a clean failed pass. TD-574 closed November 18:
   Ubuntu's 7.0 kernel resets nothing, and it is ai-machine's default kernel.
+- [TD-596](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget) (MEDIUM): check the world-model trainer's GPU memory with the bounded pool (its per-epoch log line and
+  qmassa; 16 GB before).
 - [TD-595](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM): measure the world-model pass's samples per second with the per-head copies gone (0.56 before),
   then `GPU_QUEUE_DEPTH` again.
 - [TD-591](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): deploy the trainer-side fix (a refused resume downloads the whole file); the world-model pool
@@ -300,6 +308,7 @@ cased vocabulary (TD-560) need new weights. So the next real training run starts
 
 ### 4. Code work: training and data
 
+- [TD-597](#td-597-a-gpu-build-cant-train-a-chatbot-without-a-gpu) (MEDIUM): a GPU build's chatbot training fails without a GPU (`GPU_ENABLED=false` or none found).
 - [TD-594](#td-594-a-download-that-outlasts-its-ftp-token-cant-be-retried) (MEDIUM): a retry needs a fresh FTP token once the 30-minute one has expired; until then, raise
   `ftp_token_ttl_minutes` on `registry_server`.
 - [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) (LOW): train the files that arrived when one download fails, instead of failing the pass.
@@ -457,6 +466,8 @@ as TD-426 and TD-467 were:
   - [TD-593: One Failed Download Fails the Whole Training Pass](#td-593-one-failed-download-fails-the-whole-training-pass)
   - [TD-594: A Download That Outlasts Its FTP Token Can't Be Retried](#td-594-a-download-that-outlasts-its-ftp-token-cant-be-retried)
   - [TD-595: GPU Attention Training Copies Every Head's Rows One at a Time](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time)
+  - [TD-596: The GPU Memory Pool Grows Until It Fills the Budget](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget)
+  - [TD-597: A GPU Build Can't Train a Chatbot Without a GPU](#td-597-a-gpu-build-cant-train-a-chatbot-without-a-gpu)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4897,6 +4908,72 @@ Action Items:
 Location in code: `src/MultiHeadAttention.cpp`, `src/CrossAttention.cpp` (`gpu_forward()`, `gpu_backward()`).
 
 Related: TD-059, TD-388, TD-574, TD-585 to TD-590 (archived).
+
+---
+
+### TD-596: The GPU Memory Pool Grows Until It Fills the Budget
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed November 26, 2026; checking the footprint on ai-machine remains | GPU / GPUManager | November 26, 2026 | A run on ai-machine |
+
+Description:
+Found November 26, 2026: qmassa showed ai-machine's world-model trainer (768 wide, 16 layers) holding 16 GB of the Arc, against
+roughly 3-4 GB of weights, gradients, Adam moments and activations (an estimate). TD-390's SYCL pool keeps every block a `GPUMemory`
+releases and reuses one only for the same `pool_size()`, whose 512-byte steps ran up to 1 MiB. A text's temporaries (attention
+scores, activations, gradients) are sized by its token count, so texts of varying length keep asking for new sizes, and the pool was
+trimmed only when live plus cached memory reached the budget, `GPU_MEMORY_FRACTION` (0.9) of the card: 22 GB on ai-machine. Measured
+on the oneAPI CPU device (768 wide, 12 heads, 4 layers, 40 texts, a 1.6 GB budget): about 600 MB live throughout, while the cache
+grew by about 30 MB per text to the budget (972 MB cached at text 31), was freed all at once (a full queue wait) and grew again. So
+the trainer's footprint swings up to the budget, which can starve any other process on the card, and nothing reported live and
+cached memory. CUDA's stream-ordered pool had the same shape: its release threshold was the whole budget.
+
+Action Items:
+
+- [x] Coarser size steps (512 bytes only up to 64 KiB, then an eighth of the next power of two), and a request takes the smallest
+      cached block up to a quarter larger, returned at its own size (`live_block_size_`).
+- [x] Cap the cache: `GPU_POOL_CACHE_MB` (default 1024, 0 = none; `incremental_trainer` and `chatbot_api_server` apply it). Past it,
+      the least recently released blocks are evicted to three quarters of it and freed, without waiting, once a barrier queued
+      behind them completes. CUDA: the pool's release threshold.
+- [x] Report it: `GPUManager::memory_summary()` ("X MB in use (peak Y MB), Z MB cached (limit L MB)"), logged once per epoch by
+      the LeJEPA pass and `ChatbotTrainer`. (November 26, 2026; the same 40 texts: cached memory levels off at 224-253 MB, live and
+      its peak unchanged at about 600 and 700 MB. Tests: `GPUManagerTest.TheCacheStaysUnderItsLimit`,
+      `ARequestTakesASlightlyLargerCachedBlock`, `PeakAndSummaryReportWhatAnEpochHeld`, `GPUManagerPoolSize.FineStepsEndAt64KiB`,
+      `ConfigTest.GpuPoolCacheDefaultFileEnvAndRange`.)
+- [ ] On ai-machine: the trainer's "[lejepa] GPU memory" lines and qmassa with the new package; record what training really holds.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`allocate_block()`, `release_block()`, `evict_cached_locked()`),
+`src/gpu/GPUUtils.hpp` (the release threshold).
+
+Related: TD-390 (archived), TD-595, TD-383.
+
+---
+
+### TD-597: A GPU Build Can't Train a Chatbot Without a GPU
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | November 26, 2026 | 1-2 hours |
+
+Description:
+Found November 26, 2026, running `SighupTests` in the SYCL build on the oneAPI CPU device (it normally runs in the CPU-only debug
+build). Since TD-468 (October 19, 2026) `ChatbotTrainer::train()` calls `bind_gpu_optimizer()` unconditionally in any
+`ADAI_ENABLE_GPU` build, which uploads the model (`EncoderDecoderModel::gpu_init_training()`) without checking that a GPU was
+initialized. With `GPU_ENABLED=false`, or when initialization found no device (which `incremental_trainer` logs as a warning and
+carries on), every chatbot pass fails with `GPU not initialized. Call GPUManager::initialize() first.` instead of training on the
+CPU. Three `SighupTests` fail in a SYCL build for this reason (`AFirstTrainBuildsTheVocabularyAndExceptionsExitOne`,
+`AChatbotPassReclaimsACrashedPassesFilesWithoutMns`, and the one at `sighup_test.cpp:881`); they pass in the debug build.
+
+Action Items:
+
+- [ ] Bind the device optimizer only when `GPUManager::is_available()`, and check that every GPU branch of `train()`/`train_epoch()`
+      (and validation) falls back to the host path when `gpu_optimizer_` is null; or refuse clearly at start-up if GPU builds are
+      meant to require a GPU.
+- [ ] Run `SighupTests` (and the trainer suites) in the SYCL build with `GPU_ENABLED=false`, and add them to the GPU test package.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train()`, `bind_gpu_optimizer()`).
+
+Related: TD-468 (archived), TD-547.
 
 ---
 

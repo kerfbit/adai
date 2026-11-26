@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.36.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 1.37.0
+// @adai-reviewed: 2026-11-26
 
 #include "Config.hpp"
 #include <algorithm>
@@ -661,6 +661,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_queue_depth = parse_int(value);  // TD-574
             } else if (key == "GPU_WAIT_TIMEOUT_SECONDS") {
                 config.gpu_wait_timeout_seconds = parse_int(value);  // TD-574
+            } else if (key == "GPU_POOL_CACHE_MB") {
+                config.gpu_pool_cache_mb = parse_int(value);  // TD-596
             } else if (key == "TOKENIZER_MODE") {
                 config.unicode_tokenizer = parse_file_choice(key, value, kTokenizerModes) == "unicode";  // TD-289
             } else if (key == "VOCAB_BUILD_SIZE") {
@@ -994,6 +996,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("GPU_WAIT_TIMEOUT_SECONDS")) {  // TD-574
         config.gpu_wait_timeout_seconds = *val;
+    }
+    if (auto val = get_env_int("GPU_POOL_CACHE_MB")) {  // TD-596
+        config.gpu_pool_cache_mb = *val;
     }
     if (auto val = env_choice("TOKENIZER_MODE", get_env("TOKENIZER_MODE"), kTokenizerModes)) {
         config.unicode_tokenizer = (*val == "unicode");
@@ -1663,6 +1668,8 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     require(config.gpu_wait_timeout_seconds >= 0 && config.gpu_wait_timeout_seconds <= 86400,
             "gpu_wait_timeout_seconds", std::to_string(config.gpu_wait_timeout_seconds),
             "must be in [0, 86400] (0 = no limit)");  // TD-574
+    require(config.gpu_pool_cache_mb >= 0 && config.gpu_pool_cache_mb <= 1048576, "gpu_pool_cache_mb",
+            std::to_string(config.gpu_pool_cache_mb), "must be in [0, 1048576] MiB (0 = cache nothing)");  // TD-596
 
     // Ports.
     is_port(config.metrics_api_port, "metrics_api_port");
@@ -1871,6 +1878,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GPU_STRATEGY", gpu_strategy_name(c.gpu_strategy));
     item("GPU_QUEUE_DEPTH", num(c.gpu_queue_depth));
     item("GPU_WAIT_TIMEOUT_SECONDS", num(c.gpu_wait_timeout_seconds));
+    item("GPU_POOL_CACHE_MB", num(c.gpu_pool_cache_mb));
     section("Metrics client");
     item("ENABLE_METRICS_SERVICE", flag(c.enable_metrics_service));
     item("METRICS_SERVER_URL", c.metrics_server_url);

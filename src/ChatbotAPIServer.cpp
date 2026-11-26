@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.12.0
-// @adai-reviewed: 2026-11-15
+// @adai-version: 2.13.0
+// @adai-reviewed: 2026-11-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -379,6 +379,10 @@ static int run_server(int argc, char* argv[]) {
                 adai::gpu::set_gpu_queue_depth(static_cast<unsigned>(config.gpu_queue_depth));
                 adai::gpu::set_gpu_wait_timeout(
                     static_cast<unsigned>(config.gpu_wait_timeout_seconds));
+                // TD-596: the most freed GPU memory kept for reuse.
+                adai::gpu::GPUManager::set_pool_cache_limit_bytes(static_cast<size_t>(config.gpu_pool_cache_mb) << 20);
+                adai::Logger::info("[GPU] Freed memory kept for reuse: at most {} MB (GPU_POOL_CACHE_MB)",
+                                   config.gpu_pool_cache_mb);
                 adai::Logger::info("[GPU] Queue depth: {}; wait timeout: {}",
                                    config.gpu_queue_depth == 0
                                        ? std::string("unbounded")

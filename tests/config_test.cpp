@@ -89,6 +89,7 @@ class ConfigTest : public ::testing::Test {
         _putenv("TRAINER_PASS_STALL_MINUTES=");  // TD-569
         _putenv("GPU_QUEUE_DEPTH=");             // TD-574
         _putenv("GPU_WAIT_TIMEOUT_SECONDS=");    // TD-574
+        _putenv("GPU_POOL_CACHE_MB=");    // TD-596
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -123,6 +124,7 @@ class ConfigTest : public ::testing::Test {
         unsetenv("GPU_STRATEGY");
         unsetenv("GPU_QUEUE_DEPTH");           // TD-574
         unsetenv("GPU_WAIT_TIMEOUT_SECONDS");  // TD-574
+        unsetenv("GPU_POOL_CACHE_MB");  // TD-596
         // FTP Dataset Transport (Phase 10)
         unsetenv("FTP_SERVER_PORT");
         unsetenv("FTP_PASV_PORT_MIN");
@@ -1150,6 +1152,28 @@ TEST_F(ConfigTest, GpuWaitTimeoutDefaultFileEnvAndRange) {
         EXPECT_FALSE(ConfigLoader::validate(config, errors)) << bad;
         ASSERT_FALSE(errors.empty());
         EXPECT_NE(errors[0].find("gpu_wait_timeout_seconds"), std::string::npos);
+    }
+}
+
+// TD-596: GPU_POOL_CACHE_MB caps the freed GPU memory kept for reuse; 1024 by default, 0 = none.
+TEST_F(ConfigTest, GpuPoolCacheDefaultFileEnvAndRange) {
+    createConfigFile({{"GPU_STRATEGY", "full"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_pool_cache_mb, 1024);
+    createConfigFile({{"GPU_POOL_CACHE_MB", "0"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_pool_cache_mb, 0);
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors)) << "0 means cache nothing";
+    setEnv("GPU_POOL_CACHE_MB", "256");
+    config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_pool_cache_mb, 256);
+    EXPECT_NE(ConfigLoader::to_string(config).find("GPU_POOL_CACHE_MB"), std::string::npos);
+    for (int bad : {-1, 1048577}) {
+        config.gpu_pool_cache_mb = bad;
+        errors.clear();
+        EXPECT_FALSE(ConfigLoader::validate(config, errors)) << bad;
+        ASSERT_FALSE(errors.empty());
+        EXPECT_NE(errors[0].find("gpu_pool_cache_mb"), std::string::npos);
     }
 }
 

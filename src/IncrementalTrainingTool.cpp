@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving — see TECHNICAL_DEBT.md)
-// @adai-version: 0.41.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 0.42.0
+// @adai-reviewed: 2026-11-26
 
 #include <array>
 #include <atomic>
@@ -532,6 +532,10 @@ static int run_main(int argc, char* argv[]) {
             adai::gpu::set_gpu_queue_depth(static_cast<unsigned>(svc_config.gpu_queue_depth));
             adai::gpu::set_gpu_wait_timeout(
                 static_cast<unsigned>(svc_config.gpu_wait_timeout_seconds));
+            // TD-596: the most freed GPU memory kept for reuse.
+            adai::gpu::GPUManager::set_pool_cache_limit_bytes(static_cast<size_t>(svc_config.gpu_pool_cache_mb) << 20);
+            adai::Logger::info("[GPU] Freed memory kept for reuse: at most {} MB (GPU_POOL_CACHE_MB)",
+                               svc_config.gpu_pool_cache_mb);
             adai::Logger::info("[GPU] Queue depth: {}; wait timeout: {}",
                                svc_config.gpu_queue_depth == 0
                                    ? std::string("unbounded")

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.35.0
-// @adai-reviewed: 2026-11-21
+// @adai-version: 1.36.0
+// @adai-reviewed: 2026-11-26
 
 #include <climits>
 #include <cstdint>
@@ -860,6 +860,16 @@ struct ServiceConfig {
      * SYCL builds only.
      */
     int gpu_wait_timeout_seconds = 60;
+
+    /**
+     * @brief TD-596: the most freed GPU memory kept cached for reuse, in MiB (default 1024; 0 = none).
+     *
+     * The SYCL pool kept every freed block until live plus cached memory reached the budget
+     * (GPU_MEMORY_FRACTION of the card), so a trainer that needed about 3 GB held up to 22 GB on
+     * ai-machine's Arc. Over the limit, the least recently freed blocks are returned to the device.
+     * CUDA: the stream-ordered pool's release threshold.
+     */
+    int gpu_pool_cache_mb = 1024;
 
     // ============================================================
     // Tokenizer Configuration

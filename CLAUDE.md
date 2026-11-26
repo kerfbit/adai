@@ -344,6 +344,7 @@ Other architecturally significant keys:
 | `BATCH_SIZE` | Samples per gradient update; increase for GPU efficiency |
 | `GPU_ENABLED`, `GPU_DEVICE_ID`, `GPU_MEMORY_FRACTION`, `GPU_STRATEGY` | GPU control |
 | `GPU_QUEUE_DEPTH`, `GPU_WAIT_TIMEOUT_SECONDS` | TD-574, `config.trainer.conf`/`config.chatbot.conf` (or the environment, which every GPU binary reads): wait for the GPU queue before every Nth operation (default 8, 0 = unbounded), and give up on a wait for GPU work after N seconds (default 60, 0 = no limit), failing the pass like a lost device. SYCL only |
+| `GPU_POOL_CACHE_MB` | TD-596, `config.trainer.conf`/`config.chatbot.conf` (or the environment): the most freed GPU memory kept for reuse, in MiB (default 1024, 0 = none). Before it, the pool kept freed blocks until it filled `GPU_MEMORY_FRACTION` of the card |
 | `METRICS_SERVER_URL` | URL of `metrics_api_server`; empty = no push. `https://` works when built with libcurl (TD-444) |
 | `METRICS_SERVER_HEADERS`, `METRICS_SERVER_CA_FILE` | TD-444, `config.trainer.conf`: extra headers for every metrics push ("Name: value" pairs separated by `;`, e.g. a Cloudflare Access service token) and a CA bundle for an https:// server |
 | `METRICS_STALENESS_THRESHOLD_SECONDS` | Seconds idle before dashboard drops session (default: 60) |
@@ -455,7 +456,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(84 on November 26, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(86 on November 26, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -544,3 +545,5 @@ reference doc that tracks it):
 | TD-593 (LOW) | One Failed Download Fails the Whole Training Pass. Left: Report each file's download result and train the files that arrived, releasing the failed ones (and 3 more). See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
 | TD-594 (MEDIUM) | A Download That Outlasts Its FTP Token Can't Be Retried. Left: Let a retry get a fresh token from the registry instead of logging in again with the expired one (and 4 more; until then raise `ftp_token_ttl_minutes`). See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
 | TD-595 (MEDIUM) | GPU Attention Training Copies Every Head's Rows One at a Time. Code fix landed November 26, 2026 (each head multiplies its columns in place; 7.5× fewer GPU operations per text in a 16-layer trace). Left: measure the world-model pass's samples per second on ai-machine (0.56 before) (and 2 more). See [MultiHeadAttention.md](docs/development/reference/source/MultiHeadAttention.md). |
+| TD-596 (MEDIUM) | The GPU Memory Pool Grows Until It Fills the Budget. Code fix landed November 26, 2026 (best-fit reuse, `GPU_POOL_CACHE_MB` cap, per-epoch GPU memory log). Left: check the world-model trainer's footprint on ai-machine (16 GB in qmassa before). See [GPUUtils_SYCL.md](docs/development/reference/source/GPUUtils_SYCL.md). |
+| TD-597 (MEDIUM) | A GPU Build Can't Train a Chatbot Without a GPU. Left: bind the device optimizer only when `GPUManager::is_available()` and fall back to the host path (and 1 more). See [ChatbotTrainer.md](docs/development/reference/source/ChatbotTrainer.md). |

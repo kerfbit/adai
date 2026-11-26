@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039; large, actively evolving core trainer — see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.2
-// @adai-reviewed: 2026-11-22
+// @adai-version: 0.25.0
+// @adai-reviewed: 2026-11-26
 
 #include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
@@ -2292,6 +2292,11 @@ bool ChatbotTrainer::train(int num_epochs) {
             if (has_validation) {
                 val_loss = validate();
             }
+#ifdef ADAI_ENABLE_GPU
+            if (adai::gpu::GPUManager::is_available()) {  // TD-596: what the epoch held on the device
+                adai::Logger::info("Epoch {} GPU memory: {}", epoch + 1, adai::gpu::GPUManager::memory_summary());
+            }
+#endif
 
             // TD-268: every epoch train_epoch() started on the reporter is ended, with or without
             // validation data, with the epoch's average gradient norm and its wall-clock time.

@@ -2,10 +2,12 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (capped by TD-383; CUDA paths never run on a device — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-22
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-26
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include "QueuePriority.hpp"
@@ -119,6 +121,11 @@ class GPUManager {
     /// on the same stream. Every ADAI kernel, copy and cuBLAS call runs on stream_.
     inline static bool stream_ordered_pool_ = false;
     inline static cudaMemPool_t mem_pool_ = nullptr;
+    /// TD-596: what the pool keeps after a synchronization (its release threshold), GPU_POOL_CACHE_MB.
+    /// It was the whole budget, so freed memory was never handed back.
+    inline static size_t cache_limit_bytes_ = size_t{1024} << 20;
+    /// TD-596: the largest allocated_bytes_ since reset_peak_memory().
+    inline static size_t peak_allocated_bytes_ = 0;
 
     /// Remaining budget; caller holds memory_mutex_.
     static size_t available_bytes_locked() {
@@ -227,7 +234,8 @@ class GPUManager {
         stream_ordered_pool_ = false;
         if (pools_supported &&
             cudaDeviceGetDefaultMemPool(&mem_pool_, device_id) == cudaSuccess) {
-            unsigned long long threshold = max_memory_bytes_;
+            // TD-596: at most GPU_POOL_CACHE_MB stays cached (it was the whole budget).
+            unsigned long long threshold = std::min(max_memory_bytes_, cache_limit_bytes_);
             stream_ordered_pool_ = cudaMemPoolSetAttribute(mem_pool_, cudaMemPoolAttrReleaseThreshold,
                                                            &threshold) == cudaSuccess;
         }
@@ -373,12 +381,62 @@ class GPUManager {
                 std::to_string(max_memory_bytes_ / (1024 * 1024)) + " MB limit");
         }
         allocated_bytes_ += bytes;
+        peak_allocated_bytes_ = std::max(peak_allocated_bytes_, allocated_bytes_);
     }
 
     /** @brief Release bytes back to the ADAI memory budget. */
     static void release_memory(size_t bytes) {
         std::lock_guard<std::mutex> lock(memory_mutex_);
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
+    }
+
+    /** @brief TD-596: bytes the stream-ordered pool holds beyond what is in use (0 without a pool). */
+    static size_t get_cached_memory_bytes() {
+        if (!stream_ordered_pool_ || !mem_pool_) {
+            return 0;
+        }
+        unsigned long long reserved = 0, used = 0;
+        cudaMemPoolGetAttribute(mem_pool_, cudaMemPoolAttrReservedMemCurrent, &reserved);
+        cudaMemPoolGetAttribute(mem_pool_, cudaMemPoolAttrUsedMemCurrent, &used);
+        cudaGetLastError();
+        return reserved > used ? static_cast<size_t>(reserved - used) : 0;
+    }
+
+    /** @brief TD-596: the pool's release threshold (GPU_POOL_CACHE_MB); SIZE_MAX = the whole budget. */
+    static size_t get_pool_cache_limit_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return cache_limit_bytes_;
+    }
+    static void set_pool_cache_limit_bytes(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        cache_limit_bytes_ = bytes;
+        if (stream_ordered_pool_ && mem_pool_) {
+            unsigned long long threshold = std::min(max_memory_bytes_, bytes);
+            cudaMemPoolSetAttribute(mem_pool_, cudaMemPoolAttrReleaseThreshold, &threshold);
+            cudaGetLastError();
+        }
+    }
+
+    /** @brief TD-596: the largest get_used_memory_bytes() since the last reset_peak_memory(). */
+    static size_t get_peak_used_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return peak_allocated_bytes_;
+    }
+    static void reset_peak_memory() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        peak_allocated_bytes_ = allocated_bytes_;
+    }
+
+    /// TD-596: one line for the logs, "X MB in use (peak Y MB), Z MB cached (limit L MB)", then starts a new
+    /// peak. The trainers log it once per epoch.
+    static std::string memory_summary() {
+        const auto mb = [](size_t b) { return std::to_string((b + (size_t{1} << 19)) >> 20); };
+        const size_t limit = get_pool_cache_limit_bytes();
+        std::string s = mb(get_used_memory_bytes()) + " MB in use (peak " + mb(get_peak_used_memory_bytes()) +
+                        " MB), " + mb(get_cached_memory_bytes()) + " MB cached (limit " +
+                        (limit == SIZE_MAX ? std::string("none") : mb(limit) + " MB") + ")";
+        reset_peak_memory();
+        return s;
     }
 
     /** @brief True when GPUMemory uses the stream-ordered pool (TD-390). */
@@ -662,6 +720,20 @@ class GPUManager {
     }
     static size_t get_available_memory_bytes() {
         return 0;
+    }
+    static size_t get_cached_memory_bytes() {  // TD-596
+        return 0;
+    }
+    static size_t get_pool_cache_limit_bytes() {
+        return 0;
+    }
+    static void set_pool_cache_limit_bytes(size_t) {}
+    static size_t get_peak_used_memory_bytes() {
+        return 0;
+    }
+    static void reset_peak_memory() {}
+    static std::string memory_summary() {
+        return "GPU support not compiled";
     }
 };
 

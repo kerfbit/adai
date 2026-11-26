@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (tests: tests/scripts/install_chatbot_api_test.sh)
-# @adai-version: 0.10.0
-# @adai-reviewed: 2026-11-14
+# @adai-version: 0.11.0
+# @adai-reviewed: 2026-11-26
 
 # ADAI Chatbot API - systemd Service Installation Script
 #
@@ -433,6 +433,9 @@ GPU_QUEUE_DEPTH=8
 # TD-574: seconds a wait for GPU work may take before the device counts as lost (0 = no limit).
 # The Arc's runtime sometimes never reports an engine reset; this turns the hang into a failed pass.
 GPU_WAIT_TIMEOUT_SECONDS=60
+# TD-596: the most freed GPU memory kept cached for reuse, in MiB (0 = none). Without a limit the pool
+# kept freed blocks until it filled GPU_MEMORY_FRACTION of the card.
+GPU_POOL_CACHE_MB=1024
 "
 fi
 

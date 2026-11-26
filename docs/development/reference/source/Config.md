@@ -1,10 +1,10 @@
 # `Config` — Source File Reference
 
-- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,063 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,117 lines)
+- **Files:** [`src/Config.hpp`](../../../../src/Config.hpp) (1,073 lines), [`src/Config.cpp`](../../../../src/Config.cpp) (2,125 lines)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, the daemons and tools); it isn't part of a static library
-- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.35.0`, `Config.cpp` `1.36.0`, both reviewed 2026-11-21
-- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (114); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
+- **Status tags:** `@adai-status: stable`; `Config.hpp` `@adai-version: 1.36.0`, `Config.cpp` `1.37.0`, both reviewed 2026-11-26 (TD-596's `GPU_POOL_CACHE_MB`)
+- **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) → `configTests` (115); `config_startup_log_test.cpp` (the deferred start-up messages); `sighupTests` (the binaries that ignore `SIGHUP`)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
 - **Last traced against the code:** 2026-11-11; `GPU_QUEUE_DEPTH` and `GPU_WAIT_TIMEOUT_SECONDS` added 2026-11-14; `GPU_STRATEGY=normal` 2026-11-15; `GUTENBERG_MIRRORS` 2026-11-19 (TD-579); the registry URL and `RUN_GROUP` checks 2026-11-21 (TD-498); `MAX_FILES_PER_RUN` 2026-11-21 (TD-335)
 
@@ -157,3 +157,10 @@ messages reaching the log file.
 training pass claims from the registry; 0 claims every file in the pool, which is what every pass did before, since
 `DatasetRegistry::make_config()` never mapped `DatasetConfig::max_files_per_run`. `config.trainer.conf` sets it to 0 with a comment. Test:
 `ConfigTest.MaxFilesPerRunKey`.
+
+## Addendum (November 26, 2026): `GPU_POOL_CACHE_MB` (TD-596)
+
+`ServiceConfig::gpu_pool_cache_mb` (`GPU_POOL_CACHE_MB`, file or environment; default 1024, `[0, 1048576]`, 0 = cache nothing): the
+most freed GPU memory the pool keeps for reuse ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)'s TD-596 addendum). `incremental_trainer` and
+`chatbot_api_server` apply it after `GPU_QUEUE_DEPTH` and log it. In `config.trainer.conf`, `config.chatbot.conf`, the legacy
+`config.conf` and `install_chatbot_API.sh`'s template. Test: `ConfigTest.GpuPoolCacheDefaultFileEnvAndRange`.

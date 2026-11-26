@@ -1,12 +1,12 @@
 # `gpu/GPUUtils.hpp` — Source File Reference
 
-- **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 492 lines)
+- **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 745 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`), plus the `CUDA_CHECK`/`CUBLAS_CHECK` macros
 - **Built into:** every GPU-enabled target via `adai_gpu`; the no-GPU stub is used by every other build
-- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.15.0`, `@adai-reviewed: 2026-11-22` (TD-590 transfer counts)
+- **Status tag:** `@adai-status: beta` (capped by TD-383), `@adai-version: 0.16.0`, `@adai-reviewed: 2026-11-26` (TD-596: the pool's release threshold)
 - **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (19 tests; 9 need a CUDA device and skip without one)
 - **SYCL counterpart:** `src/gpu/sycl/GPUUtils_SYCL.hpp` (documented separately)
-- **Last traced against the code:** 2026-11-13 (the TD-574 addendum); `initialize()`'s priority and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default)
+- **Last traced against the code:** 2026-11-13 (the TD-574 addendum); `initialize()`'s priority and §4 re-traced 2026-11-15 (`GPU_STRATEGY=normal`) and 2026-11-17 (`normal` the default); the pool threshold 2026-11-26 (TD-596)
 
 > Code-traced reference. No CUDA device is available in this environment, so nothing here was run on
 > real hardware. The CUDA test build (`build/cuda-gputest`) was run: its 9 host-side tests pass and
@@ -187,3 +187,10 @@ and `host_round_trips` (host `Matrix` operations sent to the device and back), r
 this CUDA header and in the SYCL one ([GPUUtils_SYCL.md](GPUUtils_SYCL.md)); the CUDA `matrix_download_gpu()` and the batch helpers'
 pointer arrays count too. Device-to-device copies don't. Tests: `gpuKernelReferenceTests`' `TransfersAreCounted` and the budget tests
 in `gpuOptimizerTests` and `lejepaencoderTests`.
+
+## Addendum (November 26, 2026): the pool's release threshold (TD-596)
+
+`initialize()` used to set the stream-ordered pool's release threshold to the whole budget, so freed memory stayed with the process.
+It is now `min(budget, GPU_POOL_CACHE_MB)` (default 1024 MiB), and `set_pool_cache_limit_bytes()` changes it. The same interface as
+the SYCL manager: `get_cached_memory_bytes()` (the pool's reserved minus used memory), `get_peak_used_memory_bytes()`,
+`reset_peak_memory()`, `memory_summary()`; the no-GPU stub has them too. Compile-checked only (no CUDA device).

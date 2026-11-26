@@ -2,7 +2,7 @@
 
 - **File:** [`src/ChatbotAPIServer.cpp`](../../../../src/ChatbotAPIServer.cpp) (the `main()` of `chatbot_api_server`; no header)
 - **Built into:** `chatbot_api_server` (with `Config.cpp` and `ChatbotApiServerArgs.cpp`; links `adai_api` and the model libraries); only when `BUILD_API_SERVER` is on
-- **Status tag:** `@adai-status: stable`, `@adai-version: 2.12.0`, `@adai-reviewed: 2026-11-15`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 2.13.0`, `@adai-reviewed: 2026-11-26` (TD-596: applies `GPU_POOL_CACHE_MB`)
 - **Tests:** none directly. The argv layer is tested by `chatbotApiServerArgsTests` and the HTTP layer by `chatbotapiTests`; `main()` itself is untested
 - **Related references:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (its CLI parsing), [ChatbotAPI.md](ChatbotAPI.md) (the HTTP class it runs), [BPETokenizer.md](BPETokenizer.md)
 - **Operator docs:** [chatbot-guide.md](../../../operations/guides/chatbot-guide.md), [SYSTEMD_DEPLOYMENT.md](../../../operations/deployment/SYSTEMD_DEPLOYMENT.md), [configuration_guide.md](../../configuration_guide.md)
@@ -297,3 +297,7 @@ exiting without the GPU runtime's teardown (exit N)`, flushes, and ends with
 `exit_without_gpu_teardown()` (`std::_Exit` with the same code), since on the Level Zero v1 adapter the
 oneAPI runtime's teardown blocked on the stuck work at exit. With `ADAI_GPU_KEEP_TEARDOWN=1` (a TD-574 diagnostic) it logs
 that the work is stuck and returns normally instead. See [GPUDebugSync.md](GPUDebugSync.md).
+
+## Addendum (November 26, 2026): GPU memory (TD-596)
+
+GPU start-up applies `GPU_POOL_CACHE_MB` (`GPUManager::set_pool_cache_limit_bytes()`) after the queue depth and wait timeout, and logs it. See [GPUUtils_SYCL.md](GPUUtils_SYCL.md)'s TD-596 addendum.

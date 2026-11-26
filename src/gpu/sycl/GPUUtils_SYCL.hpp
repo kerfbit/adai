@@ -2,15 +2,17 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-383 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-11-22
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-11-26
 
 #include <algorithm>
 #include "../TransferCounter.hpp"  // TD-590
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -48,11 +50,38 @@ class GPUManager {
     inline static size_t allocated_bytes_ = 0;
     /// TD-390: blocks a GPUMemory released, kept for reuse instead of freed. On the in-order
     /// queue a reused block is safe at once: commands that still use it were submitted earlier
-    /// and run before anything its next owner submits. Keyed by pool size (pool_size()).
-    inline static std::unordered_map<size_t, std::vector<void*>> free_blocks_;
+    /// and run before anything its next owner submits. Keyed by block size (pool_size()), ordered
+    /// so a request can take a slightly larger block (TD-596); each carries its release stamp.
+    struct CachedBlock {
+        void* ptr;
+        std::uint64_t stamp;  ///< release order, for least-recently-used eviction (TD-596)
+    };
+    inline static std::map<size_t, std::vector<CachedBlock>> free_blocks_;
     /// Bytes held in free_blocks_. Counts against the budget with allocated_bytes_, and is
     /// returned to USM (trim_pool_locked()) when an allocation would exceed the budget.
     inline static size_t cached_bytes_ = 0;
+    /// TD-596: the size of every live block, so a block handed out for a smaller request goes back
+    /// to the pool at its own size.
+    inline static std::unordered_map<void*, size_t> live_block_size_;
+    /// TD-596: the most cached_bytes_ may hold (GPU_POOL_CACHE_MB). Over it, the least recently
+    /// released blocks are evicted down to three quarters of it. SIZE_MAX = no limit (before TD-596
+    /// the pool grew until it filled the budget).
+    inline static size_t cache_limit_bytes_ = size_t{1024} << 20;
+    /// TD-596: evicted blocks wait here until a barrier queued after them completes (sycl::free()
+    /// isn't ordered against the queue), then are freed without waiting.
+    struct DeferredFree {
+        sycl::event barrier;
+        std::vector<void*> blocks;
+        size_t bytes;
+    };
+    inline static std::vector<DeferredFree> deferred_frees_;
+    /// Bytes in deferred_frees_: still device memory, so they count against the budget.
+    inline static size_t deferred_bytes_ = 0;
+    inline static std::uint64_t release_stamp_ = 0;
+    /// TD-596: the largest allocated_bytes_ since reset_peak_memory().
+    inline static size_t peak_allocated_bytes_ = 0;
+    /// TD-596: a request may take a cached block up to this fraction larger (1/4 = 25%).
+    static constexpr size_t kReuseSlackDivisor = 4;
     /// Bumped whenever the queue (and so the USM context) is replaced, so a block allocated
     /// before cleanup()/set_device() is never put back into the new pool.
     inline static unsigned pool_generation_ = 0;
@@ -135,7 +164,75 @@ class GPUManager {
     }
 
     static bool fits_locked(size_t bytes) {
-        return max_memory_bytes_ == 0 || (allocated_bytes_ + cached_bytes_ + bytes) <= max_memory_bytes_;
+        return max_memory_bytes_ == 0 ||
+               (allocated_bytes_ + cached_bytes_ + deferred_bytes_ + bytes) <= max_memory_bytes_;
+    }
+
+    /// TD-596: frees every deferred batch whose barrier has completed. Never waits.
+    static void free_completed_deferred_locked() {
+        if (deferred_frees_.empty() || !queue_) {
+            return;
+        }
+        auto done = [](const DeferredFree& d) {
+            return d.barrier.get_info<sycl::info::event::command_execution_status>() ==
+                   sycl::info::event_command_status::complete;
+        };
+        std::vector<DeferredFree> pending;
+        for (auto& d : deferred_frees_) {
+            if (!stuck_ && done(d)) {
+                for (void* block : d.blocks) {
+                    sycl::free(block, *queue_);
+                }
+                deferred_bytes_ -= d.bytes;
+            } else {
+                pending.push_back(std::move(d));
+            }
+        }
+        deferred_frees_ = std::move(pending);
+    }
+
+    /// TD-596: evicts the least recently released cached blocks until cached_bytes_ is at most
+    /// @p target. They are freed later, once a barrier queued now has completed (nothing waits).
+    static void evict_cached_locked(size_t target) {
+        if (cached_bytes_ <= target || !queue_) {
+            return;
+        }
+        struct Entry {
+            std::uint64_t stamp;
+            size_t size;
+            void* ptr;
+        };
+        std::vector<Entry> all;
+        for (const auto& [size, blocks] : free_blocks_) {
+            for (const auto& b : blocks) {
+                all.push_back({b.stamp, size, b.ptr});
+            }
+        }
+        std::sort(all.begin(), all.end(), [](const Entry& a, const Entry& b) { return a.stamp < b.stamp; });
+        DeferredFree batch{sycl::event{}, {}, 0};
+        for (const auto& e : all) {
+            if (cached_bytes_ <= target) {
+                break;
+            }
+            auto& blocks = free_blocks_[e.size];
+            blocks.erase(std::find_if(blocks.begin(), blocks.end(),
+                                      [&](const CachedBlock& b) { return b.ptr == e.ptr; }));
+            if (blocks.empty()) {
+                free_blocks_.erase(e.size);
+            }
+            cached_bytes_ -= e.size;
+            batch.blocks.push_back(e.ptr);
+            batch.bytes += e.size;
+        }
+        if (batch.blocks.empty()) {
+            return;
+        }
+        if (stuck_) {  // TD-574: the stuck work may still use them; leave them to process exit
+            return;
+        }
+        batch.barrier = queue_->ext_oneapi_submit_barrier();
+        deferred_bytes_ += batch.bytes;
+        deferred_frees_.push_back(std::move(batch));
     }
 
     [[noreturn]] static void throw_budget_exceeded_locked(size_t bytes) {
@@ -153,23 +250,26 @@ class GPUManager {
     /// waits for the queue first. Called rarely: under budget pressure, cleanup() and
     /// set_device().
     static void trim_pool_locked() {
-        if (cached_bytes_ == 0) {
+        if (cached_bytes_ == 0 && deferred_bytes_ == 0) {
             return;
         }
         if (stuck_) {  // TD-574: blocks the stuck work may use can't be freed; drop the cache
             free_blocks_.clear();
             cached_bytes_ = 0;
+            deferred_frees_.clear();
+            deferred_bytes_ = 0;
             return;
         }
         wait_for_queue(false);
         for (auto& [size, blocks] : free_blocks_) {
             (void)size;
-            for (void* block : blocks) {
-                sycl::free(block, *queue_);
+            for (const auto& block : blocks) {
+                sycl::free(block.ptr, *queue_);
             }
         }
         free_blocks_.clear();
         cached_bytes_ = 0;
+        free_completed_deferred_locked();  // TD-596: the wait completed every barrier
     }
 
    public:
@@ -248,6 +348,12 @@ class GPUManager {
                 trim_pool_locked();
             }
             allocated_bytes_ = 0;
+            peak_allocated_bytes_ = 0;
+            live_block_size_.clear();
+            free_blocks_.clear();  // TD-596: a stuck queue's trim leaves nothing to free later
+            deferred_frees_.clear();
+            cached_bytes_ = 0;
+            deferred_bytes_ = 0;
             ++pool_generation_;
         }
         if (queue_) {
@@ -287,6 +393,7 @@ class GPUManager {
             if (queue_) {
                 trim_pool_locked();
             }
+            live_block_size_.clear();
             ++pool_generation_;
         }
         if (queue_) {
@@ -343,19 +450,54 @@ class GPUManager {
         return (max_memory_bytes_ > allocated_bytes_) ? (max_memory_bytes_ - allocated_bytes_) : 0;
     }
 
-    /// Bytes held in the pool for reuse (TD-390), not counted by get_used_memory_bytes().
+    /// Bytes held in the pool for reuse (TD-390), not counted by get_used_memory_bytes(). With
+    /// TD-596's evicted blocks that aren't freed yet.
     static size_t get_cached_memory_bytes() {
         std::lock_guard<std::mutex> lock(memory_mutex_);
-        return cached_bytes_;
+        return cached_bytes_ + deferred_bytes_;
     }
 
-    /// Size a pooled allocation of `bytes` is rounded up to: 512-byte steps up to 1 MiB, then an
+    /// TD-596: the most the pool keeps cached (GPU_POOL_CACHE_MB); SIZE_MAX = no limit.
+    static size_t get_pool_cache_limit_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return cache_limit_bytes_;
+    }
+    static void set_pool_cache_limit_bytes(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        cache_limit_bytes_ = bytes;
+        evict_cached_locked(bytes);
+    }
+
+    /// TD-596: the largest get_used_memory_bytes() since the last reset_peak_memory().
+    static size_t get_peak_used_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return peak_allocated_bytes_;
+    }
+    static void reset_peak_memory() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        peak_allocated_bytes_ = allocated_bytes_;
+    }
+
+    /// TD-596: one line for the logs, "X MB in use (peak Y MB), Z MB cached (limit L MB)", then starts a new
+    /// peak. The trainers log it once per epoch.
+    static std::string memory_summary() {
+        const auto mb = [](size_t b) { return std::to_string((b + (size_t{1} << 19)) >> 20); };
+        const size_t limit = get_pool_cache_limit_bytes();
+        std::string s = mb(get_used_memory_bytes()) + " MB in use (peak " + mb(get_peak_used_memory_bytes()) +
+                        " MB), " + mb(get_cached_memory_bytes()) + " MB cached (limit " +
+                        (limit == SIZE_MAX ? std::string("none") : mb(limit) + " MB") + ")";
+        reset_peak_memory();
+        return s;
+    }
+
+    /// Size a pooled allocation of `bytes` is rounded up to: 512-byte steps up to 64 KiB, then an
     /// eighth of the next power of two (at most 12.5% over), so recurring shapes share blocks.
+    /// TD-596: the fine steps went up to 1 MiB, so every sequence length gave new sizes.
     static size_t pool_size(size_t bytes) {
-        if (bytes <= (size_t{1} << 20)) {
+        if (bytes <= (size_t{1} << 16)) {
             return (bytes + 511) & ~size_t{511};
         }
-        size_t pow2 = size_t{1} << 20;
+        size_t pow2 = size_t{1} << 16;
         while (pow2 < bytes) {
             pow2 <<= 1;
         }
@@ -382,12 +524,21 @@ class GPUManager {
         if (size == 0) {
             return nullptr;
         }
-        auto it = free_blocks_.find(size);
-        if (it != free_blocks_.end() && !it->second.empty()) {
-            void* block = it->second.back();
+        free_completed_deferred_locked();
+        // TD-596: the smallest cached block of at least this size and at most a quarter larger.
+        for (auto it = free_blocks_.lower_bound(size);
+             it != free_blocks_.end() && it->first <= size + size / kReuseSlackDivisor; ++it) {
+            if (it->second.empty()) {
+                continue;
+            }
+            const size_t got = it->first;
+            void* block = it->second.back().ptr;
             it->second.pop_back();
-            cached_bytes_ -= size;
-            allocated_bytes_ += size;
+            if (it->second.empty()) {
+                free_blocks_.erase(it);
+            }
+            cached_bytes_ -= got;
+            note_allocated_locked(block, got);
             return block;
         }
         if (!fits_locked(size)) {
@@ -400,8 +551,14 @@ class GPUManager {
         if (!block) {
             throw std::runtime_error("sycl::malloc_device failed: allocation returned null");
         }
-        allocated_bytes_ += size;
+        note_allocated_locked(block, size);
         return block;
+    }
+
+    static void note_allocated_locked(void* block, size_t size) {
+        allocated_bytes_ += size;
+        peak_allocated_bytes_ = std::max(peak_allocated_bytes_, allocated_bytes_);
+        live_block_size_[block] = size;
     }
 
     /// Takes back a block from allocate_block(). No host_task and no wait: the block goes to the
@@ -411,14 +568,22 @@ class GPUManager {
         if (!block) {
             return;
         }
-        const size_t size = pool_size(bytes);
         std::lock_guard<std::mutex> lock(memory_mutex_);
         if (!initialized_ || generation != pool_generation_) {
             return;
         }
+        size_t size = pool_size(bytes);
+        if (auto it = live_block_size_.find(block); it != live_block_size_.end()) {
+            size = it->second;  // TD-596: it may be larger than this request's pool size
+            live_block_size_.erase(it);
+        }
         allocated_bytes_ = (size <= allocated_bytes_) ? (allocated_bytes_ - size) : 0;
-        free_blocks_[size].push_back(block);
+        free_blocks_[size].push_back({block, ++release_stamp_});
         cached_bytes_ += size;
+        free_completed_deferred_locked();
+        if (cached_bytes_ > cache_limit_bytes_) {  // TD-596
+            evict_cached_locked(cache_limit_bytes_ - cache_limit_bytes_ / 4);
+        }
     }
 
     /// Budget-only reservation (no device memory), kept for callers that track memory they
@@ -434,6 +599,7 @@ class GPUManager {
             }
         }
         allocated_bytes_ += bytes;
+        peak_allocated_bytes_ = std::max(peak_allocated_bytes_, allocated_bytes_);
     }
 
     static void release_memory(size_t bytes) {

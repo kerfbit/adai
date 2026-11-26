@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-11-22
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-26
 
 // TD-566: the LeJEPA world-model pass, moved out of IncrementalTrainingTool.cpp so it can be tested
 // (lejepaTrainingPassTests), and given the chatbot pass's GPU-loss handling.
@@ -548,6 +548,11 @@ int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         }
         adai::Logger::info("[lejepa] Epoch {}/{} complete ({} samples)", epoch + 1, epochs,
                            texts.size());
+#ifdef ADAI_ENABLE_GPU
+        if (adai::gpu::GPUManager::is_available()) {  // TD-596: what the epoch held on the device
+            adai::Logger::info("[lejepa] GPU memory: {}", adai::gpu::GPUManager::memory_summary());
+        }
+#endif
         if (control) {
             control->current_epoch = epoch + 1;
             if (epoch_step_count > 0) {
