@@ -455,7 +455,7 @@ already-resolved items kept as historical design-rationale footnotes, not pendin
 trusting a `grep TD-NNN` alone; its Recommended Execution Order says what to take next. Resolved items,
 with the history these rows used to carry, are in
 [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md). Currently open items
-(82 on November 26, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
+(84 on November 26, 2026, one row each; HIGH in bold; "Left:" is the first open action item, with the
 reference doc that tracks it):
 
 | Tag | Description |
@@ -542,3 +542,5 @@ reference doc that tracks it):
 | TD-591 (MEDIUM) | A Download the Registry Can't Resume Fails Every Training Pass. Trainer-side fix landed November 26, 2026 (a refused resume downloads the whole file). Left: deploy it to ai-machine, whose world-model pool failed 50 passes on a 58% TinyStories download (and 1 more). See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
 | TD-592 (LOW) | `FtpDataServer` Doesn't Implement `REST`, So Downloads Can't Resume. Left: Implement `REST <offset>` (`350`, applied to the next `RETR`, reset after it) and advertise it in `FEAT` (and 3 more). See [FtpDataServer.md](docs/development/reference/source/FtpDataServer.md). |
 | TD-593 (LOW) | One Failed Download Fails the Whole Training Pass. Left: Report each file's download result and train the files that arrived, releasing the failed ones (and 3 more). See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
+| TD-594 (MEDIUM) | A Download That Outlasts Its FTP Token Can't Be Retried. Left: Let a retry get a fresh token from the registry instead of logging in again with the expired one (and 4 more; until then raise `ftp_token_ttl_minutes`). See [DataTransport.md](docs/development/reference/source/DataTransport.md). |
+| TD-595 (MEDIUM) | GPU Attention Training Copies Every Head's Rows One at a Time. Code fix landed November 26, 2026 (each head multiplies its columns in place; 7.5× fewer GPU operations per text in a 16-layer trace). Left: measure the world-model pass's samples per second on ai-machine (0.56 before) (and 2 more). See [MultiHeadAttention.md](docs/development/reference/source/MultiHeadAttention.md). |

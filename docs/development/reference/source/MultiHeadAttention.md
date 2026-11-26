@@ -1,12 +1,12 @@
 # `MultiHeadAttention` — Source File Reference
 
-- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,611 lines together)
+- **Files:** [`src/MultiHeadAttention.hpp`](../../../../src/MultiHeadAttention.hpp), [`src/MultiHeadAttention.cpp`](../../../../src/MultiHeadAttention.cpp) (1,596 lines together)
 - **Namespace:** global
 - **Built into:** `adai_attention`; owned by every `EncoderBlock` and `DecoderBlock` (self-attention), hence by `LLMEncoder`, `LLMDecoder`, `LeJEPAEncoder`; saved by `ModelSerializer`
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.15.0` (`.hpp`) / `0.16.0` (`.cpp`), `@adai-reviewed: 2026-11-22` (TD-589's device accumulator)
-- **Tests:** [`tests/multiheadattention_test.cpp`](../../../../tests/multiheadattention_test.cpp) (65 tests; 73 in a GPU build)
+- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.15.0` (`.hpp`) / `0.17.0` (`.cpp`), `@adai-reviewed: 2026-11-26` (TD-595: per-head GPU training in place)
+- **Tests:** [`tests/multiheadattention_test.cpp`](../../../../tests/multiheadattention_test.cpp) (65 tests; 74 in a GPU build)
 - **Sibling:** [CrossAttention.md](CrossAttention.md), which shares most of this design and already tracks the shared issues (TD-297–TD-303)
-- **Last traced against the code:** 2026-11-13; the entropy accumulator 2026-11-22 (TD-589)
+- **Last traced against the code:** 2026-11-13; the entropy accumulator 2026-11-22 (TD-589); the GPU training path 2026-11-26 (TD-595)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs linked against the real class.
 
@@ -46,7 +46,7 @@ caller builds (`LLMDecoder::create_causal_mask()`, the KV-cached decode mask).
 | `save_weights()` / `load_weights()` | `d_model`, `num_heads`, then the four matrices, through `adai::binio` (TD-423, addendum): a short or over-long file throws and changes nothing; a load refreshes the GPU mirror (TD-301). Both log at debug level |
 | Getters/setters for `W_q`…`W_o` | The setters (defined in the `.cpp` since TD-301) need a `d_model × d_model` matrix, else `std::invalid_argument` and no change, and refresh the GPU mirror |
 | `print_config(name)` | One `adai::Logger::info` line: `d_model`, heads, `d_k`, parameters and megabytes, learning rate. No production caller |
-| GPU (`ADAI_ENABLE_GPU`) | `gpu_upload_weights()`, `gpu_collect_parameters()`, `gpu_download_weights()`, `gpu_download_grads()`, `gpu_zero_grads()`, `gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()` over a persistent `GPUState`; kernels in MatrixGPU_cu.md/MatrixGPU_SYCL_cpp.md (softmax race TD-384). The contract (TD-301) is in §4 |
+| GPU (`ADAI_ENABLE_GPU`) | `gpu_upload_weights()`, `gpu_collect_parameters()`, `gpu_download_weights()`, `gpu_download_grads()`, `gpu_zero_grads()`, `gpu_forward()`, `gpu_forward_with_cache()`, `gpu_backward()` over a persistent `GPUState`, each head computed on its own columns of Q/K/V in place with `matrix_gemm_strided_gpu()` (TD-388 for the cached path, TD-595 for training); kernels in MatrixGPU_cu.md/MatrixGPU_SYCL_cpp.md (softmax race TD-384). The contract (TD-301) is in §4 |
 
 ---
 
@@ -103,8 +103,9 @@ weights as distributions, a per-head reference implementation and the single-hea
 without LoRA, LoRA freezing and merging, gradient accumulation, updates with and without an optimizer, gradient norm and clipping,
 save/load and dimension mismatch, training loops, the attention hook (CPU and GPU). `DimensionNotDivisible` also covers zero and
 negative `d_model`/`num_heads` (TD-467; the old code died with SIGFPE), and the `PrintConfig` tests read the log.
-`MultiHeadAttentionSetterTest` and, in a GPU build, `MultiHeadAttentionGPUContractTest` (four tests: LoRA refused until merged,
-shapes checked before the cache grows, backward needs a forward, setters/load/update reach the mirror) cover TD-301; all five fail
+`MultiHeadAttentionSetterTest` and, in a GPU build, `MultiHeadAttentionGPUContractTest` (five tests: LoRA refused until merged,
+shapes checked before the cache grows, backward needs a forward, setters/load/update reach the mirror, cover TD-301; and TD-595's
+`PerHeadTrainingMatchesTheCpu`: output, input gradient and weight gradients against the CPU with four heads and a causal mask); all five fail
 on the old code, the backward test with a segfault. Truncated weight
 files: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. (The KV-cached forward is covered in
 `inference_optimization_test.cpp`.)
@@ -125,6 +126,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | LoRA persistence/grad norm; accessor cost elsewhere | Open | — | TD-302, TD-435 |
 | GPU incremental cache | Resolved November 17, 2026 | **Verified** on ai-machine's Arc (`gpu_decode_bench` at both shapes) | [TD-050](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-050-gpu-resident-kv-cache-for-autoregressive-generation) |
 | Shared-optimizer stepping; unseeded init; GPU softmax race; KV-cache copying | Fixed in code | — | TD-297, TD-368, TD-384, TD-422 |
+| GPU training copied every head's rows one at a time (88% of a training step's GPU operations) | **Fixed in code** November 26, 2026; ai-machine's samples per second to measure | **Verified** on the oneAPI CPU device | [TD-595](../../guides/TECHNICAL_DEBT.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) |
 
 ---
 
@@ -176,3 +178,13 @@ refresh the device mirror. Tests: `MultiHeadAttentionSetterTest`, `MultiHeadAtte
 `1/num_heads` (the count added by head 0 only). Nothing is downloaded; `nullptr` (the default) turns it off. It measures what
 `set_gpu_attention_stats_hook()` measures (each head's entropy, averaged), not what the host `attention_hook_` sees: the host hook gets
 the head-averaged weights, whose entropy is a different (larger or equal) number.
+
+## Addendum (November 26, 2026): per-head GPU training in place (TD-595)
+
+`gpu_forward()` and `gpu_backward()` no longer copy each head's columns out of Q/K/V row by row (and scatter results back the same
+way): every product works on the head's column view with `matrix_gemm_strided_gpu()` (`d_model` as the row length), writing the
+head's output and its dQ/dK/dV columns in place, as the cached path has since TD-388. The softmax scale is the scores' and the dQ/dK
+products' alpha. On the oneAPI CPU device a 16-layer, 4-head LeJEPA encoder's training step went from 32,225 GPU operations to 4,321
+(the copies were 88% of them); ai-machine's world-model pass ran at 0.56 samples per second before. Test:
+`MultiHeadAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu`.
+

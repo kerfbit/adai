@@ -1,12 +1,12 @@
 # `CrossAttention` — Source File Reference
 
-- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp) (473 lines), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp) (1,172 lines)
+- **Files:** [`src/CrossAttention.hpp`](../../../../src/CrossAttention.hpp) (473 lines), [`src/CrossAttention.cpp`](../../../../src/CrossAttention.cpp) (1,158 lines)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_attention` (linked by `adai_transformer` → `adai_models`), so every binary that builds a model
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.17.0` (`.hpp`) / `0.17.0` (`.cpp`), `@adai-reviewed: 2026-11-13`
-- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (59 tests; 64 in a GPU build), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
+- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.17.0` (`.hpp`) / `0.18.0` (`.cpp`), `@adai-reviewed: 2026-11-26` (TD-595)
+- **Tests:** [`tests/crossattention_test.cpp`](../../../../tests/crossattention_test.cpp) (59 tests; 65 in a GPU build), plus indirect coverage in the decoder-block, decoder, encoder-decoder and inference-optimization suites
 - **Origin:** original encoder-decoder design; TD-059 (real per-head split), TD-038 (LoRA), TD-050 (GPU incremental cache), TD-174 (`forward_with_scores`), TD-180 (`get_last_attention_weights`)
-- **Last traced against the code:** 2026-10-10, with the addenda below; construction, the forward family, optimization, accessors (§4) and the GPU path (§5) re-traced 2026-11-13
+- **Last traced against the code:** 2026-10-10, with the addenda below; construction, the forward family, optimization, accessors (§4) and the GPU path (§5) re-traced 2026-11-13; the GPU training path 2026-11-26 (TD-595)
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (scratch program linked against `libadai_attention`/`libadai_layers`/`libadai_core`), including a
@@ -212,8 +212,10 @@ then reads the four matrices.
 
 ## 5. GPU path (`ADAI_ENABLE_GPU`)
 
-`gpu_forward()`/`gpu_backward()` mirror the CPU math head by head using `GPUMatrix` primitives, with
-slicing done by row-wise device-to-device copies (`d_k`-wide, so `rows × heads` small copies per
+`gpu_forward()`/`gpu_backward()` mirror the CPU math head by head. Since TD-595 (November 26, 2026)
+each head's products work on its column views of Q/K/V with `matrix_gemm_strided_gpu()` and write its
+output and dQ/dK/dV columns in place, the scale folded into alpha and the score bias added after it;
+they used to copy every head's rows out and back one at a time (`rows × heads` small copies per
 projection). `gpu_forward_with_cache()` uses a `GPUKVCache` the same way the CPU version does
 (project encoder K/V once, then reuse), and is inference-only.
 
@@ -268,7 +270,7 @@ How it relates to the CPU path (TD-301, fixed November 13, 2026; verified on the
 | Persistence | 1 (TD-298/TD-423: truncated and empty files) |
 | CacheSource | 5 (TD-300: the same encoder output keeps the cache; a different length, a same-length different output, a weight or LoRA change, another layer's cache are refused; a cleared cache takes a new output) |
 | Setters | 1 (TD-301: shape checked, nothing changed on a refusal) |
-| GPU contract (GPU builds) | 5 (TD-301: LoRA refused until merged, shapes, backward without a forward, host changes reach the mirror; TD-300: the cached path checks the encoder length and the weights) |
+| GPU contract (GPU builds) | 6 (TD-301: LoRA refused until merged, shapes, backward without a forward, host changes reach the mirror; TD-300: the cached path checks the encoder length and the weights; TD-595: output, both input gradients and the weight gradients against the CPU, with a mask, a score bias and unequal lengths) |
 
 The cached path is covered in `inference_optimization_test.cpp` and the encoder-decoder suites. The
 older [CROSSATTENTION_TEST_COVERAGE.md](../../testing/coverage/CROSSATTENTION_TEST_COVERAGE.md)
@@ -294,6 +296,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `load()` doesn't check reads; truncated file → NaN weights, no error; `learning_rate` clobbered before the mismatch check; `save()` unchecked (§4) | A damaged legacy `.cross_attn` file silently produces a NaN model | **Verified** | [TD-298](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-298-crossattentionload-loads-truncated-files-as-nan-weights) |
 | `num_heads == 0` → SIGFPE before the validation runs; negative heads accepted (§4) | **Fixed in code November 13, 2026**: checked before `d_k` is computed | **Verified** by test | [TD-299](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) |
 | `forward_with_cache()` silently ignored a new `kv` once the cache was filled; no staleness check (§4) | **Fixed in code** November 13, 2026: shape, sampled content, layer and weights checked; the content isn't checked on the GPU path, and an input matching at every sampled position isn't caught | **Verified** | [TD-300](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv) |
+| GPU training copied every head's rows one at a time (§5) | **Fixed in code** November 26, 2026 | **Verified** on the oneAPI CPU device | [TD-595](../../guides/TECHNICAL_DEBT.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) |
 | GPU path ignored LoRA, skipped validation, dereferenced null in `gpu_backward()` without a forward, kept stale weights after host changes (§5) | **Fixed in code** November 13, 2026 | **Verified** on the oneAPI CPU device and on ai-machine's Arc (November 14, 2026) | [TD-301](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) |
 | An optimizer step taken outside `update_weights()` doesn't reach the device copy; `get_last_attention_weights()` is CPU-only (§5) | Callers call `gpu_sync_weights()`, or use `gpu_last_mean_attention_weights()` | By inspection | Documented contract (TD-301) |
 | LoRA adapters aren't persisted by `save()` or SafeTensors; `get_gradient_norm()` excludes LoRA grads (§4) | Unmerged LoRA training lost on save; gradient clipping ignores adapters. LoRA has no production caller yet | By inspection | [TD-302](../../guides/TECHNICAL_DEBT.md#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) |
@@ -375,3 +378,9 @@ device copy of the weights. Tests: `CrossAttentionSetterTest`, `CrossAttentionGP
 Now reflected in §4–§7: `forward_with_cache()` records the layer, weights version and encoder output a cache was filled from and
 refuses a later call that differs; `gpu_forward_with_cache()` checks the row count and the weights. Tests: `CrossAttentionCacheSourceTest`
 (the three refusal tests fail on the old code) and `CrossAttentionGPUContractTest.ACachedGpuCallChecksTheEncoderLengthAndTheWeights`.
+
+## Addendum (November 26, 2026): per-head GPU training in place (TD-595)
+
+Reflected in §5–§7: the GPU forward and backward compute each head on its column views (`matrix_gemm_strided_gpu()`), with no
+per-row slice or scatter copies. Test: `CrossAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu`.
+

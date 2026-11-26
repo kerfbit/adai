@@ -2479,6 +2479,52 @@ TEST(CrossAttentionGPUContractTest, BackwardNeedsAForwardOfTheSameShape) {
     EXPECT_NO_THROW(ca.gpu_backward(dout));
 }
 
+// TD-595: as MultiHeadAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu, for cross-attention: target and
+// source lengths differ (so a swapped dimension can't pass), with a mask and a score bias (TD-342).
+TEST(CrossAttentionGPUContractTest, PerHeadTrainingMatchesTheCpu) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    const int tgt = 5, src = 9, d_model = 24;
+    CrossAttention ca(d_model, 3);
+    const Matrix q = ca_random(tgt, d_model);
+    const Matrix kv = ca_random(src, d_model);
+    const Matrix dout = ca_random(tgt, d_model);
+    const Matrix bias = ca_random(tgt, src);
+    Matrix mask(tgt, src);
+    for (int i = 0; i < tgt; ++i)
+        for (int j = 0; j < src; ++j) mask(i, j) = (j % 4 == 3) ? 0.0f : 1.0f;
+
+    ca.zero_grad();
+    const Matrix out_cpu = ca.forward_with_scores(q, kv, bias, &mask);
+    Matrix dq_cpu, dkv_cpu;
+    ca.backward(dout, dq_cpu, dkv_cpu);
+    const float norm_cpu = ca.get_gradient_norm();
+    ASSERT_GT(norm_cpu, 0.0f);
+
+    adai::gpu::GPUMatrix gq = q.to_gpu();
+    adai::gpu::GPUMatrix gkv = kv.to_gpu();
+    adai::gpu::GPUMatrix gmask = mask.to_gpu();
+    adai::gpu::GPUMatrix gbias = bias.to_gpu();
+    adai::gpu::GPUMatrix gdout = dout.to_gpu();
+    const Matrix out_gpu = Matrix::from_gpu(ca.gpu_forward(gq, gkv, &gmask, &gbias));
+    ca.gpu_zero_grads();
+    auto grads = ca.gpu_backward(gdout);
+    EXPECT_LT(ca_max_abs_diff(out_gpu, out_cpu), 1e-4f);
+    EXPECT_LT(ca_max_abs_diff(Matrix::from_gpu(grads.first), dq_cpu), 1e-4f);
+    EXPECT_LT(ca_max_abs_diff(Matrix::from_gpu(grads.second), dkv_cpu), 1e-4f);
+
+    ca.gpu_download_grads();  // G + G'
+    const float norm_sum = ca.get_gradient_norm();
+    ca.zero_grad();
+    ca.gpu_download_grads();  // G'
+    const float norm_gpu = ca.get_gradient_norm();
+    EXPECT_NEAR(norm_gpu, norm_cpu, 1e-4f * norm_cpu);
+    EXPECT_NEAR(norm_sum, 2.0f * norm_cpu, 1e-4f * norm_cpu);
+}
+
 TEST(CrossAttentionGPUContractTest, HostWeightChangesReachTheDeviceMirror) {
     if (!adai::gpu::GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";

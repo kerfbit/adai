@@ -2019,6 +2019,49 @@ TEST(MultiHeadAttentionGPUContractTest, BackwardNeedsAForwardOfTheSameShape) {
     EXPECT_NO_THROW(mha.gpu_backward(dout));
 }
 
+// TD-595: the GPU forward and backward work on each head's columns in place (strided GEMMs) instead of
+// copying them out row by row; outputs, input gradients and weight gradients still match the CPU path, with
+// several heads and a causal mask. The weight gradients are compared exactly through their norm: with G the
+// CPU's and G' the device's, |G'| = |G| and |G + G'| = 2|G| (gpu_download_grads() adds G' to G) hold only
+// when G' = G.
+TEST(MultiHeadAttentionGPUContractTest, PerHeadTrainingMatchesTheCpu) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    const int seq = 7, d_model = 24;
+    MultiHeadAttention mha(d_model, 4);
+    const Matrix x = random_matrix(seq, d_model);
+    const Matrix dout = random_matrix(seq, d_model);
+    Matrix mask(seq, seq);
+    for (int i = 0; i < seq; ++i)
+        for (int j = 0; j <= i; ++j) mask(i, j) = 1.0f;
+
+    mha.zero_grad();
+    const Matrix out_cpu = mha.forward(x, &mask);
+    const Matrix din_cpu = mha.backward(dout);
+    const float norm_cpu = mha.get_gradient_norm();
+    ASSERT_GT(norm_cpu, 0.0f);
+
+    adai::gpu::GPUMatrix gx = x.to_gpu();
+    adai::gpu::GPUMatrix gmask = mask.to_gpu();
+    adai::gpu::GPUMatrix gdout = dout.to_gpu();
+    const Matrix out_gpu = Matrix::from_gpu(mha.gpu_forward(gx, &gmask));
+    mha.gpu_zero_grads();
+    const Matrix din_gpu = Matrix::from_gpu(mha.gpu_backward(gdout));
+    EXPECT_LT(max_abs_diff(out_gpu, out_cpu), 1e-4f);
+    EXPECT_LT(max_abs_diff(din_gpu, din_cpu), 1e-4f);
+
+    mha.gpu_download_grads();  // G + G'
+    const float norm_sum = mha.get_gradient_norm();
+    mha.zero_grad();
+    mha.gpu_download_grads();  // G'
+    const float norm_gpu = mha.get_gradient_norm();
+    EXPECT_NEAR(norm_gpu, norm_cpu, 1e-4f * norm_cpu);
+    EXPECT_NEAR(norm_sum, 2.0f * norm_cpu, 1e-4f * norm_cpu);
+}
+
 TEST(MultiHeadAttentionGPUContractTest, HostWeightChangesReachTheDeviceMirror) {
     if (!adai::gpu::GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-22
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-26
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -815,29 +815,10 @@ void MultiHeadAttention::gpu_zero_grads() {
 }
 
 namespace {
-// TD-059: GPU-side equivalents of slice_head_columns()/scatter_head_columns() above, built
-// entirely from matrix_copy_device_to_device_gpu() — an existing, already-used primitive
-// (see gpu_upload_weights()'s cached_input copy above) — with pointer-offset device-to-device
-// copies. No new CUDA/SYCL kernels: correctness here rests on primitives already exercised
-// elsewhere in this file, which matters because this environment can compile but not
-// runtime-verify either GPU backend (no physical GPU device available) — see TD-059's
-// writeup in TECHNICAL_DEBT_RESOLVED.md for that residual verification gap.
-adai::gpu::GPUMatrix gpu_slice_head_columns(const adai::gpu::GPUMatrix& m, int start, int width) {
-    adai::gpu::GPUMatrix result(m.rows, width);
-    for (int i = 0; i < m.rows; ++i) {
-        adai::gpu::matrix_copy_device_to_device_gpu(m.device_ptr() + i * m.cols + start,
-                                                     result.device_ptr() + i * width, width);
-    }
-    return result;
-}
-
-void gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
-                              const adai::gpu::GPUMatrix& src) {
-    for (int i = 0; i < src.rows; ++i) {
-        adai::gpu::matrix_copy_device_to_device_gpu(
-            src.device_ptr() + i * src.cols, dst.device_ptr() + i * dst.cols + start, src.cols);
-    }
-}
+// TD-595: each head's training attention multiplies straight on its own columns of Q/K/V and writes its own
+// columns of the result with matrix_gemm_strided_gpu() (TD-388), as gpu_forward_with_cache() does. TD-059's
+// slice/scatter helpers copied every row of every head separately: about 88% of all GPU operations of a training
+// step, each submitted on its own.
 // TD-301: the GPU path runs only the base weights, so it refuses a layer with LoRA adapters (it
 // used to run without them, silently), and it checks shapes as the CPU path does (a mask was only
 // checked by its element count).
@@ -903,17 +884,18 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
 
     // TD-059: genuine per-head attention — each head operates on its own [seq, d_k] column
     // slice of Q/K/V, mirroring forward_parallel()'s CPU implementation exactly (same formula,
-    // same scale, same shared mask per head).
+    // same scale, same shared mask per head). TD-595: the slice is a view (a pointer and d_model
+    // as the row length), so nothing is copied.
     adai::gpu::GPUMatrix concatenated(seq, d_model);
     float total_entropy = 0.0f;
     for (int h = 0; h < num_heads; ++h) {
-        int start_dim = h * d_k;
-        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
-        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
-        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
-
-        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();
-        scores_h = scores_h.scale(scale);
+        const int start_dim = h * d_k;
+        // scores_h = scale * Q_h * K_h^T
+        adai::gpu::GPUMatrix scores_h(seq, seq);
+        adai::gpu::matrix_gemm_strided_gpu(false, true, seq, seq, d_k, scale,
+                                           gpu_->cached_Q.device_ptr() + start_dim, d_model,
+                                           gpu_->cached_K.device_ptr() + start_dim, d_model,
+                                           scores_h.device_ptr(), seq);
         if (mask != nullptr) {
             scores_h.masked_fill_inplace(*mask, -1e9f);
         }
@@ -929,8 +911,10 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
                                                   h == 0 ? 1.0f : 0.0f, gpu_entropy_acc_);
         }
 
-        adai::gpu::GPUMatrix out_h = scores_h * V_h;
-        gpu_scatter_head_columns(concatenated, start_dim, out_h);
+        // concatenated[:, head] = scores_h * V_h
+        adai::gpu::matrix_gemm_strided_gpu(false, false, seq, d_k, seq, 1.0f, scores_h.device_ptr(), seq,
+                                           gpu_->cached_V.device_ptr() + start_dim, d_model,
+                                           concatenated.device_ptr() + start_dim, d_model);
         gpu_->cached_head_weights[h] = std::move(scores_h);
     }
 
@@ -1025,32 +1009,33 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_backward(const adai::gpu::GPUMatrix
     adai::gpu::GPUMatrix dK(seq, d_model);
     adai::gpu::GPUMatrix dV(seq, d_model);
 
+    // TD-595: every product reads and writes its head's columns in place (d_model as the row length), and
+    // each head writes its own columns of dQ/dK/dV, so together they fill them. The softmax scale is folded
+    // into the dQ/dK products' alpha.
+    const float* Q = gpu_->cached_Q.device_ptr();
+    const float* K = gpu_->cached_K.device_ptr();
+    const float* V = gpu_->cached_V.device_ptr();
+    const float* d_out = d_attn_out.device_ptr();
+    adai::gpu::GPUMatrix d_weights_h(seq, seq);
     for (int h = 0; h < num_heads; ++h) {
-        int start_dim = h * d_k;
+        const int start_dim = h * d_k;
         const adai::gpu::GPUMatrix& weights_h = gpu_->cached_head_weights[h];
 
-        adai::gpu::GPUMatrix d_out_h = gpu_slice_head_columns(d_attn_out, start_dim, d_k);
-        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
-
         // dV_h = weights_h^T * d_out_h
-        adai::gpu::GPUMatrix dV_h = weights_h.transpose() * d_out_h;
+        adai::gpu::matrix_gemm_strided_gpu(true, false, seq, d_k, seq, 1.0f, weights_h.device_ptr(), seq,
+                                           d_out + start_dim, d_model, dV.device_ptr() + start_dim, d_model);
         // d_weights_h = d_out_h * V_h^T
-        adai::gpu::GPUMatrix d_weights_h = d_out_h * V_h.transpose();
+        adai::gpu::matrix_gemm_strided_gpu(false, true, seq, seq, d_k, 1.0f, d_out + start_dim, d_model,
+                                           V + start_dim, d_model, d_weights_h.device_ptr(), seq);
 
         // Softmax backward → d_scores_h, for this head's own weights only
-        adai::gpu::GPUMatrix d_scores_h = weights_h.softmax_backward(d_weights_h);
-        d_scores_h = d_scores_h.scale(scale);
+        const adai::gpu::GPUMatrix d_scores_h = weights_h.softmax_backward(d_weights_h);
 
-        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
-        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
-
-        // dQ_h = d_scores_h * K_h,  dK_h = d_scores_h^T * Q_h
-        adai::gpu::GPUMatrix dQ_h = d_scores_h * K_h;
-        adai::gpu::GPUMatrix dK_h = d_scores_h.transpose() * Q_h;
-
-        gpu_scatter_head_columns(dQ, start_dim, dQ_h);
-        gpu_scatter_head_columns(dK, start_dim, dK_h);
-        gpu_scatter_head_columns(dV, start_dim, dV_h);
+        // dQ_h = scale * d_scores_h * K_h,  dK_h = scale * d_scores_h^T * Q_h
+        adai::gpu::matrix_gemm_strided_gpu(false, false, seq, d_k, seq, scale, d_scores_h.device_ptr(), seq,
+                                           K + start_dim, d_model, dQ.device_ptr() + start_dim, d_model);
+        adai::gpu::matrix_gemm_strided_gpu(true, false, seq, d_k, seq, scale, d_scores_h.device_ptr(), seq,
+                                           Q + start_dim, d_model, dK.device_ptr() + start_dim, d_model);
     }
 
     // Weight grads

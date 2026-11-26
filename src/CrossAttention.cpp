@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-11-13
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-11-26
 
 #include "CrossAttention.hpp"
 #include "BinaryIO.hpp"
@@ -905,27 +905,8 @@ void CrossAttention::gpu_zero_grads() {
 }
 
 namespace {
-// TD-059: GPU-side equivalents of ca_slice_head_columns()/ca_scatter_head_columns() above —
-// see MultiHeadAttention.cpp's identical helpers for the full rationale (built entirely from
-// the already-used matrix_copy_device_to_device_gpu() primitive, no new CUDA/SYCL kernels).
-adai::gpu::GPUMatrix ca_gpu_slice_head_columns(const adai::gpu::GPUMatrix& m, int start,
-                                               int width) {
-    adai::gpu::GPUMatrix result(m.rows, width);
-    for (int i = 0; i < m.rows; ++i) {
-        adai::gpu::matrix_copy_device_to_device_gpu(m.device_ptr() + i * m.cols + start,
-                                                     result.device_ptr() + i * width, width);
-    }
-    return result;
-}
-
-void ca_gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
-                                 const adai::gpu::GPUMatrix& src) {
-    for (int i = 0; i < src.rows; ++i) {
-        adai::gpu::matrix_copy_device_to_device_gpu(
-            src.device_ptr() + i * src.cols, dst.device_ptr() + i * dst.cols + start, src.cols);
-    }
-}
-
+// TD-595: each head multiplies straight on its own columns (matrix_gemm_strided_gpu(), TD-388), as
+// MultiHeadAttention's training path now does; TD-059's per-row slice/scatter copies are gone.
 // TD-301: the GPU path runs only the base weights, so it refuses a layer with LoRA adapters (it
 // used to run without them, silently), and it checks shapes as the CPU path does (a mask was only
 // checked by its element count).
@@ -997,13 +978,13 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
 
     adai::gpu::GPUMatrix concatenated(tgt, d_model);
     for (int h = 0; h < num_heads; ++h) {
-        int start_dim = h * d_k;
-        adai::gpu::GPUMatrix Q_h = ca_gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
-        adai::gpu::GPUMatrix K_h = ca_gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
-        adai::gpu::GPUMatrix V_h = ca_gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
-
-        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();
-        scores_h = scores_h.scale(scale);
+        const int start_dim = h * d_k;
+        // scores_h = scale * Q_h * K_h^T, on the heads' column views (TD-595)
+        adai::gpu::GPUMatrix scores_h(tgt, src);
+        adai::gpu::matrix_gemm_strided_gpu(false, true, tgt, src, d_k, scale,
+                                           gpu_->cached_Q.device_ptr() + start_dim, d_model,
+                                           gpu_->cached_K.device_ptr() + start_dim, d_model,
+                                           scores_h.device_ptr(), src);
         if (score_bias != nullptr) {
             scores_h = scores_h + *score_bias;  // TD-342, as forward_with_scores()
         }
@@ -1012,8 +993,10 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
         }
         scores_h.softmax_rows_inplace();
 
-        adai::gpu::GPUMatrix out_h = scores_h * V_h;
-        ca_gpu_scatter_head_columns(concatenated, start_dim, out_h);
+        // concatenated[:, head] = scores_h * V_h
+        adai::gpu::matrix_gemm_strided_gpu(false, false, tgt, d_k, src, 1.0f, scores_h.device_ptr(), src,
+                                           gpu_->cached_V.device_ptr() + start_dim, d_model,
+                                           concatenated.device_ptr() + start_dim, d_model);
         gpu_->cached_head_weights[h] = std::move(scores_h);
     }
 
@@ -1135,28 +1118,31 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> CrossAttention::gpu_backwa
     adai::gpu::GPUMatrix dK(src, d_model);
     adai::gpu::GPUMatrix dV(src, d_model);
 
+    // TD-595: in place on each head's columns, as MultiHeadAttention::gpu_backward(); the scale is folded into
+    // the dQ/dK products' alpha. Each head writes its own columns of dQ/dK/dV.
+    const float* Q = gpu_->cached_Q.device_ptr();
+    const float* K = gpu_->cached_K.device_ptr();
+    const float* V = gpu_->cached_V.device_ptr();
+    const float* d_out = d_ao.device_ptr();
+    adai::gpu::GPUMatrix d_weights_h(tgt, src);
     for (int h = 0; h < num_heads; ++h) {
-        int start_dim = h * d_k;
+        const int start_dim = h * d_k;
         const adai::gpu::GPUMatrix& weights_h = gpu_->cached_head_weights[h];
 
-        adai::gpu::GPUMatrix d_out_h = ca_gpu_slice_head_columns(d_ao, start_dim, d_k);
-        adai::gpu::GPUMatrix V_h = ca_gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
+        // dV_h = weights_h^T * d_out_h  [src, d_k]
+        adai::gpu::matrix_gemm_strided_gpu(true, false, src, d_k, tgt, 1.0f, weights_h.device_ptr(), src,
+                                           d_out + start_dim, d_model, dV.device_ptr() + start_dim, d_model);
+        // d_weights_h = d_out_h * V_h^T  [tgt, src]
+        adai::gpu::matrix_gemm_strided_gpu(false, true, tgt, src, d_k, 1.0f, d_out + start_dim, d_model,
+                                           V + start_dim, d_model, d_weights_h.device_ptr(), src);
 
-        adai::gpu::GPUMatrix dV_h = weights_h.transpose() * d_out_h;
-        adai::gpu::GPUMatrix d_weights_h = d_out_h * V_h.transpose();
+        const adai::gpu::GPUMatrix d_scores_h = weights_h.softmax_backward(d_weights_h);
 
-        adai::gpu::GPUMatrix d_scores_h = weights_h.softmax_backward(d_weights_h);
-        d_scores_h = d_scores_h.scale(scale);
-
-        adai::gpu::GPUMatrix Q_h = ca_gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
-        adai::gpu::GPUMatrix K_h = ca_gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
-
-        adai::gpu::GPUMatrix dQ_h = d_scores_h * K_h;
-        adai::gpu::GPUMatrix dK_h = d_scores_h.transpose() * Q_h;
-
-        ca_gpu_scatter_head_columns(dQ, start_dim, dQ_h);
-        ca_gpu_scatter_head_columns(dK, start_dim, dK_h);
-        ca_gpu_scatter_head_columns(dV, start_dim, dV_h);
+        // dQ_h = scale * d_scores_h * K_h  [tgt, d_k],  dK_h = scale * d_scores_h^T * Q_h  [src, d_k]
+        adai::gpu::matrix_gemm_strided_gpu(false, false, tgt, d_k, src, scale, d_scores_h.device_ptr(), src,
+                                           K + start_dim, d_model, dQ.device_ptr() + start_dim, d_model);
+        adai::gpu::matrix_gemm_strided_gpu(true, false, src, d_k, tgt, scale, d_scores_h.device_ptr(), src,
+                                           Q + start_dim, d_model, dK.device_ptr() + start_dim, d_model);
     }
 
     gpu_->dWq.add_inplace(gpu_->cached_query.transpose() * dQ);
