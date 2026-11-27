@@ -5,10 +5,10 @@ are in [TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md).
 
 ## Overview
 
-**Last Updated:** November 22, 2026
-**Active Items:** 81 (7 high, 17 medium, 57 low)
+**Last Updated:** November 26, 2026
+**Active Items:** 84 (7 high, 19 medium, 58 low)
 **Future Enhancements:** 16 open (19 listed: 1 withdrawn, 1 done, 1 moot)
-**Resolved Items:** 509 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+**Resolved Items:** 513 ([archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 **Deferred Decisions:** 3
 
 **How items move (November 14, 2026).** An item stays here while any of its action items is open, a fix that has landed in code
@@ -17,8 +17,8 @@ done, the item moves to [the archive](../archive/TECHNICAL_DEBT_RESOLVED.md), ne
 2026, 253 items whose fixes had landed with nothing left to do moved there, together with the dated notes in this overview about
 completed work and the old execution order, which had become a log of finished runs. Both are kept at the end of the archive.
 
-**Where things stand.** Of the 86 open items:
-- **24 wait on something outside a coding session:** 11 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
+**Where things stand.** Of the 84 open items:
+- **22 wait on something outside a coding session:** 9 on a run on ai-machine (TD-575, the deployed trainer's startup abort, comes first;
   most of the rest are measurements of fixes that landed) or, for TD-384, a CUDA host; 8 on the
   retraining with a rebuilt, cased vocabulary (TD-358, TD-059, TD-538, TD-563 and the steps before and after it); and 5 on Android
   releases and devices, a deployment cutover and a walk-through against a live server.
@@ -29,18 +29,24 @@ The order to take them in is in [Recommended Execution Order](#recommended-execu
 that are still open; the earlier ones are in the archive's
 [archived overview notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-overview-notes).
 
+**November 26, 2026:** Closed [TD-591](../archive/TECHNICAL_DEBT_RESOLVED.md#td-591-a-download-the-registry-cant-resume-fails-every-training-pass)
+(MEDIUM) and [TD-595](../archive/TECHNICAL_DEBT_RESOLVED.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM) on
+ai-machine with package `220e6e03`: the world-model pass downloaded the TinyStories file whole again instead of failing on `REST`,
+and trains at 8.8 samples per second (0.56 before TD-595, 0.26 before the GPU work). qmassa showed 6 GB for the trainer, 16 GB before
+TD-596, which stays open until its first per-epoch memory line.
+
 **November 26, 2026:** Filed [TD-596](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget) (MEDIUM), with its code fix: the SYCL memory pool kept
 freed blocks of every size until it filled 90% of the card, so ai-machine's world-model trainer held 16 GB for a few GB of real use.
 It now reuses blocks up to a quarter larger and caps its cache (`GPU_POOL_CACHE_MB`, 1 GB), and the trainers log their GPU memory
 every epoch. Filed [TD-597](#td-597-a-gpu-build-cant-train-a-chatbot-without-a-gpu) (MEDIUM) while testing it: a GPU build's chatbot training fails
 outright when no GPU is initialized.
 
-**November 26, 2026:** Filed [TD-595](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM), with its code fix: the world-model pass ran
+**November 26, 2026:** Filed [TD-595](../archive/TECHNICAL_DEBT_RESOLVED.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM), with its code fix: the world-model pass ran
 at only 0.56 samples per second on the GPU because the GPU attention's per-head split copied every row of every head separately, 88%
 of all GPU operations of a training step. Each head now multiplies its columns in place, 7.5 times fewer operations per text in a
 16-layer trace; ai-machine's measurement remains.
 
-**November 26, 2026:** Filed [TD-591](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): on ai-machine the LeJEPA trainer
+**November 26, 2026:** Filed [TD-591](../archive/TECHNICAL_DEBT_RESOLVED.md#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): on ai-machine the LeJEPA trainer
 failed 50 passes in a row on a half-downloaded 2 GB TinyStories file, because the trainer kept resuming it with FTP's `REST`, which
 `FtpDataServer` doesn't implement. The trainer now downloads the whole file again when the server refuses to resume. Split out the
 same day: [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume) (LOW), `REST` in the server, and [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) (LOW), training the
@@ -253,7 +259,7 @@ verified TD-387 at the cache level and TD-389's SYCL findings; both were amended
 
 ## Recommended Execution Order
 
-Rewritten November 14, 2026 for the open items (86 since TD-591 to TD-597 were filed and TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
+Rewritten November 14, 2026 for the open items (84 since TD-591 to TD-597 were filed and TD-591, TD-595, TD-395, TD-590, TD-589, TD-588, TD-587, TD-586, TD-585, TD-394, TD-393, TD-581, TD-583, TD-582, TD-556, TD-269, TD-540, TD-498, TD-584, TD-513, TD-335, TD-340, TD-472, TD-331, TD-332, TD-411, TD-341, TD-301, TD-050, TD-033, TD-574, TD-392, TD-478, TD-367, TD-425, TD-429, TD-314, TD-579, TD-580 and TD-576 to TD-578 moved and TD-575 to TD-590 were filed), by what each is waiting for and then by area. Every open item is listed; a few
 appear twice, where a run and code work are split. The earlier order, a log of the training-fix, data-delivery, trainer-speed, model-features, metrics and generation runs and of the
 per-file tiers, is in the archive's [archived execution-order notes](../archive/TECHNICAL_DEBT_RESOLVED.md#archived-execution-order-notes).
 Re-derive this order when items move rather than trusting it blindly.
@@ -269,10 +275,6 @@ rounds; the decode benchmark lost the device or hung before any result every tim
   Ubuntu's 7.0 kernel resets nothing, and it is ai-machine's default kernel.
 - [TD-596](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget) (MEDIUM): check the world-model trainer's GPU memory with the bounded pool (its per-epoch log line and
   qmassa; 16 GB before).
-- [TD-595](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) (MEDIUM): measure the world-model pass's samples per second with the per-head copies gone (0.56 before),
-  then `GPU_QUEUE_DEPTH` again.
-- [TD-591](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass) (MEDIUM): deploy the trainer-side fix (a refused resume downloads the whole file); the world-model pool
-  trains nothing until then, or until the partial TinyStories file is deleted by hand.
 - [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (MEDIUM): the over-length prompt already runs on the Arc without throwing; a test comparing its output with the CPU path's
   is still to be written.
 - Measurements of fixes that landed in code: [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) (MEDIUM, a training pass's wall time with the `icpx` SIMD flags),
@@ -461,11 +463,9 @@ as TD-426 and TD-467 were:
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-573: What the Android Apps Need to Reach `stable`](#td-573-what-the-android-apps-need-to-reach-stable)
   - [TD-575: Deployed `incremental_trainer` Aborts at Startup in `BPETokenizer::load_vocab`](#td-575-deployed-incremental_trainer-aborts-at-startup-in-bpetokenizerload_vocab)
-  - [TD-591: A Download the Registry Can't Resume Fails Every Training Pass](#td-591-a-download-the-registry-cant-resume-fails-every-training-pass)
   - [TD-592: `FtpDataServer` Doesn't Implement `REST`, So Downloads Can't Resume](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume)
   - [TD-593: One Failed Download Fails the Whole Training Pass](#td-593-one-failed-download-fails-the-whole-training-pass)
   - [TD-594: A Download That Outlasts Its FTP Token Can't Be Retried](#td-594-a-download-that-outlasts-its-ftp-token-cant-be-retried)
-  - [TD-595: GPU Attention Training Copies Every Head's Rows One at a Time](#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time)
   - [TD-596: The GPU Memory Pool Grows Until It Fills the Budget](#td-596-the-gpu-memory-pool-grows-until-it-fills-the-budget)
   - [TD-597: A GPU Build Can't Train a Chatbot Without a GPU](#td-597-a-gpu-build-cant-train-a-chatbot-without-a-gpu)
 - [Resolved Items](#resolved-items) (218 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
@@ -4711,41 +4711,6 @@ Related: TD-574 (archived), TD-563, TD-560.
 
 ---
 
-### TD-591: A Download the Registry Can't Resume Fails Every Training Pass
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — the trainer-side fix landed November 26, 2026; deploying it to ai-machine remains. `REST` in `FtpDataServer` is [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume), training the files that did arrive is [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass) | Data / DataTransport | November 26, 2026 | A deployment |
-
-Description:
-Found on ai-machine, November 26, 2026. The LeJEPA trainer (`adai-trainer@lejepa`, pool `bb01/world_model`) failed 50 passes in a
-row, each a few seconds after start, with `FTP transfer failed for 'bb01/world_model/datasets/roneneldan_TinyStories_train_…jsonl':
-FTP: command REST failed`. An earlier pass had stopped downloading that file at 1,198,997,576 of 2,058,492,441 bytes (58%).
-TD-340 keeps a partial download so the next pass resumes it with `CURLOPT_RESUME_FROM_LARGE`, which sends FTP's `REST`. But
-`FtpDataServer` doesn't implement `REST`: it falls through to `502 Command not implemented`, curl reports
-`CURLE_FTP_COULDNT_USE_REST`, which `is_transient()` doesn't retry, and the failure keeps the partial file again. So every pass failed
-the same way, `trainer_service` backed off to 900 s, and the pool trained nothing although its other 14 files were downloaded. One
-file that can't be downloaded also fails the whole pass. The resume path had never run against the real server: TD-340's tests only
-check that the partial file is kept.
-
-Action Items:
-
-- [x] Trainer side: when a resumed attempt fails with `CURLE_FTP_COULDNT_USE_REST` or `CURLE_BAD_DOWNLOAD_RESUME`, delete the
-      partial file and download the whole file in the same fetch, without using up a retry (once per fetch). Test against a real
-      `FtpDataServer` on loopback. (November 26, 2026: `DataTransport::fetch()`;
-      `FtpsVerificationTest.ARefusedResumeDownloadsTheWholeFile` failed with the production error before the fix.)
-- [ ] Deploy the fixed `incremental_trainer` to ai-machine. Until then, delete the partial file (and its `.checksum` sidecar) under
-      the trainer's download directory and restart `adai-trainer@lejepa`.
-- [ ] Find what interrupted the first download (the journal before the first `REST failed`).
-- Split out November 26, 2026: `REST` in `FtpDataServer`, so a download really resumes, is [TD-592](#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume); training the
-  files that did arrive when one download fails is [TD-593](#td-593-one-failed-download-fails-the-whole-training-pass).
-
-Location in code: `src/DataTransport.hpp` (`fetch()`, the restart after a refused resume).
-
-Related: TD-340 (archived), TD-569, TD-575, TD-592, TD-593.
-
----
-
 ### TD-592: `FtpDataServer` Doesn't Implement `REST`, So Downloads Can't Resume
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -4873,44 +4838,6 @@ Related: TD-591, TD-592, TD-593, TD-340 (archived), TD-377, TD-494 (archived: cl
 
 ---
 
-### TD-595: GPU Attention Training Copies Every Head's Rows One at a Time
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — code fix landed November 26, 2026; the measurement on ai-machine remains | Attention / GPU | November 26, 2026 | A run on ai-machine |
-
-Description:
-Found November 26, 2026, investigating why moving LeJEPA training onto the GPU (TD-585 to TD-590) only took ai-machine's world-model
-pass from 0.26 to 0.56 samples per second (768 wide, 16 layers, 12 heads). TD-059's GPU per-head attention split Q, K and V into heads
-with `gpu_slice_head_columns()`/`gpu_scatter_head_columns()` (and CrossAttention's `ca_` copies), which issue one device-to-device
-copy per row per head: forward slices Q, K and V and gathers each head's output, backward slices the output gradient, V, Q and K and
-gathers dQ, dK and dV. So the copies grow with rows × heads × layers. A trace on the oneAPI CPU device (`ADAI_GPU_TRACE_FILE`, a
-16-layer, 4-head LeJEPA encoder) counted 32,225 GPU operations for one text, and over six texts 231,564 of 263,258 operations (88%)
-were `matrix_copy_device_to_device_gpu`, against 10,791 matrix multiplies. Each is a separate submission, and with `GPU_QUEUE_DEPTH=8`
-(TD-574) the host waits for the queue to drain before every eighth, so the GPU mostly waited on the host. At ai-machine's size
-(12 heads, texts of a few hundred tokens) that is on the order of half a million copies per text (an estimate from the code).
-TD-388 had already given the cached decode path `matrix_gemm_strided_gpu()`, which multiplies a head's column view in place.
-
-Action Items:
-
-- [x] Compute every head of `MultiHeadAttention::gpu_forward()`/`gpu_backward()` and `CrossAttention::gpu_forward()`/`gpu_backward()`
-      with `matrix_gemm_strided_gpu()` on the heads' column views, writing each head's output and dQ/dK/dV columns in place; fold the
-      softmax scale into the products' alpha; delete the slice/scatter helpers. (November 26, 2026. The same 16-layer trace: 4,321
-      operations for one text instead of 32,225, 17,274 for a batch of four instead of 194,170; the test ran in 3.9 s instead of 15.4.)
-- [x] Test outputs, input gradients and weight gradients against the CPU path with several heads, a causal mask and (cross-attention)
-      a score bias and unequal lengths: `MultiHeadAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu`,
-      `CrossAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu` (the weight gradients exactly, through their norms; computing
-      cross-attention's dK from K instead of Q fails three checks). Nothing compared the GPU backward with the CPU's before.
-- [ ] Measure samples per second of the world-model pass on ai-machine with the new package, against 0.56.
-- [ ] Then re-measure `GPU_QUEUE_DEPTH` (8 since TD-574): with about 15 times fewer operations a deeper queue may cost no more resets.
-- [ ] If the per-head products still dominate, batch the heads (one strided-batched GEMM per product instead of one per head).
-
-Location in code: `src/MultiHeadAttention.cpp`, `src/CrossAttention.cpp` (`gpu_forward()`, `gpu_backward()`).
-
-Related: TD-059, TD-388, TD-574, TD-585 to TD-590 (archived).
-
----
-
 ### TD-596: The GPU Memory Pool Grows Until It Fills the Budget
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -4941,6 +4868,8 @@ Action Items:
       `ARequestTakesASlightlyLargerCachedBlock`, `PeakAndSummaryReportWhatAnEpochHeld`, `GPUManagerPoolSize.FineStepsEndAt64KiB`,
       `ConfigTest.GpuPoolCacheDefaultFileEnvAndRange`.)
 - [ ] On ai-machine: the trainer's "[lejepa] GPU memory" lines and qmassa with the new package; record what training really holds.
+      (November 26, 2026, package `220e6e03`: qmassa shows 6 GB, steady, against 16 GB before. The pool should hold about 2 GB at
+      most, so the first per-epoch line, about three days into a TinyStories epoch, shows whether the rest is outside the pool.)
 
 Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`allocate_block()`, `release_block()`, `evict_cached_locked()`),
 `src/gpu/GPUUtils.hpp` (the release threshold).

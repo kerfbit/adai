@@ -1,10 +1,90 @@
 # Technical Debt - Resolved Items
 
-Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (511 on November 23, 2026),
+Resolved items from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md), newest first by resolution date (513 on November 26, 2026),
 followed by the [archived overview notes](#archived-overview-notes) and the
 [archived execution-order notes](#archived-execution-order-notes).
 
 ## Resolved Items
+
+### TD-595: GPU Attention Training Copies Every Head's Rows One at a Time
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 26, 2026 | Attention / GPU | Code fix, measured on ai-machine (MEDIUM, created November 26, 2026) |
+
+Description:
+Found November 26, 2026, investigating why moving LeJEPA training onto the GPU (TD-585 to TD-590) only took ai-machine's world-model
+pass from 0.26 to 0.56 samples per second (768 wide, 16 layers, 12 heads). TD-059's GPU per-head attention split Q, K and V into heads
+with `gpu_slice_head_columns()`/`gpu_scatter_head_columns()` (and CrossAttention's `ca_` copies), which issue one device-to-device
+copy per row per head: forward slices Q, K and V and gathers each head's output, backward slices the output gradient, V, Q and K and
+gathers dQ, dK and dV. So the copies grow with rows × heads × layers. A trace on the oneAPI CPU device (`ADAI_GPU_TRACE_FILE`, a
+16-layer, 4-head LeJEPA encoder) counted 32,225 GPU operations for one text, and over six texts 231,564 of 263,258 operations (88%)
+were `matrix_copy_device_to_device_gpu`, against 10,791 matrix multiplies. Each is a separate submission, and with `GPU_QUEUE_DEPTH=8`
+(TD-574) the host waits for the queue to drain before every eighth, so the GPU mostly waited on the host. At ai-machine's size
+(12 heads, texts of a few hundred tokens) that is on the order of half a million copies per text (an estimate from the code).
+TD-388 had already given the cached decode path `matrix_gemm_strided_gpu()`, which multiplies a head's column view in place.
+
+Action Items:
+
+- [x] Compute every head of `MultiHeadAttention::gpu_forward()`/`gpu_backward()` and `CrossAttention::gpu_forward()`/`gpu_backward()`
+      with `matrix_gemm_strided_gpu()` on the heads' column views, writing each head's output and dQ/dK/dV columns in place; fold the
+      softmax scale into the products' alpha; delete the slice/scatter helpers. (November 26, 2026. The same 16-layer trace: 4,321
+      operations for one text instead of 32,225, 17,274 for a batch of four instead of 194,170; the test ran in 3.9 s instead of 15.4.)
+- [x] Test outputs, input gradients and weight gradients against the CPU path with several heads, a causal mask and (cross-attention)
+      a score bias and unequal lengths: `MultiHeadAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu`,
+      `CrossAttentionGPUContractTest.PerHeadTrainingMatchesTheCpu` (the weight gradients exactly, through their norms; computing
+      cross-attention's dK from K instead of Q fails three checks). Nothing compared the GPU backward with the CPU's before.
+- [x] Measure samples per second of the world-model pass on ai-machine with the new package, against 0.56. (November 26, 2026,
+      package `220e6e03`: 8.8 samples per second, about 16 times faster, and 34 times the 0.26 before the GPU work.)
+- Not taken up, closed with the item (November 26, 2026): re-measuring `GPU_QUEUE_DEPTH` (8 since TD-574). At 8.8 samples per second
+  the pass is no longer bound by queue drains, and a deeper queue is what TD-574 tied to the Arc's engine resets.
+- Not taken up (November 26, 2026): batching the heads into one strided-batched GEMM per product. Worth reopening only if a
+  later trace shows the per-head products dominating.
+
+Location in code: `src/MultiHeadAttention.cpp`, `src/CrossAttention.cpp` (`gpu_forward()`, `gpu_backward()`).
+
+Related: TD-059, TD-388, TD-574, TD-585 to TD-590 (archived).
+
+---
+
+### TD-591: A Download the Registry Can't Resume Fails Every Training Pass
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 26, 2026 | Data / DataTransport | Code fix, verified on ai-machine (MEDIUM, created November 26, 2026) |
+
+Description:
+Found on ai-machine, November 26, 2026. The LeJEPA trainer (`adai-trainer@lejepa`, pool `bb01/world_model`) failed 50 passes in a
+row, each a few seconds after start, with `FTP transfer failed for 'bb01/world_model/datasets/roneneldan_TinyStories_train_…jsonl':
+FTP: command REST failed`. An earlier pass had stopped downloading that file at 1,198,997,576 of 2,058,492,441 bytes (58%).
+TD-340 keeps a partial download so the next pass resumes it with `CURLOPT_RESUME_FROM_LARGE`, which sends FTP's `REST`. But
+`FtpDataServer` doesn't implement `REST`: it falls through to `502 Command not implemented`, curl reports
+`CURLE_FTP_COULDNT_USE_REST`, which `is_transient()` doesn't retry, and the failure keeps the partial file again. So every pass failed
+the same way, `trainer_service` backed off to 900 s, and the pool trained nothing although its other 14 files were downloaded. One
+file that can't be downloaded also fails the whole pass. The resume path had never run against the real server: TD-340's tests only
+check that the partial file is kept.
+
+Action Items:
+
+- [x] Trainer side: when a resumed attempt fails with `CURLE_FTP_COULDNT_USE_REST` or `CURLE_BAD_DOWNLOAD_RESUME`, delete the
+      partial file and download the whole file in the same fetch, without using up a retry (once per fetch). Test against a real
+      `FtpDataServer` on loopback. (November 26, 2026: `DataTransport::fetch()`;
+      `FtpsVerificationTest.ARefusedResumeDownloadsTheWholeFile` failed with the production error before the fix.)
+- [x] Deploy the fixed `incremental_trainer` to ai-machine. (November 26, 2026, package `220e6e03`: the pass downloaded the
+      TinyStories file whole again and trained.)
+- [x] Find what interrupted the first download (the journal before the first `REST failed`). (November 26, 2026: unattended-upgrades
+      on 192.168.1.16 had needrestart restart `adai-registry` at 07:03:56, aborting the `RETR` at 1,198,981,120 bytes; the retry's
+      login was refused because the token had expired and the restarted server no longer knew it, filed as
+      [TD-594](../guides/TECHNICAL_DEBT.md#td-594-a-download-that-outlasts-its-ftp-token-cant-be-retried). needrestart no longer
+      restarts `adai-*` services on either host, `/etc/needrestart/conf.d/adai.conf`.)
+- Split out November 26, 2026: `REST` in `FtpDataServer`, so a download really resumes, is [TD-592](../guides/TECHNICAL_DEBT.md#td-592-ftpdataserver-doesnt-implement-rest-so-downloads-cant-resume); training the
+  files that did arrive when one download fails is [TD-593](../guides/TECHNICAL_DEBT.md#td-593-one-failed-download-fails-the-whole-training-pass).
+
+Location in code: `src/DataTransport.hpp` (`fetch()`, the restart after a refused resume).
+
+Related: TD-340 (archived), TD-569, TD-575, TD-592, TD-593.
+
+---
 
 ### TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers
 

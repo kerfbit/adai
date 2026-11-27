@@ -126,7 +126,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | LoRA persistence/grad norm; accessor cost elsewhere | Open | — | TD-302, TD-435 |
 | GPU incremental cache | Resolved November 17, 2026 | **Verified** on ai-machine's Arc (`gpu_decode_bench` at both shapes) | [TD-050](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-050-gpu-resident-kv-cache-for-autoregressive-generation) |
 | Shared-optimizer stepping; unseeded init; GPU softmax race; KV-cache copying | Fixed in code | — | TD-297, TD-368, TD-384, TD-422 |
-| GPU training copied every head's rows one at a time (88% of a training step's GPU operations) | **Fixed in code** November 26, 2026; ai-machine's samples per second to measure | **Verified** on the oneAPI CPU device | [TD-595](../../guides/TECHNICAL_DEBT.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) |
+| ~~GPU training copied every head's rows one at a time (88% of a training step's GPU operations)~~ **Fixed November 26, 2026** | — | **Verified** on the oneAPI CPU device; ai-machine's world-model pass went from 0.56 to 8.8 samples per second | [TD-595](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-595-gpu-attention-training-copies-every-heads-rows-one-at-a-time) |
 
 ---
 
